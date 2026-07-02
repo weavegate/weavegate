@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Workflow"
+  short_description: "Ship replaygate changes through GitHub"
+  default_prompt: "Use $github-workflow to create the issue, branch, commit, push, and pull request for this replaygate change."
