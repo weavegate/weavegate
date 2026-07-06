@@ -1,5 +1,5 @@
 
 # Workbench
 _workbench/*
-.agent/skills/replaygate-workbench*
-.claude/skills/replaygate-workbench*
+.agent/skills/weavegate-workbench*
+.claude/skills/weavegate-workbench*

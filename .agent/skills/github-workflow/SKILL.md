@@ -1,15 +1,15 @@
 ---
 name: github-workflow
-description: "Manage replaygate's public open-source GitHub delivery workflow end to end: inspect local state, create a GitHub issue, create an issue-numbered branch, run repository-appropriate validation, make a conventional commit, push, and open a pull request. Use when the user asks to publish, wrap up, ship, create an issue/branch/PR, rename a branch, or prepare OSS-ready GitHub artifacts for replaygate changes."
+description: "Manage weavegate's public open-source GitHub delivery workflow end to end: inspect local state, create a GitHub issue, create an issue-numbered branch, run repository-appropriate validation, make a conventional commit, push, and open a pull request. Use when the user asks to publish, wrap up, ship, create an issue/branch/PR, rename a branch, or prepare OSS-ready GitHub artifacts for weavegate changes."
 ---
 
 # GitHub Workflow
 
 ## Overview
 
-Use this skill to turn a replaygate change into public, reviewable GitHub artifacts. Keep the workflow non-interactive where possible, preserve unrelated local changes, and make every issue, commit, and PR understandable to outside contributors.
+Use this skill to turn a weavegate change into public, reviewable GitHub artifacts. Keep the workflow non-interactive where possible, preserve unrelated local changes, and make every issue, commit, and PR understandable to outside contributors.
 
-replaygate is intended to become an open-source developer tool. Treat GitHub artifacts as part of the product surface: clear scope, reproducible validation, honest limitations, and traceable issue-to-branch-to-PR links matter.
+weavegate is intended to become an open-source developer tool. Treat GitHub artifacts as part of the product surface: clear scope, reproducible validation, honest limitations, and traceable issue-to-branch-to-PR links matter.
 
 ## Preconditions
 
@@ -29,7 +29,7 @@ Use the repository's current implementation stage to choose validation:
 
 - Early planning state: markdown, `_workbench/` planning documents, `docs/`, `.agent/skills/`, and repository metadata.
 - MVP/Phase 1 implementation state: Go CLI, Testcontainers MySQL fixtures, Spring test-slice adapter, GitHub Action, generated reports/traces, and OSS docs.
-- Public positioning: replaygate is a deterministic CI replay gate for schedule-dependent database bugs in Spring Boot + MySQL/InnoDB workflows. Do not market it as a general race detector, DB engine verifier, ACID verifier, or AI verdict system.
+- Public positioning: weavegate is a deterministic CI replay gate for schedule-dependent database bugs in Spring Boot + MySQL/InnoDB workflows. Do not market it as a general race detector, DB engine verifier, ACID verifier, or AI verdict system.
 
 ## Required Validation
 
@@ -67,7 +67,7 @@ Report pass/fail/skip status in the final handoff and include the same validatio
    - Useful scopes: `cli`, `syncpoint`, `orchestrator`, `oracle`, `diagnostic`, `report`, `fixture`, `spring`, `action`, `docs`, `skills`, `workbench`, `release`.
 2. Create or identify the GitHub issue.
    - Create an issue for the full workflow unless the user provided an existing issue.
-   - Use the eventual PR/commit title style, for example `docs(skills): add replaygate GitHub workflow`.
+   - Use the eventual PR/commit title style, for example `docs(skills): add weavegate GitHub workflow`.
    - Include `Summary`, `Validation`, and, when relevant, `Scope / Non-goals`.
 3. Create the branch from the intended base.
    - Base is usually `main` unless repository context says otherwise.
@@ -114,7 +114,7 @@ For public OSS PRs, prefer outcome-oriented bullets over implementation diary. M
 - Issue, PR, and commit titles should be consistent and conventional:
   - `feat(syncpoint): add arrive and release runtime`
   - `fix(orchestrator): handle blocked workers during replay`
-  - `docs(related-work): clarify replaygate scope`
+  - `docs(related-work): clarify weavegate scope`
   - `ci(action): upload replay artifacts`
 - Branch names must include the issue number directly after the type prefix:
   - `feat17/syncpoint-runtime`

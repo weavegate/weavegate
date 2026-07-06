@@ -1,6 +1,6 @@
 ---
 name: Issue
-about: Track a replaygate task or follow-up.
+about: Track a weavegate task or follow-up.
 title: "type(scope): "
 labels: ""
 assignees: "jaeunda"
