@@ -83,8 +83,9 @@ Report pass/fail/skip status in the final handoff and include the same validatio
    - `git push -u origin <branch-name>`
 8. Open the PR.
    - Title should match the issue and commit intent.
-   - Body must include `Summary`, `Validation`, and `Closes #<issue-number>`.
-   - Add `Scope / Non-goals` when the change could be misunderstood by new OSS users.
+   - Body must follow the same structure as `.github/pull_request_template.md`; the CLI does not merge the repository template into an explicitly supplied body.
+   - Body must include `Related Issue`, `Summary`, `Validation`, `Review Points`, and `Scope / Non-goals`.
+   - Put `Closes #<issue-number>` under `Related Issue`.
 
 ## Issue and PR Body Style
 
@@ -93,19 +94,27 @@ Use concise public-facing English. Avoid private planning shorthand unless the P
 Template:
 
 ```markdown
-Summary
+## Related Issue
+
+Closes #123
+
+## Summary
 - ...
 - ...
 
-Validation
+## Validation
 - PASS: git diff --check
 - PASS: go test ./...
 - SKIP: go test -race ./... (docs-only change)
 
-Scope / Non-goals
-- ...
+## Review Points
+- Public positioning is accurate when relevant.
+- Deterministic replay behavior is clear when relevant.
+- Failure and fix evidence is reproducible when relevant.
+- Scope boundaries are explicit.
 
-Closes #123
+## Scope / Non-goals
+- ...
 ```
 
 For public OSS PRs, prefer outcome-oriented bullets over implementation diary. Mention deterministic replay evidence, fixture names, exit codes, and artifacts when those are part of the change.
