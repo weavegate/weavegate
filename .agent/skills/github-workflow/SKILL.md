@@ -69,6 +69,7 @@ Report pass/fail/skip status in the final handoff and include the same validatio
    - Create an issue for the full workflow unless the user provided an existing issue.
    - Use the eventual PR/commit title style, for example `docs(skills): add weavegate GitHub workflow`.
    - Include `Summary`, `Validation`, and, when relevant, `Scope / Non-goals`.
+   - When creating issues with `gh issue create --body`, write the body in the same structure as `.github/ISSUE_TEMPLATE/issue.md`; the CLI does not merge the repository template into an explicitly supplied body.
 3. Create the branch from the intended base.
    - Base is usually `main` unless repository context says otherwise.
    - Branch format: `<type><issue-number>/<short-kebab-summary>`.

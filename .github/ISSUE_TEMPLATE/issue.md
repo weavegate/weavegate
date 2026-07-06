@@ -6,17 +6,17 @@ labels: ""
 assignees: "jaeunda"
 ---
 
-## Issue
+## Summary
 - Describe the task, bug, or documentation gap.
-
-## TODO
-- [ ] Define the smallest reviewable scope.
-- [ ] Implement or document the change.
-- [ ] Validate the change and record the result.
+- State the smallest reviewable outcome.
 
 ## Validation
 - [ ] `git diff --check`
 - [ ] Additional project-specific check:
+
+## TODO
+- [ ] Implement or document the change.
+- [ ] Validate the change and record the result.
 
 ## Scope / Non-goals
 - Note anything this issue intentionally does not cover.
