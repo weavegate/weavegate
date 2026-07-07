@@ -14,7 +14,7 @@
 
 Two requests arrive at almost the same time — and the same record ends up claimed, assigned, or counted twice. Code review passed. Integration tests passed. The bug only appears under one specific interleaving of transactions, so ordinary tests hit it rarely, flakily, or never. And when a test *does* hit it, nothing about **which execution order broke it** survives as evidence in the PR.
 
-The database is not at fault. MySQL keeps every ACID promise while still *permitting* these schedules under its isolation level — Jepsen's MySQL analysis and MySQL's own locking-reads documentation both say so. Whether your workflow survives the schedules the DB permits is **your application's problem**. That is the layer weavegate tests.
+The database is not at fault — MySQL is behaving *as documented*: its own locking-reads documentation tells you these schedules exist, and Jepsen's MySQL analysis catalogs exactly which anomalies Repeatable Read still permits. Whichever side of the isolation-naming debate you take, your workflow runs on top of the schedules the DB actually permits — and whether it survives them is **your application's problem**. That is the layer weavegate tests.
 
 ## How it works
 
