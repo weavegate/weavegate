@@ -29,7 +29,7 @@ Use the repository's current implementation stage to choose validation:
 
 - Early planning state: markdown, `_workbench/` planning documents, `docs/`, `.agent/skills/`, and repository metadata.
 - MVP/Phase 1 implementation state: Go CLI, Testcontainers MySQL fixtures, Spring test-slice adapter, GitHub Action, generated reports/traces, and OSS docs.
-- Public positioning: weavegate is a deterministic CI replay gate for schedule-dependent database bugs in Spring Boot + MySQL/InnoDB workflows. Do not market it as a general race detector, DB engine verifier, ACID verifier, or AI verdict system.
+- Public positioning: weavegate is a deterministic replay CI gate for schedule-dependent database bugs in Spring Boot + MySQL/InnoDB workflows. Do not market it as a general race detector, DB engine verifier, ACID verifier, or AI verdict system.
 
 ## Required Validation
 
@@ -106,6 +106,7 @@ Closes #123
 - PASS: git diff --check
 - PASS: go test ./...
 - SKIP: go test -race ./... (docs-only change)
+- Docs: updated / not applicable
 
 ## Review Points
 - Public positioning is accurate when relevant.
