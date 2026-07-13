@@ -9,7 +9,7 @@ description: "Manage weavegate's public open-source GitHub delivery workflow end
 
 Use this skill to turn a weavegate change into public, reviewable GitHub artifacts. Keep the workflow non-interactive where possible, preserve unrelated local changes, and make every issue, commit, and PR understandable to outside contributors.
 
-weavegate is intended to become an open-source developer tool. Treat GitHub artifacts as part of the product surface: clear scope, reproducible validation, honest limitations, and traceable issue-to-branch-to-PR links matter.
+weavegate is intended to become an open-source developer tool. Treat GitHub artifacts as part of the product surface: clear scope, reproducible validation, honest limitations, and traceable issue-to-branch-to-commit-to-PR links matter.
 
 ## Preconditions
 
@@ -77,8 +77,10 @@ Report pass/fail/skip status in the final handoff and include the same validatio
 4. Run validation before committing when practical. If the change requires committing before remote CI can run, run local validation first and mention remaining CI validation in the PR.
 5. Stage only intended files:
    - `git add <paths...>`
-6. Commit with one conventional message:
-   - `<type>(<scope>): <summary>`
+6. Commit with one conventional message that ends with the related issue number:
+   - `<type>(<scope>): <summary> (#<issue-number>)`
+   - Use the issue created or identified in step 2.
+   - Keep `(#<issue-number>)` as the final token in the subject; do not append text after it.
 7. Push the branch:
    - `git push -u origin <branch-name>`
 8. Open the PR.
@@ -122,11 +124,11 @@ For public OSS PRs, prefer outcome-oriented bullets over implementation diary. M
 
 ## Naming Guidance
 
-- Issue, PR, and commit titles should be consistent and conventional:
-  - `feat(syncpoint): add arrive and release runtime`
-  - `fix(orchestrator): handle blocked workers during replay`
-  - `docs(related-work): clarify weavegate scope`
-  - `ci(action): upload replay artifacts`
+- Issue and PR titles should be consistent and conventional. The commit subject should match their intent and append the related issue number:
+  - `feat(syncpoint): add arrive and release runtime (#17)`
+  - `fix(orchestrator): handle blocked workers during replay (#28)`
+  - `docs(related-work): clarify weavegate scope (#42)`
+  - `ci(action): upload replay artifacts (#151)`
 - Branch names must include the issue number directly after the type prefix:
   - `feat17/syncpoint-runtime`
   - `fix28/blocked-worker-timeout`
