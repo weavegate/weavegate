@@ -106,7 +106,7 @@ Use after implementation and commit-level verification are complete.
 4. Stage only intended remaining changes and create any requested final commit using the repository commit convention.
 5. Push the issue-numbered branch.
 6. Detect whether the branch already has a PR.
-   - If no PR exists, inspect the actual changes, draft the canonical PR body, and open a draft PR unless the user explicitly requests ready-for-review.
+   - If no PR exists, inspect the actual changes, draft the canonical PR body, and open the PR.
    - If a PR exists, switch to Update behavior instead of opening a duplicate.
 7. Return the issue, branch, commits, PR URL, and validation results.
 
@@ -169,7 +169,6 @@ Examples:
 
 - Do not use `git add -A` in a mixed worktree without explicit confirmation.
 - Do not rewrite, clean, or stage unrelated changes.
-- Default new PRs to draft.
 - Do not publish an issue or PR body that depends on private context.
 - Do not use a generic publish skill's branch or commit naming when it conflicts with this repository's conventions.
 - Do not reply to reviews, resolve threads, merge, or delete branches without explicit authorization.
