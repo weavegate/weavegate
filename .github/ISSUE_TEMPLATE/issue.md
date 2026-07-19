@@ -1,7 +1,7 @@
 ---
 name: Issue
 about: Track a weavegate task or follow-up.
-title: "type(scope): "
+title: "Type: "
 labels: ""
 assignees: "jaeunda"
 ---
