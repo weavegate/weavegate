@@ -1,35 +1,138 @@
 ---
 name: github-workflow
-description: "Manage weavegate's public open-source GitHub delivery workflow end to end: inspect local state, create a GitHub issue, create an issue-numbered branch, run repository-appropriate validation, make a conventional commit, push, and open a pull request. Use when the user asks to publish, wrap up, ship, create an issue/branch/PR, rename a branch, or prepare OSS-ready GitHub artifacts for weavegate changes."
+description: "Manage weavegate's public GitHub delivery lifecycle using repository-specific conventions: create a missing public issue for an explicitly requested end-to-end flow, prepare an issue-numbered branch, validate and publish implemented changes as a PR, update an existing PR after review or CI fixes, and merge only when explicitly requested. Use for weavegate issue/branch/commit/push/PR/update/merge work; inspect actual changes before writing PR content and keep all public artifacts self-contained."
 ---
 
 # GitHub Workflow
 
-## Overview
+## Purpose and Authority
 
-Use this skill to turn a weavegate change into public, reviewable GitHub artifacts. Keep the workflow non-interactive where possible, preserve unrelated local changes, and make every issue, commit, and PR understandable to outside contributors.
+Turn weavegate work into public, reviewable GitHub artifacts while preserving traceability from issue to branch, commits, PR, review updates, and merge.
 
-weavegate is intended to become an open-source developer tool. Treat GitHub artifacts as part of the product surface: clear scope, reproducible validation, honest limitations, and traceable issue-to-branch-to-commit-to-PR links matter.
+Use this skill's repository-specific branch, commit, and PR conventions instead of generic publish-skill conventions when working in weavegate. Prefer the connected GitHub app for structured issue and PR operations; use local `git` for checkout state and `gh` where connector coverage is insufficient.
 
 ## Preconditions
 
-1. Inspect local state before doing remote work:
+1. Inspect local state before any mutation:
    - `git status --short --branch`
    - `git remote -v`
    - `git log --oneline -5`
-2. Do not revert, restage, or clean unrelated user changes. Stage only the paths that belong to the requested change.
-3. Check GitHub CLI authentication before creating remote artifacts:
-   - `gh auth status`
-4. If GitHub auth, network access, or permissions block the workflow, complete the local steps that are safe, then report the exact blocker.
-5. Run `gh` commands non-interactively. In restricted environments, request the required approval instead of trying to bypass network limits.
+2. Preserve unrelated user changes. Stage only confirmed paths.
+3. Confirm `gh auth status` before CLI-backed remote work.
+4. Never create, push, update, or merge a remote artifact without explicit user authorization for that stage.
+5. Treat private or gitignored planning artifacts as local reasoning inputs only. Never mention or link them in public issues or PRs.
 
-## Repository Context
+## Canonical Public Artifacts
 
-Use the repository's current implementation stage to choose validation:
+Repository templates are the canonical public structures:
 
-- Early planning state: markdown, `_workbench/` planning documents, `docs/`, `.agent/skills/`, and repository metadata.
-- MVP/Phase 1 implementation state: Go CLI, Testcontainers MySQL fixtures, Spring test-slice adapter, GitHub Action, generated reports/traces, and OSS docs.
-- Public positioning: weavegate is a deterministic replay CI gate for schedule-dependent database bugs in Spring Boot + MySQL/InnoDB workflows. Do not market it as a general race detector, DB engine verifier, ACID verifier, or AI verdict system.
+- Issues: `.github/ISSUE_TEMPLATE/issue.md`
+- Pull requests: `.github/pull_request_template.md`
+
+When supplying a body explicitly through an app or CLI, reproduce the corresponding template structure because GitHub does not merge the repository template into an explicitly supplied body.
+
+### Issue Rules
+
+- Reuse an existing related issue when one is supplied or already exists. Never create a duplicate issue for the same delivery unit.
+- When a dedicated issue-writing workflow supplies a reviewed draft or created issue, validate it against the public template and reuse it instead of generating competing content.
+- If the user explicitly requests an end-to-end public workflow and no issue exists, write and create one from public repository context using the canonical template.
+- Use heading order `Summary` → `TODO` → `Validation` → optional `Notes`.
+- State what capability will be implemented and why it matters, not a file/function-level implementation plan.
+- Keep the title conventional and omit issue, PR, sequence, and private feature numbers.
+- Use only public issues, code, tests, and docs as references.
+
+### Pull Request Rules
+
+Before drafting a PR, inspect all of the following:
+
+- the linked public issue and its intended outcome
+- the full base-to-head diff
+- commits included in the branch
+- validation commands and their actual results
+- any known follow-up, tradeoff, limitation, or residual risk
+
+Use headings in exactly this order:
+
+1. `Related Issues`
+2. `Summary`
+3. `Review Points`
+4. `Notes`
+5. `Validation`
+
+Write the PR as implementation evidence, not as a file inventory or implementation diary:
+
+- `Related Issues`: use `Closes #<issue-number>` for issues completed by the PR and public links for related but non-closing issues.
+- `Summary`: explain how the issue's intended capability was implemented at the behavior, data-flow, coordination, or design level; state what purpose or invariant the implementation now achieves. Use past or present-perfect implementation language, not the issue's future-tense TODO wording.
+- `Review Points`: derive concrete review targets from the actual diff—important decisions, invariants, failure modes, concurrency behavior, compatibility, operational risk, or deliberately chosen tradeoffs. Do not paste a generic checklist.
+- `Notes`: record concise follow-up work, limitations, migration considerations, or tradeoffs. Use `- None.` when there is nothing material so the required heading order remains stable.
+- `Validation`: report only checks actually run, using `PASS`, `FAIL`, or `SKIP` with an honest reason and relevant observable evidence. Keep this section last.
+
+Do not describe the PR as a list of files added, functions created, or line-by-line edits unless a public API or artifact name is itself essential to understanding the behavior. A reviewer should understand how the implementation satisfies the issue and what deserves scrutiny without needing private context.
+
+## Resolve the Public Issue
+
+Resolve the issue once before Prepare or Publish:
+
+1. If the user supplies an existing issue, verify that it matches the delivery scope and reuse it.
+2. If the current branch or PR already links an issue, reuse that issue unless the user identifies a different target.
+3. If no issue exists and the user explicitly requests a complete end-to-end public workflow, draft and create one using the canonical issue template and public repository context.
+4. If the user requests issue creation only, create the issue and stop after returning its number and URL.
+5. Never create a replacement merely to improve wording; update the existing public issue only when explicitly requested.
+
+## Lifecycle Modes
+
+Select the smallest mode that matches the user's current stage. Do not rerun earlier remote stages unnecessarily.
+
+### Prepare
+
+Use after a public issue exists and before implementation begins.
+
+1. Resolve the issue number and intended base branch.
+2. Confirm no equivalent working branch already exists locally.
+3. Create the issue-numbered branch from the intended base.
+4. Return the branch name and issue link. Do not implement, commit, push, or open a PR in this mode unless separately requested.
+
+### Implementation Handoff
+
+Core feature implementation is not a separate GitHub lifecycle mode. After Prepare, the active implementation agent follows the approved scope, runs its commit-level gates, and creates commits using the public issue number. Return to Publish only after implementation and the feature-completion gate are done.
+
+### Publish
+
+Use after implementation and commit-level verification are complete.
+
+1. Resolve the existing public issue and current branch.
+2. Inspect status, base-to-head diff, and commit history; confirm the exact delivery scope.
+3. Run repository-appropriate validation. Do not hide or rewrite failures.
+4. Stage only intended remaining changes and create any requested final commit using the repository commit convention.
+5. Push the issue-numbered branch.
+6. Detect whether the branch already has a PR.
+   - If no PR exists, inspect the actual changes, draft the canonical PR body, and open a draft PR unless the user explicitly requests ready-for-review.
+   - If a PR exists, switch to Update behavior instead of opening a duplicate.
+7. Return the issue, branch, commits, PR URL, and validation results.
+
+### Update
+
+Use after review comments, requested changes, or CI fixes modify an existing PR branch.
+
+This mode publishes fixes already made by a review-comment, CI-fix, or implementation workflow. It does not diagnose or implement the fix unless the user separately requests that work.
+
+1. Resolve the existing PR, linked issue, and current branch.
+2. Inspect the new diff and identify which review or CI concern each change addresses.
+3. Run relevant validation.
+4. Stage only the intended follow-up changes, commit with the linked issue number, and push the existing branch.
+5. Update the PR body when the implementation summary, review points, notes, or validation evidence materially changed. Preserve the canonical heading order.
+6. Do not open a new PR. Do not reply to or resolve review threads unless explicitly requested.
+
+### Merge
+
+Use only when the user explicitly requests merging a specific PR.
+
+1. Resolve the PR and confirm its base/head branches.
+2. Confirm required checks are successful, required reviews are satisfied, and no unresolved requested changes remain.
+3. Report any failing, pending, external, or unavailable checks before merging.
+4. Use the repository-supported merge method requested by the user or the repository default when unambiguous.
+5. Do not delete local or remote branches unless the user explicitly requests deletion.
+6. Return the merged PR URL and resulting merge commit or squash commit identifier.
 
 ## Required Validation
 
@@ -37,140 +140,49 @@ Always run:
 
 - `git diff --check`
 
-Then select validation based on changed files and available project files:
+Then select checks from the actual change:
 
-- Markdown, docs, skills, templates:
-  - Review manually for broken links, stale phase labels, overstated claims, and public-facing clarity.
-  - For `SKILL.md`, validate skill format when the validator is available:
-    `python3 /home/daeun/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-dir>`
-- Go code:
-  - `go test ./...`
-  - `go test -race ./...` when the change touches concurrency, sync-point runtime, orchestration, adapters, or fixture execution.
-  - `gofmt`/`go test` should not rewrite unrelated files.
-- Testcontainers, MySQL, fixtures, or CI demo behavior:
-  - Prefer the narrow fixture/demo command documented by the repo once it exists.
-  - If Docker or Actions parity is required but unavailable locally, state the environment limitation explicitly.
-- Java/Spring adapter:
-  - Run the adapter's native build/test command once it exists, such as `./gradlew test` or `mvn test`, scoped to the adapter if possible.
-- GitHub Action or workflow files:
-  - Check YAML syntax if tooling is available.
-  - Confirm referenced action paths, artifact names, permissions, and expected exit codes.
-- Release or distribution files:
-  - Run dry-run validation if supported, such as a goreleaser check/dry run, without publishing.
+- Markdown, skills, templates: review links, public-facing clarity, stale phase language, private-source leakage, and template heading order. Validate changed `SKILL.md` directories with `quick_validate.py` when available.
+- Go code: `go test ./...`; add `go test -race ./...` for concurrency, orchestration, sync-point, adapter, or fixture behavior.
+- Testcontainers, MySQL, fixtures, or CI demos: run the documented narrow experiment or fixture command when available; state Docker or Actions limitations explicitly.
+- Java/Spring adapter: run the adapter's native test command.
+- GitHub Actions: check YAML, action paths, artifact names, permissions, and expected exit codes.
+- Release changes: run supported dry-run validation without publishing a release.
 
-Report pass/fail/skip status in the final handoff and include the same validation list in the PR body. If a validation command is skipped, give the reason.
+Record the same actual results in the PR `Validation` section. Never mark an unexecuted check as passed.
 
-## Workflow
+## Naming Conventions
 
-1. Summarize the change in one line and choose the conventional commit type.
-   - Prefer `feat`, `fix`, `docs`, `test`, `refactor`, `ci`, `build`, or `chore`.
-   - Useful scopes: `cli`, `syncpoint`, `orchestrator`, `oracle`, `diagnostic`, `report`, `fixture`, `spring`, `action`, `docs`, `skills`, `workbench`, `release`.
-2. Create or identify the GitHub issue.
-   - Create an issue for the full workflow unless the user provided an existing issue.
-   - Use the eventual PR/commit title style, for example `docs(skills): add weavegate GitHub workflow`.
-   - Do not append an issue or PR number to the issue title.
-   - Include `Summary`, `Validation`, and, when relevant, `Scope / Non-goals`.
-   - When creating issues with `gh issue create --body`, write the body in the same structure as `.github/ISSUE_TEMPLATE/issue.md`; the CLI does not merge the repository template into an explicitly supplied body.
-3. Create the branch from the intended base.
-   - Base is usually `main` unless repository context says otherwise.
-   - Branch format: `<type><issue-number>/<short-kebab-summary>`.
-   - Examples: `docs42/add-github-workflow-skill`, `feat108/syncpoint-runtime`, `ci151/action-artifacts`.
-4. Run validation before committing when practical. If the change requires committing before remote CI can run, run local validation first and mention remaining CI validation in the PR.
-5. Stage only intended files:
-   - `git add <paths...>`
-6. Commit with one conventional message that ends with the related issue number:
-   - `<type>(<scope>): <summary> #<issue-number>`
-   - Use the issue created or identified in step 2.
-   - Keep `#<issue-number>` as the final token in the subject, without parentheses; do not append text after it.
-7. Push the branch:
-   - `git push -u origin <branch-name>`
-8. Open the PR.
-   - Title should match the issue and commit intent.
-   - Do not append an issue or PR number to the PR title.
-   - Body must follow the same structure as `.github/pull_request_template.md`; the CLI does not merge the repository template into an explicitly supplied body.
-   - Body must include `Related Issue`, `Summary`, `Validation`, `Review Points`, and `Scope / Non-goals`.
-   - Put `Closes #<issue-number>` under `Related Issue`.
+- Issue and PR title: `<type>(<scope>): <outcome>` without an appended number.
+- Branch: `<type><issue-number>/<short-kebab-summary>`.
+- Commit: `<type>(<scope>): <summary> #<issue-number>`, with the issue number as the final token.
+- Keep branch names lowercase and short.
 
-## Issue and PR Body Style
+Examples:
 
-Use concise public-facing English. Avoid private planning shorthand unless the PR is explicitly limited to `_workbench/`.
+- `feat17/syncpoint-runtime`
+- `fix28/blocked-worker-timeout`
+- `docs42/diagnostic-reference`
+- `feat(syncpoint): add arrive and release runtime #17`
 
-Template:
+## Write Safety
 
-```markdown
-## Related Issue
-
-Closes #123
-
-## Summary
-- ...
-- ...
-
-## Validation
-- PASS: git diff --check
-- PASS: go test ./...
-- SKIP: go test -race ./... (docs-only change)
-- Docs: updated / not applicable
-
-## Review Points
-- Public positioning is accurate when relevant.
-- Deterministic replay behavior is clear when relevant.
-- Failure and fix evidence is reproducible when relevant.
-- Scope boundaries are explicit.
-
-## Scope / Non-goals
-- ...
-```
-
-For public OSS PRs, prefer outcome-oriented bullets over implementation diary. Mention deterministic replay evidence, fixture names, exit codes, and artifacts when those are part of the change.
-
-## Naming Guidance
-
-- Keep issue and PR titles consistent and conventional without appending an issue or PR number. Match the commit subject to their intent, then append the related issue number without parentheses:
-  - `feat(syncpoint): add arrive and release runtime #17`
-  - `fix(orchestrator): handle blocked workers during replay #28`
-  - `docs(related-work): clarify weavegate scope #42`
-  - `ci(action): upload replay artifacts #151`
-- Branch names must include the issue number directly after the type prefix:
-  - `feat17/syncpoint-runtime`
-  - `fix28/blocked-worker-timeout`
-  - `docs42/github-workflow-skill`
-- Keep names lowercase, kebab-case, and short enough to read in PR lists.
-
-## Command Patterns
-
-Use non-interactive commands:
-
-```bash
-gh issue create --repo <owner/repo> --title "<title>" --body "<body>"
-gh pr create --repo <owner/repo> --base main --head <branch> --title "<title>" --body "<body>"
-```
-
-When capturing an issue number:
-
-```bash
-issue_url="$(gh issue create --repo <owner/repo> --title "<title>" --body "<body>")"
-issue_number="${issue_url##*/}"
-```
-
-Quote multi-line bodies carefully. Avoid command substitutions or backticks inside double-quoted body strings unless they are intentionally escaped.
-
-## Branch Rename Notes
-
-When the user explicitly asks to rename a branch:
-
-1. Rename locally with `git branch -m <new-branch-name>`.
-2. Push the renamed branch with `git push -u origin <new-branch-name>`.
-3. Do not delete the old remote branch unless the user explicitly asks.
+- Do not use `git add -A` in a mixed worktree without explicit confirmation.
+- Do not rewrite, clean, or stage unrelated changes.
+- Default new PRs to draft.
+- Do not publish an issue or PR body that depends on private context.
+- Do not use a generic publish skill's branch or commit naming when it conflicts with this repository's conventions.
+- Do not reply to reviews, resolve threads, merge, or delete branches without explicit authorization.
 
 ## Final Handoff
 
-Return:
+Report only artifacts affected by the selected mode:
 
-- issue number and URL, if created
+- issue number and URL
 - branch name
-- commit SHA and message, if committed
-- PR number and URL, if created
+- commit SHA and message
+- PR number and URL
 - validation results
+- merge result, when explicitly performed
 
-If any step failed, separate completed local work from blocked remote work and include the exact reason.
+Separate completed local work from blocked or unauthorized remote work and state the exact blocker.

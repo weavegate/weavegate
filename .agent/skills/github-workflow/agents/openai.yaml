@@ -1,4 +1,4 @@
 interface:
   display_name: "GitHub Workflow"
-  short_description: "Ship weavegate changes through GitHub"
-  default_prompt: "Use $github-workflow to create the issue, branch, commit, push, and pull request for this weavegate change."
+  short_description: "Prepare, publish, update, or merge Weavegate work"
+  default_prompt: "Use $github-workflow to handle the current prepare, publish, update, or merge stage for this weavegate change."
