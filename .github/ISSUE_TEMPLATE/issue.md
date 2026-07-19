@@ -7,16 +7,16 @@ assignees: "jaeunda"
 ---
 
 ## Summary
-- Describe the task, bug, or documentation gap.
-- State the smallest reviewable outcome.
-
-## Validation
-- [ ] `git diff --check`
-- [ ] Additional project-specific check:
+- State the capability to add or change.
+- Explain its purpose or user value.
 
 ## TODO
-- [ ] Implement or document the change.
-- [ ] Validate the change and record the result.
+- [ ] Describe an observable behavior or outcome.
+- [ ] Describe the evidence or documentation the feature must provide.
 
-## Scope / Non-goals
-- Note anything this issue intentionally does not cover.
+## Validation
+- [ ] Describe an observable acceptance signal.
+- [ ] Add a stable public validation command when it improves reproducibility.
+
+## Notes
+- Mention only work that will be implemented in a follow-up, or remove this section.

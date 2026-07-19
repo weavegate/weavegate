@@ -1,24 +1,20 @@
-## Related Issue
+## Related Issues
 
 Closes #
 
 ## Summary
 
-- TODO
-
-## Validation
-
-- [ ] `git diff --check`
-- [ ] Docs updated / not applicable
-- [ ] Additional project-specific check:
+- Explain how the linked issue's intended capability was implemented at the behavior or design level.
+- Explain the purpose, user value, or invariant the implementation now achieves.
 
 ## Review Points
 
-- Public positioning is accurate: weavegate is a deterministic replay CI gate for application workflows, not a DB engine verifier, ACID verifier, general race detector, or AI verdict system.
-- Deterministic replay behavior is clear when relevant: saved schedule, step trace, offending rows, report artifacts, and replay command.
-- Failure and fix evidence is reproducible when relevant: same schema, same seed, same schedule, same expected result.
-- Scope boundaries are explicit for runtime, CLI, Spring adapter, fixtures, reports, and GitHub Action changes.
+- Highlight the concrete decisions, invariants, failure modes, tradeoffs, or risks that deserve review in this change.
 
-## Scope / Non-goals
+## Notes
 
-- TODO
+- Record follow-up work, limitations, migrations, or tradeoffs. Replace this line with `- None.` when there is nothing material.
+
+## Validation
+
+- PASS/FAIL/SKIP: Record each check actually run, its result, and relevant observable evidence.
