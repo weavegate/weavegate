@@ -37,7 +37,6 @@ When supplying a body explicitly through an app or CLI, reproduce the correspond
 - When a dedicated issue-writing workflow supplies a reviewed draft or created issue, validate it against the public template and reuse it instead of generating competing content.
 - If the user explicitly requests an end-to-end public workflow and no issue exists, write and create one from public repository context using the canonical template.
 - Use heading order `Summary` → `TODO` → `Validation` → optional `Notes`.
-- Write the issue title in English as `Type: title`. Capitalize only the first letter of `Type`, keep the title after the colon lowercase, and use wording that covers the full delivery scope.
 - State what capability will be implemented and why it matters, not a file/function-level implementation plan.
 - Keep the title conventional and omit issue, PR, sequence, and private feature numbers.
 - Use only public issues, code, tests, and docs as references.
@@ -51,8 +50,6 @@ Before drafting a PR, inspect all of the following:
 - commits included in the branch
 - validation commands and their actual results
 - any known follow-up, tradeoff, limitation, or residual risk
-
-Use the linked issue title unchanged for the PR title so both artifacts share the same English `Type: title` wording. Do not append an issue or PR number.
 
 Use headings in exactly this order:
 
@@ -156,14 +153,13 @@ Record the same actual results in the PR `Validation` section. Never mark an une
 
 ## Naming Conventions
 
-- Issue and PR title: `Type: title`. Capitalize only the first letter of `Type`, keep the English title after the colon lowercase while covering the full delivery scope, use the exact same title for the linked issue and PR, and do not append an issue, PR, sequence, or private feature number.
+- Issue and PR title: `<type>(<scope>): <outcome>` without an appended number.
 - Branch: `<type><issue-number>/<short-kebab-summary>`.
 - Commit: `<type>(<scope>): <summary> #<issue-number>`, with the issue number as the final token.
 - Keep branch names lowercase and short.
 
 Examples:
 
-- Issue and PR: `Feat: add sync-point runtime`
 - `feat17/syncpoint-runtime`
 - `fix28/blocked-worker-timeout`
 - `docs42/diagnostic-reference`
