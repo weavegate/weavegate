@@ -74,6 +74,19 @@ func TestMySQLFixtureLifecycle(t *testing.T) {
 		t.Fatalf("server UUID after reset = %q, want %q", serverUUIDAfter, serverUUIDBefore)
 	}
 
+	poolBeforeCanceledReset := handle.SQL
+	canceledResetCtx, cancelReset := context.WithCancel(context.Background())
+	cancelReset()
+	if err := fixture.Reset(canceledResetCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled reset error = %v, want %v", err, context.Canceled)
+	}
+	if handle.SQL != poolBeforeCanceledReset {
+		t.Fatal("canceled reset replaced the application database pool")
+	}
+	if got := itemCount(t, ctx, handle); got != 1 {
+		t.Fatalf("row count after canceled reset = %d, want 1", got)
+	}
+
 	if err := fixture.Teardown(ctx); err != nil {
 		t.Fatalf("teardown MySQL fixture: %v", err)
 	}

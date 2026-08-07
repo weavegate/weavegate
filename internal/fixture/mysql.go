@@ -144,6 +144,9 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 	if !f.provisioned {
 		return fmt.Errorf("reset MySQL fixture: not provisioned")
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("reset MySQL fixture: %w", err)
+	}
 
 	if err := closeDatabase("application database", f.db.SQL); err != nil {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
