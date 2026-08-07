@@ -213,11 +213,11 @@ func splitSQLStatements(source string) ([]string, error) {
 			}
 
 		case sqlStateSingleQuoted:
-			i = consumeQuotedByte(source, i, '\'', &statement, &state)
+			i = consumeStringByte(source, i, '\'', &statement, &state)
 		case sqlStateDoubleQuoted:
-			i = consumeQuotedByte(source, i, '"', &statement, &state)
+			i = consumeStringByte(source, i, '"', &statement, &state)
 		case sqlStateBacktickQuoted:
-			i = consumeQuotedByte(source, i, '`', &statement, &state)
+			i = consumeBacktickIdentifierByte(source, i, &statement, &state)
 		case sqlStateLineComment:
 			if current == '\n' || current == '\r' {
 				state = sqlStateNormal
@@ -257,7 +257,7 @@ func startsDashComment(source string, dashIndex int) bool {
 	return source[dashIndex+2] <= ' '
 }
 
-func consumeQuotedByte(
+func consumeStringByte(
 	source string,
 	index int,
 	quote byte,
@@ -273,6 +273,24 @@ func consumeQuotedByte(
 		return index
 	}
 	if index+1 < len(source) && source[index+1] == quote {
+		statement.WriteByte(source[index+1])
+		return index + 1
+	}
+
+	*state = sqlStateNormal
+	return index
+}
+
+func consumeBacktickIdentifierByte(
+	source string,
+	index int,
+	statement *strings.Builder,
+	state *sqlScanState,
+) int {
+	if source[index] != '`' {
+		return index
+	}
+	if index+1 < len(source) && source[index+1] == '`' {
 		statement.WriteByte(source[index+1])
 		return index + 1
 	}

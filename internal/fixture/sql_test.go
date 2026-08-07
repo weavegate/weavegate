@@ -135,6 +135,23 @@ CREATE TABLE fixture_item (id INT);
 	}
 }
 
+func TestSQLStatementSplitterPreservesBacktickIdentifierEscapes(t *testing.T) {
+	t.Parallel()
+
+	source := "CREATE TABLE `path;\\` (`a``b` INT); SELECT 1;"
+	got, err := splitSQLStatements(source)
+	if err != nil {
+		t.Fatalf("split SQL statements: %v", err)
+	}
+	want := []string{
+		"CREATE TABLE `path;\\` (`a``b` INT)",
+		"SELECT 1",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("split statements = %#v, want %#v", got, want)
+	}
+}
+
 type recordingExecutor struct {
 	statements []string
 	failAt     int
