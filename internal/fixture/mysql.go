@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 )
 
 const (
-	fixtureDatabase = "weavegate"
-	fixtureUsername = "weavegate"
-	fixturePassword = "weavegate"
+	fixtureDatabase               = "weavegate"
+	fixtureUsername               = "weavegate"
+	fixturePassword               = "weavegate"
+	failedProvisionCleanupTimeout = 30 * time.Second
 )
 
 type mysqlFixture struct {
@@ -64,7 +66,7 @@ func (f *mysqlFixture) Provision(
 		if container != nil {
 			return nil, errors.Join(
 				fmt.Errorf("provision MySQL fixture: start container: %w", err),
-				terminateContainer(ctx, container),
+				cleanupFailedProvision(ctx, nil, nil, container),
 			)
 		}
 		return nil, fmt.Errorf("provision MySQL fixture: start container: %w", err)
@@ -79,9 +81,7 @@ func (f *mysqlFixture) Provision(
 
 		returnErr = errors.Join(
 			returnErr,
-			closeDatabase("application database", app),
-			closeDatabase("administrative database", admin),
-			terminateContainer(ctx, container),
+			cleanupFailedProvision(ctx, app, admin, container),
 		)
 	}()
 
@@ -106,6 +106,34 @@ func (f *mysqlFixture) Provision(
 	f.provisioned = true
 
 	return handle, nil
+}
+
+func cleanupFailedProvision(
+	operationCtx context.Context,
+	app *sql.DB,
+	admin *sql.DB,
+	container *mysqlcontainer.MySQLContainer,
+) error {
+	return errors.Join(
+		closeDatabase("application database", app),
+		closeDatabase("administrative database", admin),
+		withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
+			return terminateContainer(cleanupCtx, container)
+		}),
+	)
+}
+
+func withProvisionCleanupContext(
+	operationCtx context.Context,
+	cleanup func(context.Context) error,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(operationCtx),
+		failedProvisionCleanupTimeout,
+	)
+	defer cancel()
+
+	return cleanup(cleanupCtx)
 }
 
 func (f *mysqlFixture) Reset(ctx context.Context) error {

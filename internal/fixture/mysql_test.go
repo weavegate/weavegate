@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +100,31 @@ func TestMySQLFixtureLifecycleErrors(t *testing.T) {
 
 	if err := fixture.Teardown(context.Background()); err != nil {
 		t.Fatalf("teardown before provision: %v", err)
+	}
+}
+
+func TestProvisionCleanupUsesIndependentBoundedContext(t *testing.T) {
+	operationCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	wantErr := errors.New("cleanup failed")
+	err := withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
+		if err := cleanupCtx.Err(); err != nil {
+			t.Fatalf("cleanup context error = %v, want active context", err)
+		}
+		deadline, ok := cleanupCtx.Deadline()
+		if !ok {
+			t.Fatal("cleanup context has no deadline")
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 || remaining > failedProvisionCleanupTimeout {
+			t.Fatalf("cleanup context remaining time = %v, want within (0, %v]", remaining, failedProvisionCleanupTimeout)
+		}
+
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("cleanup error = %v, want %v", err, wantErr)
 	}
 }
 
