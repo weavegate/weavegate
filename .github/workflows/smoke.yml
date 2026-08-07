@@ -42,3 +42,26 @@ jobs:
         run: |
           grep -Eq 'LOSTUPDATE_RESULT path=vulnerable .* lost=[1-9][0-9]*' lostupdate.log
           grep -Eq 'LOSTUPDATE_RESULT path=fixed .* lost=0( |$)' lostupdate.log
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@v24
+        with:
+          globs: "**/*.md"
+
+      - name: Check Markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --max-retries 3
+            --accept 200,206,429
+            './**/*.md'
+          fail: true
