@@ -23,6 +23,9 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Check out the repository
@@ -38,6 +41,17 @@ jobs:
 
       - name: Build Go packages
         run: go build ./...
+
+      - name: Run database fixture tests
+        run: >-
+          go test ./internal/fixture/... ./fixtures/matching-slice/...
+          -v -count=1 | tee fixture.log
+
+      - name: Assert the fixture invariant
+        run: >-
+          grep -F
+          'MATCHING_FIXTURE_RESULT request_id=42 project_requests=1 matching_sessions=0 assignments=0 reset=true'
+          fixture.log
 
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
