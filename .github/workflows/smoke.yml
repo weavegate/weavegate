@@ -1,0 +1,44 @@
+name: smoke
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet Go packages
+        run: go vet ./...
+
+      - name: Build Go packages
+        run: go build ./...
+
+      - name: Run the lost-update experiment
+        run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
+
+      - name: Assert the experiment invariants
+        run: |
+          grep -Eq 'LOSTUPDATE_RESULT path=vulnerable .* lost=[1-9][0-9]*' lostupdate.log
+          grep -Eq 'LOSTUPDATE_RESULT path=fixed .* lost=0( |$)' lostupdate.log
