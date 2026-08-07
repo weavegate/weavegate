@@ -7,16 +7,20 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
 
 permissions:
   contents: read
 
 concurrency:
-  group: smoke-${{ github.ref }}
+  group: smoke-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   experiment:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -44,6 +48,7 @@ jobs:
           grep -Eq 'LOSTUPDATE_RESULT path=fixed .* lost=0( |$)' lostupdate.log
 
   docs:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -56,7 +61,26 @@ jobs:
         with:
           globs: "**/*.md"
 
-      - name: Check Markdown links
+      - name: Check internal Markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline
+            --no-progress
+            './**/*.md'
+          fail: true
+
+  external-links:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: external links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Check external Markdown links
         uses: lycheeverse/lychee-action@v2
         with:
           args: >-
