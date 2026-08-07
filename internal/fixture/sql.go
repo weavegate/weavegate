@@ -19,6 +19,17 @@ type sqlSource struct {
 	path  string
 }
 
+type sqlScanState uint8
+
+const (
+	sqlStateNormal sqlScanState = iota
+	sqlStateSingleQuoted
+	sqlStateDoubleQuoted
+	sqlStateBacktickQuoted
+	sqlStateLineComment
+	sqlStateBlockComment
+)
+
 // applyFixtureSQL applies migrations in lexical filename order, followed by
 // the fixture's seed file.
 func applyFixtureSQL(
@@ -117,24 +128,139 @@ func executeSQLSource(
 		return fmt.Errorf("read %s file %q: %w", source.phase, filepath.Base(source.path), err)
 	}
 
-	statementNumber := 0
-	for _, rawStatement := range strings.Split(string(contents), ";") {
-		statement := strings.TrimSpace(rawStatement)
-		if statement == "" {
-			continue
-		}
+	statements, err := splitSQLStatements(string(contents))
+	if err != nil {
+		return fmt.Errorf("parse %s file %q: %w", source.phase, filepath.Base(source.path), err)
+	}
 
-		statementNumber++
+	for statementIndex, statement := range statements {
 		if _, err := executor.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf(
 				"execute %s file %q statement %d: %w",
 				source.phase,
 				filepath.Base(source.path),
-				statementNumber,
+				statementIndex+1,
 				err,
 			)
 		}
 	}
 
 	return nil
+}
+
+// splitSQLStatements handles ordinary MySQL DDL and DML. The fixture contract
+// intentionally excludes DELIMITER directives and stored-program bodies.
+func splitSQLStatements(source string) ([]string, error) {
+	var statements []string
+	var statement strings.Builder
+	state := sqlStateNormal
+
+	appendStatement := func() {
+		trimmed := strings.TrimSpace(statement.String())
+		if trimmed != "" {
+			statements = append(statements, trimmed)
+		}
+		statement.Reset()
+	}
+
+	for i := 0; i < len(source); i++ {
+		current := source[i]
+		if state == sqlStateNormal && current == ';' {
+			appendStatement()
+			continue
+		}
+		statement.WriteByte(current)
+
+		switch state {
+		case sqlStateNormal:
+			switch current {
+			case '\'':
+				state = sqlStateSingleQuoted
+			case '"':
+				state = sqlStateDoubleQuoted
+			case '`':
+				state = sqlStateBacktickQuoted
+			case '#':
+				state = sqlStateLineComment
+			case '-':
+				if startsDashComment(source, i) {
+					statement.WriteByte(source[i+1])
+					i++
+					state = sqlStateLineComment
+				}
+			case '/':
+				if i+1 < len(source) && source[i+1] == '*' {
+					statement.WriteByte(source[i+1])
+					i++
+					state = sqlStateBlockComment
+				}
+			}
+
+		case sqlStateSingleQuoted:
+			i = consumeQuotedByte(source, i, '\'', &statement, &state)
+		case sqlStateDoubleQuoted:
+			i = consumeQuotedByte(source, i, '"', &statement, &state)
+		case sqlStateBacktickQuoted:
+			i = consumeQuotedByte(source, i, '`', &statement, &state)
+		case sqlStateLineComment:
+			if current == '\n' || current == '\r' {
+				state = sqlStateNormal
+			}
+		case sqlStateBlockComment:
+			if current == '*' && i+1 < len(source) && source[i+1] == '/' {
+				statement.WriteByte(source[i+1])
+				i++
+				state = sqlStateNormal
+			}
+		}
+	}
+
+	switch state {
+	case sqlStateSingleQuoted:
+		return nil, fmt.Errorf("unterminated single-quoted string")
+	case sqlStateDoubleQuoted:
+		return nil, fmt.Errorf("unterminated double-quoted string")
+	case sqlStateBacktickQuoted:
+		return nil, fmt.Errorf("unterminated backtick-quoted identifier")
+	case sqlStateBlockComment:
+		return nil, fmt.Errorf("unterminated block comment")
+	}
+
+	appendStatement()
+	return statements, nil
+}
+
+func startsDashComment(source string, dashIndex int) bool {
+	if dashIndex+1 >= len(source) || source[dashIndex+1] != '-' {
+		return false
+	}
+	if dashIndex+2 >= len(source) {
+		return true
+	}
+
+	return source[dashIndex+2] <= ' '
+}
+
+func consumeQuotedByte(
+	source string,
+	index int,
+	quote byte,
+	statement *strings.Builder,
+	state *sqlScanState,
+) int {
+	current := source[index]
+	if current == '\\' && index+1 < len(source) {
+		statement.WriteByte(source[index+1])
+		return index + 1
+	}
+	if current != quote {
+		return index
+	}
+	if index+1 < len(source) && source[index+1] == quote {
+		statement.WriteByte(source[index+1])
+		return index + 1
+	}
+
+	*state = sqlStateNormal
+	return index
 }

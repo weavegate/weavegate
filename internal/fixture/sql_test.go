@@ -55,6 +55,58 @@ func TestSQLLoaderErrorContext(t *testing.T) {
 	}
 }
 
+func TestSQLStatementSplitterPreservesQuotedAndCommentSemicolons(t *testing.T) {
+	t.Parallel()
+
+	source := `INSERT INTO fixture_item (name) VALUES ('single;quoted', "double;quoted");
+-- keep this; comment with the next statement
+INSERT INTO fixture_item (` + "`name;column`" + `) VALUES ('it''s;quoted');
+# keep this; hash comment with the next statement
+UPDATE fixture_item SET name = 'backslash\';still quoted';
+/* keep this; block comment with the next statement */
+DELETE FROM fixture_item WHERE name = 'done';`
+
+	got, err := splitSQLStatements(source)
+	if err != nil {
+		t.Fatalf("split SQL statements: %v", err)
+	}
+	want := []string{
+		`INSERT INTO fixture_item (name) VALUES ('single;quoted', "double;quoted")`,
+		"-- keep this; comment with the next statement\n" +
+			"INSERT INTO fixture_item (`name;column`) VALUES ('it''s;quoted')",
+		"# keep this; hash comment with the next statement\n" +
+			`UPDATE fixture_item SET name = 'backslash\';still quoted'`,
+		"/* keep this; block comment with the next statement */\n" +
+			`DELETE FROM fixture_item WHERE name = 'done'`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("split statements = %#v, want %#v", got, want)
+	}
+}
+
+func TestSQLStatementSplitterRejectsUnterminatedTokens(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "single quote", source: "SELECT 'open", want: "single-quoted string"},
+		{name: "double quote", source: `SELECT "open`, want: "double-quoted string"},
+		{name: "backtick", source: "SELECT `open", want: "backtick-quoted identifier"},
+		{name: "block comment", source: "SELECT 1 /* open", want: "block comment"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := splitSQLStatements(test.source)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("split error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 type recordingExecutor struct {
 	statements []string
 	failAt     int
