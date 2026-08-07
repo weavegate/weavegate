@@ -107,6 +107,34 @@ func TestSQLStatementSplitterRejectsUnterminatedTokens(t *testing.T) {
 	}
 }
 
+func TestSQLStatementSplitterSkipsCommentOnlyFragments(t *testing.T) {
+	t.Parallel()
+
+	source := `-- leading; comment
+CREATE TABLE fixture_item (id INT);
+# trailing; comment
+/* trailing; block comment */`
+	got, err := splitSQLStatements(source)
+	if err != nil {
+		t.Fatalf("split SQL statements: %v", err)
+	}
+	want := []string{
+		"-- leading; comment\nCREATE TABLE fixture_item (id INT)",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("split statements = %#v, want %#v", got, want)
+	}
+
+	commentsOnly := "# hash; comment\n-- dash; comment\n/* block; comment */"
+	got, err = splitSQLStatements(commentsOnly)
+	if err != nil {
+		t.Fatalf("split comment-only SQL: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("comment-only statements = %#v, want none", got)
+	}
+}
+
 type recordingExecutor struct {
 	statements []string
 	failAt     int

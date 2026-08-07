@@ -154,13 +154,15 @@ func splitSQLStatements(source string) ([]string, error) {
 	var statements []string
 	var statement strings.Builder
 	state := sqlStateNormal
+	hasExecutableToken := false
 
 	appendStatement := func() {
 		trimmed := strings.TrimSpace(statement.String())
-		if trimmed != "" {
+		if hasExecutableToken && trimmed != "" {
 			statements = append(statements, trimmed)
 		}
 		statement.Reset()
+		hasExecutableToken = false
 	}
 
 	for i := 0; i < len(source); i++ {
@@ -175,10 +177,13 @@ func splitSQLStatements(source string) ([]string, error) {
 		case sqlStateNormal:
 			switch current {
 			case '\'':
+				hasExecutableToken = true
 				state = sqlStateSingleQuoted
 			case '"':
+				hasExecutableToken = true
 				state = sqlStateDoubleQuoted
 			case '`':
+				hasExecutableToken = true
 				state = sqlStateBacktickQuoted
 			case '#':
 				state = sqlStateLineComment
@@ -187,12 +192,23 @@ func splitSQLStatements(source string) ([]string, error) {
 					statement.WriteByte(source[i+1])
 					i++
 					state = sqlStateLineComment
+				} else {
+					hasExecutableToken = true
 				}
 			case '/':
 				if i+1 < len(source) && source[i+1] == '*' {
 					statement.WriteByte(source[i+1])
 					i++
+					if i+1 < len(source) && source[i+1] == '!' {
+						hasExecutableToken = true
+					}
 					state = sqlStateBlockComment
+				} else {
+					hasExecutableToken = true
+				}
+			default:
+				if current > ' ' {
+					hasExecutableToken = true
 				}
 			}
 
