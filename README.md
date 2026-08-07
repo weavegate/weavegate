@@ -59,7 +59,7 @@ After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying
 ## Roadmap
 
 | Milestone | Scope | Target |
-|---|---|---|
+| --- | --- | --- |
 | `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL/differential/schema oracles, `RG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
 | `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Aug 2026 |
 | later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection | Q3–Q4 2026 |
