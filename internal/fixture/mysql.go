@@ -23,16 +23,17 @@ const (
 type mysqlFixture struct {
 	mu sync.Mutex
 
-	container   *mysqlcontainer.MySQLContainer
-	admin       *sql.DB
-	db          *DB
-	spec        FixtureSpec
-	provisioned bool
+	container          *mysqlcontainer.MySQLContainer
+	admin              *sql.DB
+	db                 *DB
+	spec               FixtureSpec
+	provisioned        bool
+	terminateContainer func(context.Context, *mysqlcontainer.MySQLContainer) error
 }
 
 // NewMySQLFixture returns a fixture backed by a Testcontainers MySQL instance.
 func NewMySQLFixture() Fixture {
-	return &mysqlFixture{}
+	return &mysqlFixture{terminateContainer: terminateContainer}
 }
 
 func (f *mysqlFixture) Provision(
@@ -185,11 +186,14 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 		f.db.SQL = nil
 	}
 
-	err := errors.Join(
-		closeDatabase("application database", app),
-		closeDatabase("administrative database", f.admin),
-		terminateContainer(ctx, f.container),
-	)
+	appErr := closeDatabase("application database", app)
+	adminErr := closeDatabase("administrative database", f.admin)
+	terminateErr := f.terminate(ctx, f.container)
+	err := errors.Join(appErr, adminErr, terminateErr)
+
+	if terminateErr != nil {
+		return err
+	}
 
 	f.container = nil
 	f.admin = nil
@@ -198,6 +202,17 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 	f.provisioned = false
 
 	return err
+}
+
+func (f *mysqlFixture) terminate(
+	ctx context.Context,
+	container *mysqlcontainer.MySQLContainer,
+) error {
+	if f.terminateContainer == nil {
+		return terminateContainer(ctx, container)
+	}
+
+	return f.terminateContainer(ctx, container)
 }
 
 func openAdminDatabase(

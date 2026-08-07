@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 )
 
 func TestMySQLFixtureLifecycle(t *testing.T) {
@@ -125,6 +127,48 @@ func TestProvisionCleanupUsesIndependentBoundedContext(t *testing.T) {
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("cleanup error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestMySQLFixtureTeardownRetriesFailedTermination(t *testing.T) {
+	wantErr := errors.New("terminate failed")
+	terminateCalls := 0
+	fixture := &mysqlFixture{
+		container:   &mysqlcontainer.MySQLContainer{},
+		db:          &DB{},
+		spec:        FixtureSpec{Image: "mysql:8.4"},
+		provisioned: true,
+		terminateContainer: func(context.Context, *mysqlcontainer.MySQLContainer) error {
+			terminateCalls++
+			if terminateCalls == 1 {
+				return wantErr
+			}
+
+			return nil
+		},
+	}
+
+	if err := fixture.Teardown(context.Background()); !errors.Is(err, wantErr) {
+		t.Fatalf("first teardown error = %v, want %v", err, wantErr)
+	}
+	if fixture.container == nil || !fixture.provisioned {
+		t.Fatal("failed teardown discarded retryable fixture state")
+	}
+	if _, err := fixture.Provision(context.Background(), FixtureSpec{}); err == nil || !strings.Contains(err.Error(), "already provisioned") {
+		t.Fatalf("provision during pending cleanup error = %v, want already provisioned", err)
+	}
+
+	if err := fixture.Teardown(context.Background()); err != nil {
+		t.Fatalf("retry teardown: %v", err)
+	}
+	if fixture.container != nil || fixture.provisioned {
+		t.Fatal("successful teardown retained fixture state")
+	}
+	if err := fixture.Teardown(context.Background()); err != nil {
+		t.Fatalf("teardown after cleanup: %v", err)
+	}
+	if terminateCalls != 2 {
+		t.Fatalf("terminate calls = %d, want 2", terminateCalls)
 	}
 }
 
