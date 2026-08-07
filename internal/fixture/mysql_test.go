@@ -143,6 +143,46 @@ func TestProvisionCleanupUsesIndependentBoundedContext(t *testing.T) {
 	}
 }
 
+func TestMySQLFixturePreservesFailedProvisionContainerForTeardown(t *testing.T) {
+	wantErr := errors.New("terminate failed")
+	terminateCalls := 0
+	container := &mysqlcontainer.MySQLContainer{}
+	fixture := &mysqlFixture{
+		terminateContainer: func(context.Context, *mysqlcontainer.MySQLContainer) error {
+			terminateCalls++
+			if terminateCalls == 1 {
+				return wantErr
+			}
+
+			return nil
+		},
+	}
+
+	err := fixture.cleanupFailedProvision(context.Background(), nil, nil, container)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("failed provision cleanup error = %v, want %v", err, wantErr)
+	}
+	if fixture.container != container {
+		t.Fatal("failed provision cleanup discarded the container handle")
+	}
+	if fixture.provisioned {
+		t.Fatal("failed provision cleanup marked the fixture as provisioned")
+	}
+	if _, err := fixture.Provision(context.Background(), FixtureSpec{}); err == nil || !strings.Contains(err.Error(), "cleanup pending") {
+		t.Fatalf("provision during pending cleanup error = %v, want cleanup pending", err)
+	}
+
+	if err := fixture.Teardown(context.Background()); err != nil {
+		t.Fatalf("retry failed provision cleanup: %v", err)
+	}
+	if fixture.container != nil {
+		t.Fatal("successful teardown retained the failed provision container")
+	}
+	if terminateCalls != 2 {
+		t.Fatalf("terminate calls = %d, want 2", terminateCalls)
+	}
+}
+
 func TestMySQLFixtureTeardownRetriesFailedTermination(t *testing.T) {
 	wantErr := errors.New("terminate failed")
 	terminateCalls := 0

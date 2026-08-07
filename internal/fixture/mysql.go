@@ -46,6 +46,9 @@ func (f *mysqlFixture) Provision(
 	if f.provisioned {
 		return nil, fmt.Errorf("provision MySQL fixture: already provisioned")
 	}
+	if f.container != nil {
+		return nil, fmt.Errorf("provision MySQL fixture: cleanup pending; call Teardown before provisioning again")
+	}
 	if strings.TrimSpace(spec.Image) == "" {
 		return nil, fmt.Errorf("provision MySQL fixture: image is required")
 	}
@@ -67,7 +70,7 @@ func (f *mysqlFixture) Provision(
 		if container != nil {
 			return nil, errors.Join(
 				fmt.Errorf("provision MySQL fixture: start container: %w", err),
-				cleanupFailedProvision(ctx, nil, nil, container),
+				f.cleanupFailedProvision(ctx, nil, nil, container),
 			)
 		}
 		return nil, fmt.Errorf("provision MySQL fixture: start container: %w", err)
@@ -82,7 +85,7 @@ func (f *mysqlFixture) Provision(
 
 		returnErr = errors.Join(
 			returnErr,
-			cleanupFailedProvision(ctx, app, admin, container),
+			f.cleanupFailedProvision(ctx, app, admin, container),
 		)
 	}()
 
@@ -109,19 +112,22 @@ func (f *mysqlFixture) Provision(
 	return handle, nil
 }
 
-func cleanupFailedProvision(
+func (f *mysqlFixture) cleanupFailedProvision(
 	operationCtx context.Context,
 	app *sql.DB,
 	admin *sql.DB,
 	container *mysqlcontainer.MySQLContainer,
 ) error {
-	return errors.Join(
-		closeDatabase("application database", app),
-		closeDatabase("administrative database", admin),
-		withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
-			return terminateContainer(cleanupCtx, container)
-		}),
-	)
+	appErr := closeDatabase("application database", app)
+	adminErr := closeDatabase("administrative database", admin)
+	terminateErr := withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
+		return f.terminate(cleanupCtx, container)
+	})
+	if terminateErr != nil && container != nil {
+		f.container = container
+	}
+
+	return errors.Join(appErr, adminErr, terminateErr)
 }
 
 func withProvisionCleanupContext(
