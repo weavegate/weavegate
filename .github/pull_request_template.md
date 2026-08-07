@@ -1,4 +1,4 @@
-## Related Issues
+# Related Issues
 
 Closes #
 

@@ -13,7 +13,7 @@ close them?"** weavegate applies none of them as-is.
 ## The question, side by side
 
 | Tool | Question it answers | Layer under test |
-|---|---|---|
+| --- | --- | --- |
 | Hermitage | Which anomalies does isolation level *X* on DB *Y* permit? | DB engine / isolation level |
 | Jepsen | Does a distributed system uphold its claimed consistency under faults? | DB / distributed system |
 | PostgreSQL isolation tester | Does Postgres produce the specified result for a given permutation? | DB engine |
@@ -24,6 +24,7 @@ close them?"** weavegate applies none of them as-is.
 ## Prior art we draw ideas from
 
 ### Hermitage
+
 [Hermitage](https://github.com/ept/hermitage) is a suite of hand-crafted
 transaction schedules that probe exactly which isolation anomalies each database
 and isolation level actually permits (as opposed to what the standard claims).
@@ -37,6 +38,7 @@ and isolation level actually permits (as opposed to what the standard claims).
   workflow* survives them.
 
 ### Jepsen
+
 [Jepsen](https://jepsen.io/) analyzes real databases and distributed systems for
 consistency violations under partitions and faults; its MySQL analysis is part
 of why weavegate treats "MySQL permits this schedule" as a documented fact
@@ -50,6 +52,7 @@ rather than a bug to file.
   application logic layered on top.
 
 ### PostgreSQL isolation tester (`isolationtester` / `pg_isolation_regress`)
+
 Postgres ships a
 [test harness](https://github.com/postgres/postgres/tree/master/src/test/isolation)
 that runs multi-session permutations of SQL steps and diffs the output against an
@@ -65,6 +68,7 @@ expected result, letting it assert precise interleaving behavior.
   differential, and schema constraints.
 
 ### Lincheck
+
 [Lincheck](https://github.com/JetBrains/lincheck) verifies concurrent JVM data
 structures by generating thread interleavings and checking linearizability,
 including a mode that deterministically replays a failing interleaving.
@@ -78,6 +82,7 @@ including a mode that deterministically replays a failing interleaving.
   invariants, not linearizability of a data structure.
 
 ### Deterministic-simulation testing — FoundationDB & TigerBeetle
+
 [FoundationDB](https://apple.github.io/foundationdb/testing.html) pioneered, and
 [TigerBeetle](https://tigerbeetle.com/) popularized, building the system so its
 entire execution — scheduling, I/O, faults, clocks — is driven by a single seed
@@ -95,12 +100,14 @@ and can be replayed bit-for-bit.
 ## Infrastructure we run on
 
 ### Testcontainers
+
 [Testcontainers](https://testcontainers.com/) gives every run a real, disposable
 MySQL 8 / InnoDB instance in a container. weavegate deliberately tests against a
 real engine, not a mock or an in-memory substitute — the whole point is the
 behavior the *actual* database permits.
 
 ### MySQL / InnoDB documentation
+
 MySQL's own
 [locking reads](https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html)
 and

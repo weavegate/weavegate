@@ -60,6 +60,28 @@ lost count and elapsed time are environment-dependent; the required invariants
 are a positive lost count for the vulnerable path and zero lost updates for the
 fixed path.
 
+## Continuous integration
+
+The smoke workflow at `.github/workflows/smoke.yml` runs the experiment on the
+GitHub Actions `ubuntu-latest` runner. The test starts `mysql:8.4` through
+Testcontainers rather than relying on a workflow service container.
+
+On August 7, 2026, the [hosted workflow run](https://github.com/weavegate/weavegate/actions/runs/31152509033)
+and two consecutive reruns completed successfully:
+
+| Attempt | Vulnerable observed | Vulnerable lost | Vulnerable elapsed | Fixed observed | Fixed lost | Fixed elapsed | Experiment job elapsed |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100 | 700 | 569.18923 ms | 800 | 0 | 2.922392612 s | 59 s |
+| 2 | 101 | 699 | 576.031743 ms | 800 | 0 | 2.96634356 s | 61 s |
+| 3 | 101 | 699 | 605.373352 ms | 800 | 0 | 3.187270486 s | 62 s |
+
+The local and hosted values differ because worker scheduling and transaction
+overlap depend on the environment. The enforced invariants remain a positive
+lost count for the vulnerable path and zero lost updates for the fixed path.
+Three successful attempts provide evidence that the probabilistic vulnerable
+path reproduces reliably on the hosted runner; they do not make the experiment
+deterministic.
+
 ## Why the outcomes differ
 
 The vulnerable path uses a plain snapshot read. Concurrent transactions can

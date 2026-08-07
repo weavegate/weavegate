@@ -1,0 +1,10 @@
+{
+  "config": {
+    // Prose is not subject to a repository-wide line-length policy.
+    "MD013": false
+  },
+  "gitignore": ".gitignore",
+  "ignores": [
+    "node_modules/**"
+  ]
+}
