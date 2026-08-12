@@ -54,12 +54,59 @@ A successful run emits this stable marker:
 MATCHING_FIXTURE_RESULT request_id=42 project_requests=1 matching_sessions=0 assignments=0 reset=true
 ```
 
+## Assignment workflow
+
+The fixture includes a Go-native assignment SUT under `sut/`. Its command path
+is split into three layers:
+
+1. The handler accepts the adapter command and worker-owned connection.
+2. The service owns the transaction and the read-check-insert workflow.
+3. The repository executes every query through the service-owned `*sql.Tx`.
+
+The service reads an active request, checks for an existing active assignment,
+creates a matching session, and inserts the assignment. A second assignment for
+the same request is a successful no-op after the existing assignment is found.
+
+The variants differ only in the request read:
+
+```sql
+-- vulnerable
+SELECT status FROM project_request WHERE id = ? AND status = 'ACTIVE';
+
+-- fixed
+SELECT status FROM project_request WHERE id = ? AND status = 'ACTIVE' FOR UPDATE;
+```
+
+The workflow exposes two named coordination points:
+
+- `after_read_request`
+- `before_insert_assignment`
+
+The default coordination implementation is a no-op. The integration test uses
+a test-local barrier at `before_insert_assignment` to compare two workers on
+the same request.
+
+Run the sequential and concurrent SUT tests with Docker available:
+
+```bash
+go test ./fixtures/matching-slice/sut -run TestAssignSequential -v -count=1
+go test ./fixtures/matching-slice/sut -run TestAssignConcurrent -v -count=1
+```
+
+The concurrent test has observed these result markers:
+
+```text
+SUT_ASSIGN_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true barrier=all_arrived worker_identity=preserved
+SUT_ASSIGN_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false barrier=timeout worker_identity=preserved
+```
+
 ## Current boundary
 
-This fixture currently verifies the schema, foreign keys, deliberate absence of
-a uniqueness constraint, seed data, and reset behavior. It does not yet invoke
-an application assignment workflow, control concurrent workers, evaluate an
-invariant oracle, or demonstrate that a fix closes a violating schedule.
+This fixture verifies the schema, seed and reset behavior, an application
+assignment workflow, and a test-controlled comparison of plain and locking
+reads. The row counts above are assertions inside that integration test. A
+reusable invariant Oracle and engine-driven orchestration are not implemented
+yet.
 
 The evidence status is tracked in
 [Why the fix works](../../docs/why-the-fix-works.md).
