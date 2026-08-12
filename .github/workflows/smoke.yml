@@ -44,7 +44,7 @@ jobs:
 
       - name: Run database fixture tests
         run: >-
-          go test ./internal/fixture/... ./fixtures/matching-slice/...
+          go test ./internal/fixture/... ./internal/sut/... ./fixtures/matching-slice/...
           -v -count=1 | tee fixture.log
 
       - name: Assert the fixture invariant
@@ -52,6 +52,11 @@ jobs:
           grep -F
           'MATCHING_FIXTURE_RESULT request_id=42 project_requests=1 matching_sessions=0 assignments=0 reset=true'
           fixture.log
+
+      - name: Assert the SUT adapter invariants
+        run: |
+          grep -F 'SUT_ADAPTER_RESULT command=probe workers=2 distinct_connections=2 errors=0 async=true worker_identity=preserved' fixture.log
+          grep -F 'SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true' fixture.log
 
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
