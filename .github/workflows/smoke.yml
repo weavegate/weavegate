@@ -57,6 +57,7 @@ jobs:
         run: |
           grep -F 'SUT_ADAPTER_RESULT command=probe workers=2 distinct_connections=2 errors=0 async=true worker_identity=preserved' fixture.log
           grep -F 'SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true' fixture.log
+          grep -F 'SUT_WORKER_ID_RESULT duplicate_active=error extra_connection=false reuse_after_terminal=ok' fixture.log
 
       - name: Assert the matching assignment invariants
         run: |

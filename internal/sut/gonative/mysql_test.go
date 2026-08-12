@@ -39,6 +39,9 @@ func TestGoNativeMySQL(t *testing.T) {
 	t.Run("stops an active worker and releases its connection", func(t *testing.T) {
 		testActiveStop(t, ctx, db)
 	})
+	t.Run("rejects duplicate active worker IDs and permits terminal reuse", func(t *testing.T) {
+		testWorkerIDLifecycle(t, ctx, db)
+	})
 }
 
 func testDedicatedConnections(
@@ -204,6 +207,96 @@ func testActiveStop(
 	assertErrorContains(t, err, "stopped")
 
 	t.Log("SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true")
+}
+
+func testWorkerIDLifecycle(
+	t *testing.T,
+	ctx context.Context,
+	db *fixture.DB,
+) {
+	t.Helper()
+
+	entered := make(chan string, 2)
+	release := make(chan struct{}, 2)
+	registry := staticRegistry{
+		"block": func(ctx context.Context, workerID string, conn *sql.Conn) error {
+			var connectionID int64
+			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+				return fmt.Errorf("read connection ID: %w", err)
+			}
+
+			select {
+			case entered <- workerID:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+
+	adapter := New(registry)
+	handle, err := adapter.Start(ctx, sut.SUTConfig{}, db)
+	if err != nil {
+		t.Fatalf("start worker ID lifecycle adapter: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Errorf("cleanup worker ID lifecycle adapter: %v", err)
+		}
+	})
+
+	const workerID = "reusable-worker"
+	firstResults, err := handle.Invoke(ctx, workerID, "block")
+	if err != nil {
+		t.Fatalf("invoke first worker: %v", err)
+	}
+	if got := receiveWithin(t, ctx, entered, "first worker entry"); got != workerID {
+		t.Fatalf("first command worker ID = %q, want %q", got, workerID)
+	}
+	if got := db.SQL.Stats().InUse; got != 1 {
+		t.Fatalf("in-use connections before duplicate invocation = %d, want 1", got)
+	}
+
+	duplicateResults, err := handle.Invoke(ctx, workerID, "block")
+	assertErrorContains(t, err, "already active")
+	if duplicateResults != nil {
+		t.Fatal("duplicate active invocation returned a result channel")
+	}
+	if got := db.SQL.Stats().InUse; got != 1 {
+		t.Fatalf("in-use connections after duplicate rejection = %d, want 1", got)
+	}
+
+	release <- struct{}{}
+	first := receiveWorkerResult(t, ctx, firstResults)
+	if first.WorkerID != workerID || first.Err != nil {
+		t.Fatalf("first terminal result = %+v, want worker %q without error", first, workerID)
+	}
+	if got := db.SQL.Stats().InUse; got != 0 {
+		t.Fatalf("in-use connections after first terminal completion = %d, want 0", got)
+	}
+
+	secondResults, err := handle.Invoke(ctx, workerID, "block")
+	if err != nil {
+		t.Fatalf("reuse terminal worker ID: %v", err)
+	}
+	if got := receiveWithin(t, ctx, entered, "reused worker entry"); got != workerID {
+		t.Fatalf("reused command worker ID = %q, want %q", got, workerID)
+	}
+	release <- struct{}{}
+	second := receiveWorkerResult(t, ctx, secondResults)
+	if second.WorkerID != workerID || second.Err != nil {
+		t.Fatalf("reused terminal result = %+v, want worker %q without error", second, workerID)
+	}
+	if got := db.SQL.Stats().InUse; got != 0 {
+		t.Fatalf("in-use connections after reused completion = %d, want 0", got)
+	}
+
+	t.Log("SUT_WORKER_ID_RESULT duplicate_active=error extra_connection=false reuse_after_terminal=ok")
 }
 
 type connectionObservation struct {

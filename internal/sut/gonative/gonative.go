@@ -31,7 +31,6 @@ const (
 )
 
 type activeWorker struct {
-	id         uint64
 	workerID   string
 	command    string
 	cancel     context.CancelFunc
@@ -47,8 +46,7 @@ type adapter struct {
 	state    adapterState
 	db       *fixture.DB
 	commands map[string]CommandFunc
-	active   map[uint64]*activeWorker
-	nextID   uint64
+	active   map[string]*activeWorker
 }
 
 var (
@@ -60,7 +58,7 @@ var (
 func New(reg Registry) sut.Adapter {
 	return &adapter{
 		registry: reg,
-		active:   make(map[uint64]*activeWorker),
+		active:   make(map[string]*activeWorker),
 	}
 }
 
@@ -154,18 +152,24 @@ func (a *adapter) Invoke(
 			commandName,
 		)
 	}
+	if _, exists := a.active[workerID]; exists {
+		a.mu.Unlock()
+		return nil, fmt.Errorf(
+			"invoke worker %q command %q: worker ID is already active",
+			workerID,
+			commandName,
+		)
+	}
 
 	workerCtx, cancel := context.WithCancel(ctx)
-	a.nextID++
 	worker := &activeWorker{
-		id:       a.nextID,
 		workerID: workerID,
 		command:  commandName,
 		cancel:   cancel,
 		results:  make(chan sut.WorkerResult, 1),
 		done:     make(chan struct{}),
 	}
-	a.active[worker.id] = worker
+	a.active[workerID] = worker
 	db := a.db.SQL
 	a.mu.Unlock()
 
@@ -237,24 +241,29 @@ func (a *adapter) runWorker(
 		Err:      errors.Join(commandErr, closeErr),
 		Duration: time.Since(startedAt),
 	}
-
-	worker.cancel()
-	a.mu.Lock()
-	delete(a.active, worker.id)
-	worker.cleanupErr = closeErr
-	worker.results <- result
-	close(worker.results)
-	close(worker.done)
-	a.mu.Unlock()
+	a.completeWorker(worker, &result, closeErr)
 }
 
 func (a *adapter) completeUnstartedWorker(worker *activeWorker, cleanupErr error) {
+	a.completeWorker(worker, nil, cleanupErr)
+}
+
+func (a *adapter) completeWorker(
+	worker *activeWorker,
+	result *sut.WorkerResult,
+	cleanupErr error,
+) {
 	worker.cancel()
 	a.mu.Lock()
-	delete(a.active, worker.id)
 	worker.cleanupErr = cleanupErr
+	if result != nil {
+		worker.results <- *result
+	}
 	close(worker.results)
 	close(worker.done)
+	// Invoke checks active under this mutex. Keep the worker ID reserved until
+	// its result stream and cleanup signal have both reached terminal state.
+	delete(a.active, worker.workerID)
 	a.mu.Unlock()
 }
 

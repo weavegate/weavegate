@@ -23,6 +23,10 @@ goroutine. The adapter owns that connection for the complete command lifecycle
 and closes it after the command returns. A worker ID therefore identifies one
 command execution on one database session.
 
+Worker IDs are unique among active invocations. An ID remains reserved until
+its connection has been returned and its terminal result stream and cleanup
+signal have both been finalized; only then may a later invocation reuse it.
+
 The fixture handle remains the observation surface. It is used to prepare and
 reset the database and to query committed results, but it does not execute a
 worker's transactional workflow.
@@ -37,6 +41,8 @@ the mechanism used to establish that session differs.
   workers.
 - Transaction and lock observations can be attributed to the worker that owns
   the corresponding session.
+- Duplicate active worker IDs are rejected before another connection is
+  acquired, while terminally completed IDs can be reused.
 - Cancellation and adapter shutdown must wait for command completion and
   connection release.
 - Fixture reset must not run while workers are active.

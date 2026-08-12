@@ -14,7 +14,9 @@ type Adapter interface {
 	Stop(ctx context.Context) error
 }
 
-// Handle invokes registered worker commands on a started adapter.
+// Handle invokes registered worker commands on a started adapter. A worker ID
+// is unique among active invocations and can be reused after the previous
+// invocation's terminal result channel has closed.
 type Handle interface {
 	Invoke(ctx context.Context, workerID string, command string) (<-chan WorkerResult, error)
 }
