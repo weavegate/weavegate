@@ -58,6 +58,11 @@ jobs:
           grep -F 'SUT_ADAPTER_RESULT command=probe workers=2 distinct_connections=2 errors=0 async=true worker_identity=preserved' fixture.log
           grep -F 'SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true' fixture.log
 
+      - name: Assert the matching assignment invariants
+        run: |
+          grep -F 'SUT_ASSIGN_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true barrier=all_arrived worker_identity=preserved' fixture.log
+          grep -F 'SUT_ASSIGN_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false barrier=timeout worker_identity=preserved' fixture.log
+
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
 
