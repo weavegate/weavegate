@@ -6,36 +6,33 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 )
 
 type barrierReleaseReason string
 
 const (
-	barrierAllArrived barrierReleaseReason = "all_arrived"
-	barrierTimeout    barrierReleaseReason = "timeout"
+	barrierAllArrived  barrierReleaseReason = "all_arrived"
+	barrierDBBlocked   barrierReleaseReason = "db_blocked"
+	barrierTestCleanup barrierReleaseReason = "test_cleanup"
 )
 
 type testBarrier struct {
 	mu sync.Mutex
 
-	point        string
-	participants int
-	timeout      time.Duration
-	released     chan struct{}
-	timer        *time.Timer
-	release      barrierReleaseReason
-	events       []syncPointEvent
-	arrivals     []string
-	releasedIDs  []string
+	point       string
+	released    chan struct{}
+	changed     chan struct{}
+	release     barrierReleaseReason
+	events      []syncPointEvent
+	arrivals    []string
+	releasedIDs []string
 }
 
-func newTestBarrier(point string, participants int, timeout time.Duration) *testBarrier {
+func newTestBarrier(point string) *testBarrier {
 	return &testBarrier{
-		point:        point,
-		participants: participants,
-		timeout:      timeout,
-		released:     make(chan struct{}),
+		point:    point,
+		released: make(chan struct{}),
+		changed:  make(chan struct{}),
 	}
 }
 
@@ -52,18 +49,10 @@ func (b *testBarrier) Arrive(ctx context.Context, workerID string, point string)
 	}
 
 	b.arrivals = append(b.arrivals, workerID)
+	b.signalChangedLocked()
 	if b.release != "" {
 		b.mu.Unlock()
 		return nil
-	}
-
-	if len(b.arrivals) == 1 {
-		b.timer = time.AfterFunc(b.timeout, func() {
-			b.releaseWaiting(barrierTimeout)
-		})
-	}
-	if len(b.arrivals) >= b.participants {
-		b.releaseLocked(barrierAllArrived)
 	}
 	released := b.released
 	b.mu.Unlock()
@@ -76,23 +65,53 @@ func (b *testBarrier) Arrive(ctx context.Context, workerID string, point string)
 	}
 }
 
-func (b *testBarrier) releaseWaiting(reason barrierReleaseReason) {
+func (b *testBarrier) waitForArrivals(ctx context.Context, workerIDs ...string) error {
+	for {
+		b.mu.Lock()
+		if containsWorkerIDs(b.arrivals, workerIDs) {
+			b.mu.Unlock()
+			return nil
+		}
+		changed := b.changed
+		b.mu.Unlock()
+
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func containsWorkerIDs(arrivals []string, workerIDs []string) bool {
+	seen := make(map[string]struct{}, len(arrivals))
+	for _, workerID := range arrivals {
+		seen[workerID] = struct{}{}
+	}
+	for _, workerID := range workerIDs {
+		if _, ok := seen[workerID]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (b *testBarrier) Release(reason barrierReleaseReason) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.releaseLocked(reason)
-}
-
-func (b *testBarrier) releaseLocked(reason barrierReleaseReason) {
 	if b.release != "" {
 		return
-	}
-	if reason == barrierAllArrived && b.timer != nil {
-		b.timer.Stop()
 	}
 	b.release = reason
 	b.releasedIDs = append([]string(nil), b.arrivals...)
 	close(b.released)
+	b.signalChangedLocked()
+}
+
+func (b *testBarrier) signalChangedLocked() {
+	close(b.changed)
+	b.changed = make(chan struct{})
 }
 
 func (b *testBarrier) observation() barrierObservation {
@@ -115,57 +134,64 @@ type barrierObservation struct {
 }
 
 func TestBarrier(t *testing.T) {
-	t.Run("passes arrivals after timeout", func(t *testing.T) {
-		barrier := newTestBarrier(BeforeInsertAssignment, 2, 10*time.Millisecond)
-		if err := barrier.Arrive(context.Background(), "w1", BeforeInsertAssignment); err != nil {
-			t.Fatalf("first barrier arrival: %v", err)
+	t.Run("waits for explicit release", func(t *testing.T) {
+		barrier := newTestBarrier(BeforeInsertAssignment)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		errCh := make(chan error, 2)
+		for _, workerID := range []string{"w1", "w2"} {
+			go func(workerID string) {
+				errCh <- barrier.Arrive(ctx, workerID, BeforeInsertAssignment)
+			}(workerID)
+		}
+		if err := barrier.waitForArrivals(ctx, "w1", "w2"); err != nil {
+			t.Fatalf("wait for barrier arrivals: %v", err)
+		}
+		if got := barrier.observation().release; got != "" {
+			t.Fatalf("barrier released without an explicit signal: %s", got)
 		}
 
-		beforeLateArrival := barrier.observation()
-		if beforeLateArrival.release != barrierTimeout {
-			t.Fatalf("barrier before late arrival = %s, want timeout", beforeLateArrival)
+		barrier.Release(barrierAllArrived)
+		for range 2 {
+			if err := <-errCh; err != nil {
+				t.Fatalf("barrier arrival after release: %v", err)
+			}
 		}
-		if len(beforeLateArrival.releasedIDs) != 1 || beforeLateArrival.releasedIDs[0] != "w1" {
-			t.Fatalf("released worker IDs = %v, want [w1]", beforeLateArrival.releasedIDs)
+		observation := barrier.observation()
+		if observation.release != barrierAllArrived || len(observation.releasedIDs) != 2 {
+			t.Fatalf("released barrier = %s, want all_arrived with two workers", observation)
 		}
+	})
+
+	t.Run("passes arrivals after release", func(t *testing.T) {
+		barrier := newTestBarrier(BeforeInsertAssignment)
+		barrier.Release(barrierDBBlocked)
 
 		if err := barrier.Arrive(context.Background(), "w2", BeforeInsertAssignment); err != nil {
 			t.Fatalf("late barrier arrival: %v", err)
 		}
-		afterLateArrival := barrier.observation()
-		if len(afterLateArrival.arrivals) != 2 || len(afterLateArrival.releasedIDs) != 1 {
-			t.Fatalf("barrier after late arrival = %s", afterLateArrival)
+		observation := barrier.observation()
+		if len(observation.arrivals) != 1 || len(observation.releasedIDs) != 0 {
+			t.Fatalf("barrier after late arrival = %s", observation)
 		}
 	})
 
 	t.Run("returns context cancellation while waiting", func(t *testing.T) {
-		barrier := newTestBarrier(BeforeInsertAssignment, 2, time.Minute)
+		barrier := newTestBarrier(BeforeInsertAssignment)
 		ctx, cancel := context.WithCancel(context.Background())
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- barrier.Arrive(ctx, "w1", BeforeInsertAssignment)
 		}()
 
-		deadline := time.Now().Add(time.Second)
-		for len(barrier.observation().arrivals) == 0 {
-			if time.Now().After(deadline) {
-				t.Fatal("worker did not reach barrier before cancellation")
-			}
-			time.Sleep(time.Millisecond)
+		if err := barrier.waitForArrivals(context.Background(), "w1"); err != nil {
+			t.Fatalf("wait for first barrier arrival: %v", err)
 		}
 		cancel()
 
-		select {
-		case err := <-errCh:
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("barrier cancellation error = %v, want context.Canceled", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("barrier did not return after context cancellation")
-		}
-
-		if err := barrier.Arrive(context.Background(), "w2", BeforeInsertAssignment); err != nil {
-			t.Fatalf("release cancelled barrier waiter: %v", err)
+		if err := <-errCh; !errors.Is(err, context.Canceled) {
+			t.Fatalf("barrier cancellation error = %v, want context.Canceled", err)
 		}
 	})
 }

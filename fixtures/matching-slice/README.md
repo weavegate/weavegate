@@ -82,9 +82,11 @@ The workflow exposes two named coordination points:
 - `after_read_request`
 - `before_insert_assignment`
 
-The default coordination implementation is a no-op. The integration test uses
-a test-local barrier at `before_insert_assignment` to compare two workers on
-the same request.
+The default coordination implementation is a no-op. The integration test holds
+the first worker at a test-local barrier, starts the second worker, and releases
+the barrier only after observing either both vulnerable workers at the point or
+one current InnoDB row-lock wait on the fixed path. Its deadline fails the test;
+it never advances the successful schedule.
 
 Run the sequential and concurrent SUT tests with Docker available:
 
@@ -97,7 +99,7 @@ The concurrent test has observed these result markers:
 
 ```text
 SUT_ASSIGN_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true barrier=all_arrived worker_identity=preserved
-SUT_ASSIGN_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false barrier=timeout worker_identity=preserved
+SUT_ASSIGN_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false barrier=db_blocked worker_identity=preserved
 ```
 
 ## Current boundary
