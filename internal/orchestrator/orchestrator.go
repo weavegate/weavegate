@@ -33,6 +33,7 @@ type Config struct {
 	StepTimeout           time.Duration
 	RunTimeout            time.Duration
 	StopTimeout           time.Duration
+	OnEvent               EventObserver
 }
 
 // Orchestrator executes one validated scenario and schedule at a time.

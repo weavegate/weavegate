@@ -15,13 +15,16 @@ import (
 // RunResult contains the stable single-run outcome needed by an observer and
 // the later replay layer.
 type RunResult struct {
-	ScheduleID      string
-	Steps           int
-	Workers         []sut.WorkerResult
-	Timeouts        int
-	PendingResolved int
-	Fingerprint     string
-	Elapsed         time.Duration
+	ScheduleID       string
+	Steps            int
+	Workers          []sut.WorkerResult
+	Terminals        []WorkerTerminal
+	Trace            []Event
+	Timeouts         int
+	PendingResolved  int
+	StateFingerprint string
+	Fingerprint      string
+	Elapsed          time.Duration
 }
 
 type collectedResult struct {
@@ -34,6 +37,8 @@ type workerExecution struct {
 	result          sut.WorkerResult
 	collected       bool
 	terminal        bool
+	terminalState   TerminalState
+	failureClass    WorkerFailureClass
 	collectedResult <-chan collectedResult
 }
 
@@ -44,6 +49,7 @@ type runCoordinator struct {
 	value    scenario.Scenario
 	schedule scenario.Schedule
 	result   *RunResult
+	trace    *traceRecorder
 
 	collectorsContext context.Context
 	collectorsWait    *sync.WaitGroup
@@ -83,11 +89,18 @@ func (o *Orchestrator) Run(
 	if err := scenario.Validate(value, schedule); err != nil {
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
 	}
+	trace := newTraceRecorder(o.config.OnEvent)
+	defer func() {
+		result.Trace = trace.clone()
+	}()
 
 	runCtx, cancelRun := context.WithTimeout(ctx, o.config.RunTimeout)
 	defer cancelRun()
 	if err := o.config.Fixture.Reset(runCtx); err != nil {
 		return result, fmt.Errorf("run schedule %q: reset fixture: %w", schedule.ID, err)
+	}
+	if err := trace.emit(Event{Kind: EventFixtureReset, Step: -1}); err != nil {
+		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
 	}
 
 	runtime := o.config.NewRuntime()
@@ -139,6 +152,7 @@ func (o *Orchestrator) Run(
 		value:             value.Clone(),
 		schedule:          schedule.Clone(),
 		result:            &result,
+		trace:             trace,
 		collectorsContext: collectorsCtx,
 		collectorsWait:    &collectorsWait,
 		blockTimeout:      o.config.BlockInferenceTimeout,
@@ -152,10 +166,12 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
 	}
 
+	result.Trace = trace.clone()
 	observed, err := observer(runCtx, o.config.DB, result.clone())
 	if err != nil {
 		return result, fmt.Errorf("run schedule %q: observe state: %w", schedule.ID, err)
 	}
+	result.StateFingerprint = observed
 	result.Fingerprint = observed
 	return result, nil
 }
@@ -172,6 +188,13 @@ func (r *runCoordinator) execute() error {
 			return fmt.Errorf("register worker %q: %w", worker.ID, err)
 		}
 		r.executions[worker.ID] = &workerExecution{worker: worker}
+		if err := r.trace.emit(Event{
+			Kind:   EventWorkerRegistered,
+			Step:   -1,
+			Worker: worker.ID,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, worker := range r.value.Workers {
@@ -204,17 +227,24 @@ func (r *runCoordinator) execute() error {
 	}
 
 	workers := make([]sut.WorkerResult, 0, len(r.value.Workers))
+	terminals := make([]WorkerTerminal, 0, len(r.value.Workers))
 	for _, worker := range r.value.Workers {
 		execution := r.executions[worker.ID]
 		if !execution.collected {
-			if err := r.collect(worker.ID); err != nil {
+			if err := r.collect(worker.ID, -1); err != nil {
 				return err
 			}
 		}
 		workers = append(workers, execution.result)
+		terminals = append(terminals, WorkerTerminal{
+			Worker:       worker.ID,
+			State:        execution.terminalState,
+			FailureClass: execution.failureClass,
+		})
 	}
 	r.result.Workers = workers
-	return nil
+	r.result.Terminals = terminals
+	return r.trace.emit(Event{Kind: EventScheduleComplete, Step: -1})
 }
 
 func (r *runCoordinator) invoke(worker scenario.Worker) error {
@@ -263,7 +293,11 @@ func (r *runCoordinator) invoke(worker scenario.Worker) error {
 			return
 		}
 	}()
-	return nil
+	return r.trace.emit(Event{
+		Kind:   EventWorkerInvoked,
+		Step:   -1,
+		Worker: worker.ID,
+	})
 }
 
 func (r *runCoordinator) bootstrap(index int) error {
@@ -284,7 +318,7 @@ func (r *runCoordinator) traverse(index int) error {
 	step := r.schedule.Steps[index]
 	execution := r.executions[step.Worker]
 	if execution.terminal {
-		return nil
+		return r.emitTerminalSkipped(index)
 	}
 	if r.pending[index] {
 		return nil
@@ -305,21 +339,37 @@ func (r *runCoordinator) recordObservation(index int, status syncpoint.ArriveSta
 	step := r.schedule.Steps[index]
 	switch status {
 	case syncpoint.ArriveStatusArrived:
+		if err := r.trace.emit(Event{
+			Kind:   EventPointArrived,
+			Step:   index,
+			Worker: step.Worker,
+			Point:  step.Point,
+			Status: ControlStatusArrived,
+		}); err != nil {
+			return err
+		}
 		if bootstrap {
 			r.preObserved[index] = true
 			return nil
 		}
 		return r.release(index)
 	case syncpoint.ArriveStatusTimeout:
-		if err := r.pollCollector(step.Worker); err != nil {
+		if err := r.pollCollector(step.Worker, index); err != nil {
+			return err
+		}
+		if err := r.emitTimeout(index); err != nil {
 			return err
 		}
 		r.pending[index] = true
-		r.result.Timeouts++
 		return nil
 	case syncpoint.ArriveStatusDone, syncpoint.ArriveStatusFailed:
-		if err := r.collect(step.Worker); err != nil {
+		if err := r.collect(step.Worker, index); err != nil {
 			return err
+		}
+		if !bootstrap {
+			if err := r.emitTerminalSkipped(index); err != nil {
+				return err
+			}
 		}
 		_, err := r.drainPending()
 		return err
@@ -346,11 +396,20 @@ func (r *runCoordinator) release(index int) error {
 	if err := r.runtime.Release(r.ctx, step.Worker, step.Point); err != nil {
 		return fmt.Errorf("release step[%d] worker %q at %q: %w", index, step.Worker, step.Point, err)
 	}
+	if err := r.trace.emit(Event{
+		Kind:   EventPointReleased,
+		Step:   index,
+		Worker: step.Worker,
+		Point:  step.Point,
+		Status: ControlStatusReleased,
+	}); err != nil {
+		return err
+	}
 
 	if step.Point != r.value.SyncPoints[len(r.value.SyncPoints)-1] {
 		return nil
 	}
-	if err := r.collect(step.Worker); err != nil {
+	if err := r.collect(step.Worker, index); err != nil {
 		return err
 	}
 	_, err := r.drainPending()
@@ -367,6 +426,9 @@ func (r *runCoordinator) drainPending() (bool, error) {
 		step := r.schedule.Steps[index]
 		execution := r.executions[step.Worker]
 		if execution.terminal {
+			if err := r.emitTerminalSkipped(index); err != nil {
+				return progressed, err
+			}
 			delete(r.pending, index)
 			progressed = true
 			continue
@@ -384,6 +446,15 @@ func (r *runCoordinator) drainPending() (bool, error) {
 		}
 		switch status {
 		case syncpoint.ArriveStatusArrived:
+			if err := r.trace.emit(Event{
+				Kind:   EventPointArrived,
+				Step:   index,
+				Worker: step.Worker,
+				Point:  step.Point,
+				Status: ControlStatusArrived,
+			}); err != nil {
+				return progressed, err
+			}
 			delete(r.pending, index)
 			if err := r.releasePending(index); err != nil {
 				return progressed, err
@@ -391,13 +462,19 @@ func (r *runCoordinator) drainPending() (bool, error) {
 			r.result.PendingResolved++
 			progressed = true
 		case syncpoint.ArriveStatusDone, syncpoint.ArriveStatusFailed:
-			if err := r.collect(step.Worker); err != nil {
+			if err := r.collect(step.Worker, index); err != nil {
+				return progressed, err
+			}
+			if err := r.emitTerminalSkipped(index); err != nil {
 				return progressed, err
 			}
 			delete(r.pending, index)
 			progressed = true
 		case syncpoint.ArriveStatusTimeout:
-			if err := r.pollCollector(step.Worker); err != nil {
+			if err := r.pollCollector(step.Worker, index); err != nil {
+				return progressed, err
+			}
+			if err := r.emitTimeout(index); err != nil {
 				return progressed, err
 			}
 		case syncpoint.ArriveStatusUnknown:
@@ -431,13 +508,22 @@ func (r *runCoordinator) releasePending(index int) error {
 			err,
 		)
 	}
+	if err := r.trace.emit(Event{
+		Kind:   EventPointReleased,
+		Step:   index,
+		Worker: step.Worker,
+		Point:  step.Point,
+		Status: ControlStatusReleased,
+	}); err != nil {
+		return err
+	}
 	if step.Point == r.value.SyncPoints[len(r.value.SyncPoints)-1] {
-		return r.collect(step.Worker)
+		return r.collect(step.Worker, index)
 	}
 	return nil
 }
 
-func (r *runCoordinator) collect(workerID string) error {
+func (r *runCoordinator) collect(workerID string, step int) error {
 	execution := r.executions[workerID]
 	if execution.collected {
 		return nil
@@ -457,13 +543,13 @@ func (r *runCoordinator) collect(workerID string) error {
 		execution.result = collected.result
 		execution.collected = true
 		execution.terminal = true
-		return nil
+		return r.emitTerminal(execution, step)
 	case <-r.ctx.Done():
 		return fmt.Errorf("collect worker %q: %w", workerID, r.ctx.Err())
 	}
 }
 
-func (r *runCoordinator) pollCollector(workerID string) error {
+func (r *runCoordinator) pollCollector(workerID string, step int) error {
 	execution := r.executions[workerID]
 	if execution.collected || execution.collectedResult == nil {
 		return nil
@@ -480,10 +566,51 @@ func (r *runCoordinator) pollCollector(workerID string) error {
 		execution.result = collected.result
 		execution.collected = true
 		execution.terminal = true
-		return nil
+		return r.emitTerminal(execution, step)
 	default:
 		return nil
 	}
+}
+
+func (r *runCoordinator) emitTerminal(execution *workerExecution, step int) error {
+	execution.failureClass = ClassifyWorkerFailure(execution.result.Err)
+	event := Event{
+		Step:         step,
+		Worker:       execution.worker.ID,
+		FailureClass: execution.failureClass,
+	}
+	if execution.result.Err == nil {
+		execution.terminalState = TerminalStateDone
+		event.Kind = EventWorkerDone
+	} else {
+		execution.terminalState = TerminalStateFailed
+		event.Kind = EventWorkerFailed
+	}
+	return r.trace.emit(event)
+}
+
+func (r *runCoordinator) emitTimeout(index int) error {
+	step := r.schedule.Steps[index]
+	r.result.Timeouts++
+	return r.trace.emit(Event{
+		Kind:         EventPointTimeout,
+		Step:         index,
+		Worker:       step.Worker,
+		Point:        step.Point,
+		Status:       ControlStatusTimeoutInferred,
+		FailureClass: WorkerFailureNone,
+	})
+}
+
+func (r *runCoordinator) emitTerminalSkipped(index int) error {
+	step := r.schedule.Steps[index]
+	return r.trace.emit(Event{
+		Kind:   EventStepTerminalSkipped,
+		Step:   index,
+		Worker: step.Worker,
+		Point:  step.Point,
+		Status: ControlStatusTerminalSkipped,
+	})
 }
 
 func (r *runCoordinator) configuredBlockTimeout() time.Duration {
@@ -497,5 +624,7 @@ func (r *runCoordinator) configuredStepTimeout() time.Duration {
 func (r RunResult) clone() RunResult {
 	clone := r
 	clone.Workers = append([]sut.WorkerResult(nil), r.Workers...)
+	clone.Terminals = append([]WorkerTerminal(nil), r.Terminals...)
+	clone.Trace = append([]Event(nil), r.Trace...)
 	return clone
 }
