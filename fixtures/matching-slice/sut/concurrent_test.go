@@ -239,6 +239,42 @@ type runtimeWorkerResult struct {
 	collectionErr error
 }
 
+func TestRuntimeResultCollectorDoesNotWaitForAdapterChannelClose(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), scheduleStepTimeout)
+	defer cancel()
+
+	runtime := syncpoint.New()
+	t.Cleanup(runtime.Close)
+	adapterResults := make(chan internalsut.WorkerResult, 1)
+	defer close(adapterResults)
+	adapterResults <- internalsut.WorkerResult{WorkerID: "w1"}
+
+	collected := invokeRuntimeWorker(
+		t,
+		ctx,
+		runtime,
+		staticResultHandle{results: adapterResults},
+		"w1",
+	)
+	result := awaitRuntimeWorkerResult(t, ctx, collected, "w1")
+	if result.Err != nil {
+		t.Fatalf("worker result error = %v, want nil", result.Err)
+	}
+	assertRuntimeState(t, runtime, "w1", syncpoint.WorkerStateDone, "")
+}
+
+type staticResultHandle struct {
+	results <-chan internalsut.WorkerResult
+}
+
+func (h staticResultHandle) Invoke(
+	context.Context,
+	string,
+	string,
+) (<-chan internalsut.WorkerResult, error) {
+	return h.results, nil
+}
+
 func invokeRuntimeWorker(
 	t *testing.T,
 	ctx context.Context,
@@ -262,14 +298,6 @@ func invokeRuntimeWorker(
 		if !ok {
 			collected <- runtimeWorkerResult{
 				collectionErr: fmt.Errorf("worker %q result channel closed without a result", workerID),
-			}
-			close(collected)
-			return
-		}
-		if _, open := <-results; open {
-			collected <- runtimeWorkerResult{
-				result:        result,
-				collectionErr: fmt.Errorf("worker %q returned more than one result", workerID),
 			}
 			close(collected)
 			return
