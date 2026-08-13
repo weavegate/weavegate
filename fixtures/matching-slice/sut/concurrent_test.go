@@ -5,16 +5,19 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"testing"
 	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
 	internalsut "github.com/weavegate/weavegate/internal/sut"
+	"github.com/weavegate/weavegate/internal/syncpoint"
 )
 
-const concurrentCoordinationTimeout = 15 * time.Second
+const (
+	concurrentCoordinationTimeout = 15 * time.Second
+	scheduleStepTimeout           = 5 * time.Second
+	lockInferenceTimeout          = 250 * time.Millisecond
+)
 
 func TestAssignConcurrent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -40,13 +43,11 @@ func TestAssignConcurrent(t *testing.T) {
 			variant:       string(variantVulnerable),
 			wantCounts:    workflowCounts{sessions: 2, assignments: 2, activeAssignments: 2},
 			wantDuplicate: true,
-			wantRelease:   barrierAllArrived,
 		},
 		{
 			variant:       string(variantFixed),
 			wantCounts:    workflowCounts{sessions: 1, assignments: 1, activeAssignments: 1},
 			wantDuplicate: false,
-			wantRelease:   barrierDBBlocked,
 		},
 	}
 
@@ -64,7 +65,6 @@ type concurrentCase struct {
 	variant       string
 	wantCounts    workflowCounts
 	wantDuplicate bool
-	wantRelease   barrierReleaseReason
 }
 
 func testConcurrentVariant(
@@ -78,66 +78,54 @@ func testConcurrentVariant(
 	scenarioCtx, cancel := context.WithTimeout(ctx, concurrentCoordinationTimeout)
 	defer cancel()
 
-	barrier := newTestBarrier(BeforeInsertAssignment)
-	adapter, handle := startMatchingAdapter(t, scenarioCtx, db, barrier, tc.variant, seededRequestID)
+	runtime := syncpoint.New()
+	defer runtime.Close()
+	adapter, handle := startMatchingAdapter(
+		t,
+		scenarioCtx,
+		db,
+		runtime,
+		tc.variant,
+		seededRequestID,
+	)
 	defer stopMatchingAdapter(t, adapter)
-	defer barrier.Release(barrierTestCleanup)
 
 	if waits := readCurrentInnoDBRowLockWaits(t, scenarioCtx, db.SQL); waits != 0 {
 		t.Fatalf("current InnoDB row lock waits before %s scenario = %d, want 0", tc.variant, waits)
 	}
 
 	workerIDs := []string{"w1", "w2"}
-	resultChannels := make([]<-chan internalsut.WorkerResult, 0, len(workerIDs))
-	resultChannels = append(resultChannels, invokeConcurrentWorker(t, scenarioCtx, handle, workerIDs[0]))
-	if err := barrier.waitForArrivals(scenarioCtx, workerIDs[0]); err != nil {
-		t.Fatalf("wait for first %s worker at barrier: %v", tc.variant, err)
-	}
-	resultChannels = append(resultChannels, invokeConcurrentWorker(t, scenarioCtx, handle, workerIDs[1]))
+	w1 := invokeRuntimeWorker(t, scenarioCtx, runtime, handle, workerIDs[0])
+	waitForRuntimeArrival(t, scenarioCtx, runtime, workerIDs[0], AfterReadRequest)
+	w2 := invokeRuntimeWorker(t, scenarioCtx, runtime, handle, workerIDs[1])
 
-	switch tc.wantRelease {
-	case barrierAllArrived:
-		if err := barrier.waitForArrivals(scenarioCtx, workerIDs...); err != nil {
-			t.Fatalf("wait for vulnerable workers at barrier: %v", err)
-		}
-		if waits := readCurrentInnoDBRowLockWaits(t, scenarioCtx, db.SQL); waits != 0 {
-			t.Fatalf("vulnerable row lock waits before release = %d, want 0", waits)
-		}
-		barrier.Release(barrierAllArrived)
-	case barrierDBBlocked:
-		if err := waitForInnoDBRowLockWaits(scenarioCtx, db.SQL, 1); err != nil {
-			t.Fatalf("wait for fixed worker row lock: %v", err)
-		}
-		observation := barrier.observation()
-		if !reflect.DeepEqual(observation.arrivals, []string{workerIDs[0]}) {
-			t.Fatalf("fixed arrivals before database release = %v, want [%s]", observation.arrivals, workerIDs[0])
-		}
-		select {
-		case result, ok := <-resultChannels[1]:
-			t.Fatalf("fixed worker completed before row lock release: result=%+v open=%t", result, ok)
-		default:
-		}
-		barrier.Release(barrierDBBlocked)
-	default:
-		t.Fatalf("unsupported barrier release %q", tc.wantRelease)
+	var (
+		results          []internalsut.WorkerResult
+		w2AfterRead      string
+		timeoutInferred  int
+		terminalAtInsert string
+	)
+	if tc.variant == string(variantVulnerable) {
+		results = runVulnerableSchedule(t, scenarioCtx, runtime, db.SQL, w1, w2)
+		w2AfterRead = "arrived"
+		timeoutInferred = 0
+	} else {
+		results = runFixedSchedule(t, scenarioCtx, runtime, db.SQL, w1, w2)
+		w2AfterRead = "timeout"
+		timeoutInferred = 1
+		terminalAtInsert = "done"
 	}
 
-	results := make([]internalsut.WorkerResult, 0, len(workerIDs))
-	for index, resultChannel := range resultChannels {
-		results = append(
-			results,
-			awaitAssignmentResult(t, scenarioCtx, resultChannel, workerIDs[index]),
-		)
+	if err := waitForInnoDBRowLockWaits(scenarioCtx, db.SQL, 0); err != nil {
+		t.Fatalf("wait for InnoDB row lock cleanup: %v", err)
 	}
 	for _, result := range results {
 		if result.Err != nil {
 			t.Fatalf("concurrent %s worker %q: %v", tc.variant, result.WorkerID, result.Err)
 		}
 	}
+	assertRuntimeWorkerIdentity(t, runtime, workerIDs, results)
 
-	if err := waitForInnoDBRowLockWaits(scenarioCtx, db.SQL, 0); err != nil {
-		t.Fatalf("wait for InnoDB row lock cleanup: %v", err)
-	}
 	counts := readWorkflowCounts(t, scenarioCtx, db.SQL)
 	if counts != tc.wantCounts {
 		t.Fatalf("concurrent %s counts = %+v, want %+v", tc.variant, counts, tc.wantCounts)
@@ -147,47 +135,305 @@ func testConcurrentVariant(
 		t.Fatalf("concurrent %s duplicate = %t, want %t", tc.variant, duplicate, tc.wantDuplicate)
 	}
 
-	observation := barrier.observation()
-	if observation.release != tc.wantRelease {
-		t.Fatalf("concurrent %s barrier = %s, want %s", tc.variant, observation, tc.wantRelease)
+	if tc.variant == string(variantVulnerable) {
+		t.Logf(
+			"SUT_SYNCPOINT_RESULT variant=vulnerable workers=2 errors=0 sessions=%d "+
+				"assignments=%d active_assignments=%d duplicate=%t w2_after_read=%s "+
+				"timeout_inferred=%d worker_identity=preserved",
+			counts.sessions,
+			counts.assignments,
+			counts.activeAssignments,
+			duplicate,
+			w2AfterRead,
+			timeoutInferred,
+		)
+		return
 	}
-	wantReleased := 2
-	if tc.wantRelease == barrierDBBlocked {
-		wantReleased = 1
-	}
-	if len(observation.releasedIDs) != wantReleased {
-		t.Fatalf("concurrent %s released worker IDs = %v, want %d", tc.variant, observation.releasedIDs, wantReleased)
-	}
-	if len(observation.arrivals) != wantReleased {
-		t.Fatalf("concurrent %s barrier arrivals = %v, want %d", tc.variant, observation.arrivals, wantReleased)
-	}
-	assertConcurrentWorkerIdentity(t, workerIDs, results, observation)
 
 	t.Logf(
-		"SUT_ASSIGN_RESULT variant=%s workers=2 errors=0 sessions=%d assignments=%d "+
-			"active_assignments=%d duplicate=%t barrier=%s worker_identity=preserved",
-		tc.variant,
+		"SUT_SYNCPOINT_RESULT variant=fixed workers=2 errors=0 sessions=%d assignments=%d "+
+			"active_assignments=%d duplicate=%t w2_after_read=%s terminal_before_insert=%s "+
+			"timeout_inferred=%d worker_identity=preserved",
 		counts.sessions,
 		counts.assignments,
 		counts.activeAssignments,
 		duplicate,
-		observation.release,
+		w2AfterRead,
+		terminalAtInsert,
+		timeoutInferred,
 	)
 }
 
-func invokeConcurrentWorker(
+func runVulnerableSchedule(
 	t *testing.T,
 	ctx context.Context,
-	handle internalsut.Handle,
-	workerID string,
-) <-chan internalsut.WorkerResult {
+	runtime syncpoint.Runtime,
+	db *sql.DB,
+	w1 <-chan runtimeWorkerResult,
+	w2 <-chan runtimeWorkerResult,
+) []internalsut.WorkerResult {
 	t.Helper()
 
+	waitForRuntimeArrival(t, ctx, runtime, "w2", AfterReadRequest)
+	if waits := readCurrentInnoDBRowLockWaits(t, ctx, db); waits != 0 {
+		t.Fatalf("vulnerable row lock waits before release = %d, want 0", waits)
+	}
+	releaseRuntimePoint(t, ctx, runtime, "w1", AfterReadRequest)
+	releaseRuntimePoint(t, ctx, runtime, "w2", AfterReadRequest)
+	waitForRuntimeArrival(t, ctx, runtime, "w1", BeforeInsertAssignment)
+	waitForRuntimeArrival(t, ctx, runtime, "w2", BeforeInsertAssignment)
+
+	releaseRuntimePoint(t, ctx, runtime, "w1", BeforeInsertAssignment)
+	w1Result := awaitRuntimeWorkerResult(t, ctx, w1, "w1")
+	releaseRuntimePoint(t, ctx, runtime, "w2", BeforeInsertAssignment)
+	w2Result := awaitRuntimeWorkerResult(t, ctx, w2, "w2")
+
+	return []internalsut.WorkerResult{w1Result, w2Result}
+}
+
+func runFixedSchedule(
+	t *testing.T,
+	ctx context.Context,
+	runtime syncpoint.Runtime,
+	db *sql.DB,
+	w1 <-chan runtimeWorkerResult,
+	w2 <-chan runtimeWorkerResult,
+) []internalsut.WorkerResult {
+	t.Helper()
+
+	status, err := runtime.WaitArrive(ctx, "w2", AfterReadRequest, lockInferenceTimeout)
+	if err != nil {
+		t.Fatalf("wait for fixed w2 timeout inference: %v", err)
+	}
+	if status != syncpoint.ArriveStatusTimeout {
+		t.Fatalf("fixed w2 wait status = %s, want timeout", status)
+	}
+	assertRuntimeState(t, runtime, "w2", syncpoint.WorkerStateDBBlocked, AfterReadRequest)
+	if err := waitForInnoDBRowLockWaits(ctx, db, 1); err != nil {
+		t.Fatalf("wait for fixed worker row lock: %v", err)
+	}
+	assertRuntimeWorkerPending(t, w2, "w2", "before row lock release")
+
+	releaseRuntimePoint(t, ctx, runtime, "w1", AfterReadRequest)
+	waitForRuntimeArrival(t, ctx, runtime, "w1", BeforeInsertAssignment)
+	releaseRuntimePoint(t, ctx, runtime, "w1", BeforeInsertAssignment)
+	w1Result := awaitRuntimeWorkerResult(t, ctx, w1, "w1")
+
+	waitForRuntimeArrival(t, ctx, runtime, "w2", AfterReadRequest)
+	releaseRuntimePoint(t, ctx, runtime, "w2", AfterReadRequest)
+	w2Result := awaitRuntimeWorkerResult(t, ctx, w2, "w2")
+
+	status, err = runtime.WaitArrive(ctx, "w2", BeforeInsertAssignment, scheduleStepTimeout)
+	if err != nil {
+		t.Fatalf("wait for fixed w2 terminal state before insert: %v", err)
+	}
+	if status != syncpoint.ArriveStatusDone {
+		t.Fatalf("fixed w2 status before insert = %s, want done", status)
+	}
+
+	return []internalsut.WorkerResult{w1Result, w2Result}
+}
+
+type runtimeWorkerResult struct {
+	result        internalsut.WorkerResult
+	collectionErr error
+}
+
+func TestRuntimeResultCollectorDoesNotWaitForAdapterChannelClose(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), scheduleStepTimeout)
+	defer cancel()
+
+	runtime := syncpoint.New()
+	t.Cleanup(runtime.Close)
+	adapterResults := make(chan internalsut.WorkerResult, 1)
+	defer close(adapterResults)
+	adapterResults <- internalsut.WorkerResult{WorkerID: "w1"}
+
+	collected := invokeRuntimeWorker(
+		t,
+		ctx,
+		runtime,
+		staticResultHandle{results: adapterResults},
+		"w1",
+	)
+	result := awaitRuntimeWorkerResult(t, ctx, collected, "w1")
+	if result.Err != nil {
+		t.Fatalf("worker result error = %v, want nil", result.Err)
+	}
+	assertRuntimeState(t, runtime, "w1", syncpoint.WorkerStateDone, "")
+}
+
+type staticResultHandle struct {
+	results <-chan internalsut.WorkerResult
+}
+
+func (h staticResultHandle) Invoke(
+	context.Context,
+	string,
+	string,
+) (<-chan internalsut.WorkerResult, error) {
+	return h.results, nil
+}
+
+func invokeRuntimeWorker(
+	t *testing.T,
+	ctx context.Context,
+	runtime syncpoint.Runtime,
+	handle internalsut.Handle,
+	workerID string,
+) <-chan runtimeWorkerResult {
+	t.Helper()
+
+	if err := runtime.Register(workerID); err != nil {
+		t.Fatalf("register concurrent assignment worker %q: %v", workerID, err)
+	}
 	results, err := handle.Invoke(ctx, workerID, CommandAssign)
 	if err != nil {
 		t.Fatalf("invoke concurrent assignment worker %q: %v", workerID, err)
 	}
-	return results
+
+	collected := make(chan runtimeWorkerResult, 1)
+	go func() {
+		result, ok := <-results
+		if !ok {
+			collected <- runtimeWorkerResult{
+				collectionErr: fmt.Errorf("worker %q result channel closed without a result", workerID),
+			}
+			close(collected)
+			return
+		}
+		finishErr := runtime.Finish(result.WorkerID, result.Err)
+		collected <- runtimeWorkerResult{result: result, collectionErr: finishErr}
+		close(collected)
+	}()
+
+	return collected
+}
+
+func awaitRuntimeWorkerResult(
+	t *testing.T,
+	ctx context.Context,
+	result <-chan runtimeWorkerResult,
+	wantWorkerID string,
+) internalsut.WorkerResult {
+	t.Helper()
+
+	select {
+	case got, ok := <-result:
+		if !ok {
+			t.Fatalf("worker %q collected result channel closed without a result", wantWorkerID)
+		}
+		if got.collectionErr != nil {
+			t.Fatalf("collect worker %q result: %v", wantWorkerID, got.collectionErr)
+		}
+		if got.result.WorkerID != wantWorkerID {
+			t.Fatalf("assignment result worker ID = %q, want %q", got.result.WorkerID, wantWorkerID)
+		}
+		if _, open := <-result; open {
+			t.Fatalf("worker %q returned more than one collected result", wantWorkerID)
+		}
+		return got.result
+	case <-ctx.Done():
+		t.Fatalf("wait for assignment worker %q: %v", wantWorkerID, ctx.Err())
+		return internalsut.WorkerResult{}
+	}
+}
+
+func assertRuntimeWorkerPending(
+	t *testing.T,
+	result <-chan runtimeWorkerResult,
+	workerID string,
+	phase string,
+) {
+	t.Helper()
+
+	select {
+	case got, open := <-result:
+		t.Fatalf("worker %q completed %s: result=%+v open=%t", workerID, phase, got, open)
+	default:
+	}
+}
+
+func waitForRuntimeArrival(
+	t *testing.T,
+	ctx context.Context,
+	runtime syncpoint.Runtime,
+	workerID string,
+	point string,
+) {
+	t.Helper()
+
+	status, err := runtime.WaitArrive(ctx, workerID, point, scheduleStepTimeout)
+	if err != nil {
+		t.Fatalf("wait for worker %q at %q: %v", workerID, point, err)
+	}
+	if status != syncpoint.ArriveStatusArrived {
+		t.Fatalf("worker %q status at %q = %s, want arrived", workerID, point, status)
+	}
+}
+
+func releaseRuntimePoint(
+	t *testing.T,
+	ctx context.Context,
+	runtime syncpoint.Runtime,
+	workerID string,
+	point string,
+) {
+	t.Helper()
+
+	if err := runtime.Release(ctx, workerID, point); err != nil {
+		t.Fatalf("release worker %q at %q: %v", workerID, point, err)
+	}
+}
+
+func assertRuntimeState(
+	t *testing.T,
+	runtime syncpoint.Runtime,
+	workerID string,
+	wantState syncpoint.WorkerState,
+	wantPoint string,
+) {
+	t.Helper()
+
+	snapshot, err := runtime.Snapshot(workerID)
+	if err != nil {
+		t.Fatalf("snapshot worker %q: %v", workerID, err)
+	}
+	if snapshot.State != wantState || snapshot.Point != wantPoint {
+		t.Fatalf(
+			"worker %q state=%s point=%q, want state=%s point=%q",
+			workerID,
+			snapshot.State,
+			snapshot.Point,
+			wantState,
+			wantPoint,
+		)
+	}
+}
+
+func assertRuntimeWorkerIdentity(
+	t *testing.T,
+	runtime syncpoint.Runtime,
+	wantWorkerIDs []string,
+	results []internalsut.WorkerResult,
+) {
+	t.Helper()
+
+	if len(results) != len(wantWorkerIDs) {
+		t.Fatalf("worker results = %d, want %d", len(results), len(wantWorkerIDs))
+	}
+	for index, workerID := range wantWorkerIDs {
+		if results[index].WorkerID != workerID {
+			t.Fatalf("result %d worker ID = %q, want %q", index, results[index].WorkerID, workerID)
+		}
+		snapshot, err := runtime.Snapshot(workerID)
+		if err != nil {
+			t.Fatalf("snapshot worker %q: %v", workerID, err)
+		}
+		if snapshot.WorkerID != workerID || snapshot.State != syncpoint.WorkerStateDone {
+			t.Fatalf("worker %q snapshot = %+v, want terminal identity-preserved done", workerID, snapshot)
+		}
+	}
 }
 
 func waitForInnoDBRowLockWaits(ctx context.Context, db *sql.DB, want int) error {
@@ -237,79 +483,4 @@ func currentInnoDBRowLockWaits(ctx context.Context, db *sql.DB) (int, error) {
 		return 0, fmt.Errorf("unexpected InnoDB status variable %q", name)
 	}
 	return waits, nil
-}
-
-func awaitAssignmentResult(
-	t *testing.T,
-	ctx context.Context,
-	results <-chan internalsut.WorkerResult,
-	wantWorkerID string,
-) internalsut.WorkerResult {
-	t.Helper()
-
-	select {
-	case result, ok := <-results:
-		if !ok {
-			t.Fatalf("assignment worker %q result channel closed without a result", wantWorkerID)
-		}
-		if result.WorkerID != wantWorkerID {
-			t.Fatalf("assignment result worker ID = %q, want %q", result.WorkerID, wantWorkerID)
-		}
-		if _, ok := <-results; ok {
-			t.Fatalf("assignment worker %q returned more than one result", wantWorkerID)
-		}
-		return result
-	case <-ctx.Done():
-		t.Fatalf("wait for assignment worker %q: %v", wantWorkerID, ctx.Err())
-		return internalsut.WorkerResult{}
-	}
-}
-
-func assertConcurrentWorkerIdentity(
-	t *testing.T,
-	wantWorkerIDs []string,
-	results []internalsut.WorkerResult,
-	observation barrierObservation,
-) {
-	t.Helper()
-
-	want := append([]string(nil), wantWorkerIDs...)
-	sort.Strings(want)
-	gotResults := make([]string, 0, len(results))
-	for _, result := range results {
-		gotResults = append(gotResults, result.WorkerID)
-	}
-	sort.Strings(gotResults)
-	if !reflect.DeepEqual(gotResults, want) {
-		t.Fatalf("concurrent result worker IDs = %v, want %v", gotResults, want)
-	}
-
-	valid := make(map[string]struct{}, len(wantWorkerIDs))
-	seen := make(map[string]struct{}, len(wantWorkerIDs))
-	for _, workerID := range wantWorkerIDs {
-		valid[workerID] = struct{}{}
-	}
-	for _, event := range observation.events {
-		if _, ok := valid[event.workerID]; !ok {
-			t.Fatalf("unexpected sync-point worker ID %q in %s", event.workerID, observation)
-		}
-		seen[event.workerID] = struct{}{}
-	}
-	if len(seen) != len(wantWorkerIDs) {
-		t.Fatalf("sync-point worker IDs in %s, want both %v", observation, wantWorkerIDs)
-	}
-
-	for _, workerID := range observation.releasedIDs {
-		if _, ok := valid[workerID]; !ok {
-			t.Fatalf("unexpected released worker ID %q in %s", workerID, observation)
-		}
-	}
-
-	if observation.release == barrierAllArrived {
-		gotArrivals := append([]string(nil), observation.releasedIDs...)
-		sort.Strings(gotArrivals)
-		if !reflect.DeepEqual(gotArrivals, want) {
-			t.Fatalf("all-arrived worker IDs = %v, want %v", gotArrivals, want)
-		}
-	}
 }

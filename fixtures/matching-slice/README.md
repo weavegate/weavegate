@@ -82,11 +82,27 @@ The workflow exposes two named coordination points:
 - `after_read_request`
 - `before_insert_assignment`
 
-The default coordination implementation is a no-op. The integration test holds
-the first worker at a test-local barrier, starts the second worker, and releases
-the barrier only after observing either both vulnerable workers at the point or
-one current InnoDB row-lock wait on the fixed path. Its deadline fails the test;
-it never advances the successful schedule.
+The default coordination implementation is a no-op. The concurrent integration
+test instead injects the reusable in-process sync-point runtime and registers
+workers `w1` and `w2`. The runtime pauses `Arrive` calls until the test performs
+a targeted release for that exact worker and point.
+
+The vulnerable schedule waits until both workers have passed the plain request
+read and then releases each worker from `after_read_request`. Both workers see
+no existing assignment and arrive at `before_insert_assignment`. Releasing and
+finishing `w1` before releasing `w2` produces two active assignments.
+
+The fixed schedule holds `w1` after its locking request read and starts `w2`.
+When `w2` does not reach `after_read_request` within 250 ms, the runtime records
+the nonterminal, timeout-inferred `db_blocked` state. This timeout is not proof
+of a database lock. The integration test separately verifies that MySQL reports
+one current InnoDB row-lock wait before it releases `w1`. After `w1` commits,
+`w2` reaches and is released from `after_read_request`, sees the committed
+assignment, and finishes without visiting `before_insert_assignment`.
+
+Normal point coordination uses a 5-second step deadline and each complete
+scenario has a 15-second deadline. These deadlines fail the test; only explicit
+targeted release advances a paused worker.
 
 Run the sequential and concurrent SUT tests with Docker available:
 
@@ -95,20 +111,22 @@ go test ./fixtures/matching-slice/sut -run TestAssignSequential -v -count=1
 go test ./fixtures/matching-slice/sut -run TestAssignConcurrent -v -count=1
 ```
 
-The concurrent test has observed these result markers:
+The concurrent test emits these result markers:
 
 ```text
-SUT_ASSIGN_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true barrier=all_arrived worker_identity=preserved
-SUT_ASSIGN_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false barrier=db_blocked worker_identity=preserved
+SUT_SYNCPOINT_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true w2_after_read=arrived timeout_inferred=0 worker_identity=preserved
+SUT_SYNCPOINT_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false w2_after_read=timeout terminal_before_insert=done timeout_inferred=1 worker_identity=preserved
 ```
 
 ## Current boundary
 
 This fixture verifies the schema, seed and reset behavior, an application
 assignment workflow, and a test-controlled comparison of plain and locking
-reads. The row counts above are assertions inside that integration test. A
-reusable invariant Oracle and engine-driven orchestration are not implemented
-yet.
+reads. The row counts and lock-wait observation above are assertions inside
+that integration test. The in-process runtime provides reusable coordination,
+but the schedule is still owned by the test. Engine-driven orchestration, a
+saved schedule, repeat-run evidence, and a reusable invariant Oracle are not
+implemented yet.
 
 The evidence status is tracked in
 [Why the fix works](../../docs/why-the-fix-works.md).

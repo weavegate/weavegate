@@ -44,7 +44,8 @@ jobs:
 
       - name: Run database fixture tests
         run: >-
-          go test ./internal/fixture/... ./internal/sut/... ./fixtures/matching-slice/...
+          go test ./internal/fixture/... ./internal/syncpoint/... ./internal/sut/...
+          ./fixtures/matching-slice/...
           -v -count=1 | tee fixture.log
 
       - name: Assert the fixture invariant
@@ -59,10 +60,18 @@ jobs:
           grep -F 'SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true' fixture.log
           grep -F 'SUT_WORKER_ID_RESULT duplicate_active=error extra_connection=false reuse_after_terminal=ok' fixture.log
 
+      - name: Assert the sync-point runtime invariants
+        run: |
+          grep -F 'SYNCPOINT_RUNTIME_RESULT worker=w1 points=2 targeted_release=true terminal=done blocked_arrive_unblocked=true' fixture.log
+          grep -F 'SYNCPOINT_PROTOCOL_RESULT duplicate_worker=error unknown_worker=error release_before_arrive=error wrong_point=error duplicate_release=error concurrent_wait=error stale_wait=error' fixture.log
+          grep -F 'SYNCPOINT_TIMEOUT_RESULT worker=w2 wait_status=timeout state=db_blocked inference=timeout resumed=arrived terminal=done' fixture.log
+          grep -F 'SYNCPOINT_CANCEL_RESULT worker=w1 canceled_arrival=cleared release_after_cancel=error release_wins=nil ghost_arrival=false' fixture.log
+          grep -F 'SYNCPOINT_CLOSE_RESULT blocked_arrivers=2 blocked_waiters=1 unblocked=3 close_idempotent=true' fixture.log
+
       - name: Assert the matching assignment invariants
         run: |
-          grep -F 'SUT_ASSIGN_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true barrier=all_arrived worker_identity=preserved' fixture.log
-          grep -F 'SUT_ASSIGN_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false barrier=db_blocked worker_identity=preserved' fixture.log
+          grep -F 'SUT_SYNCPOINT_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true w2_after_read=arrived timeout_inferred=0 worker_identity=preserved' fixture.log
+          grep -F 'SUT_SYNCPOINT_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false w2_after_read=timeout terminal_before_insert=done timeout_inferred=1 worker_identity=preserved' fixture.log
 
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
