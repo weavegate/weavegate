@@ -233,6 +233,83 @@ func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
 	}
 }
 
+func TestRunSerializesSharedFixtureLifecycle(t *testing.T) {
+	fixtureRunner := &recordingFixture{}
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:    fixtureRunner,
+		DB:         &fixture.DB{},
+		NewRuntime: syncpoint.New,
+		NewAdapter: func(client syncpoint.Client) sut.Adapter {
+			return newEagerAdapter(client)
+		},
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+	schedule := matchingSchedule(t)
+
+	firstObserved := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := orchestrator.Run(
+			context.Background(),
+			matchingScenario(),
+			schedule,
+			func(context.Context, *fixture.DB, RunResult) (string, error) {
+				close(firstObserved)
+				<-releaseFirst
+				return "first", nil
+			},
+		)
+		firstResult <- err
+	}()
+
+	select {
+	case <-firstObserved:
+	case <-time.After(testRunTimeout):
+		t.Fatal("first run did not reach observer")
+	}
+
+	secondCtx, cancelSecond := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancelSecond()
+	_, secondErr := orchestrator.Run(
+		secondCtx,
+		matchingScenario(),
+		schedule,
+		stableObserver,
+	)
+	if !errors.Is(secondErr, context.DeadlineExceeded) {
+		t.Fatalf("overlapping run error = %v, want deadline exceeded", secondErr)
+	}
+	if fixtureRunner.resetCalls != 1 {
+		t.Fatalf("fixture resets while first run active = %d, want 1", fixtureRunner.resetCalls)
+	}
+
+	close(releaseFirst)
+	select {
+	case err := <-firstResult:
+		if err != nil {
+			t.Fatalf("first serialized run: %v", err)
+		}
+	case <-time.After(testRunTimeout):
+		t.Fatal("first serialized run did not finish")
+	}
+
+	if _, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		schedule,
+		stableObserver,
+	); err != nil {
+		t.Fatalf("run after gate release: %v", err)
+	}
+	if fixtureRunner.resetCalls != 2 {
+		t.Fatalf("fixture resets after serialized runs = %d, want 2", fixtureRunner.resetCalls)
+	}
+}
+
 func TestRunCleanup(t *testing.T) {
 	rootErr := errors.New("injected run failure")
 	cleanupErr := errors.New("injected cleanup failure")

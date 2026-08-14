@@ -38,7 +38,8 @@ type Config struct {
 
 // Orchestrator executes one validated scenario and schedule at a time.
 type Orchestrator struct {
-	config Config
+	config  Config
+	runGate chan struct{}
 }
 
 // New validates dependencies and timeout budgets without starting a run.
@@ -75,5 +76,7 @@ func New(config Config) (*Orchestrator, error) {
 		}
 	}
 
-	return &Orchestrator{config: config}, nil
+	runGate := make(chan struct{}, 1)
+	runGate <- struct{}{}
+	return &Orchestrator{config: config, runGate: runGate}, nil
 }

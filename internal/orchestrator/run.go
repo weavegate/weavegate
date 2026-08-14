@@ -83,6 +83,14 @@ func (o *Orchestrator) Run(
 	if ctx == nil {
 		return result, errors.New("run schedule: context is required")
 	}
+	select {
+	case <-ctx.Done():
+		return result, fmt.Errorf("run schedule %q: wait for active run: %w", schedule.ID, ctx.Err())
+	case <-o.runGate:
+	}
+	defer func() {
+		o.runGate <- struct{}{}
+	}()
 	if observer == nil {
 		return result, errors.New("run schedule: observer is required")
 	}
