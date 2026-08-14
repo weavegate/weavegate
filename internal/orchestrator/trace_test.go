@@ -66,11 +66,11 @@ func TestTraceRecordsSavedAndRealizedOrder(t *testing.T) {
 		EventPointReleased,
 		EventPointArrived,
 		EventPointReleased,
-		EventWorkerDone,
 		EventPointArrived,
 		EventPointReleased,
 		EventWorkerDone,
 		EventStepTerminalSkipped,
+		EventWorkerDone,
 		EventScheduleComplete,
 	}
 	for index, want := range wantKinds {
@@ -95,7 +95,7 @@ func TestTraceRecordsSavedAndRealizedOrder(t *testing.T) {
 	if !reflect.DeepEqual(released, []int{0, 2, 1}) {
 		t.Fatalf("realized release steps = %v, want [0 2 1]", released)
 	}
-	skipped := result.Trace[14]
+	skipped := result.Trace[13]
 	if skipped.Step != 3 || skipped.Worker != "w2" ||
 		skipped.Status != ControlStatusTerminalSkipped {
 		t.Fatalf("terminal skipped event = %#v, want w2 step 3", skipped)

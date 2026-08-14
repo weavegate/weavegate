@@ -440,15 +440,7 @@ func (r *runCoordinator) release(index int) error {
 	}); err != nil {
 		return err
 	}
-
-	if step.Point != r.value.SyncPoints[len(r.value.SyncPoints)-1] {
-		return nil
-	}
-	if err := r.collect(step.Worker, index); err != nil {
-		return err
-	}
-	_, err := r.drainPending(index)
-	return err
+	return nil
 }
 
 func (r *runCoordinator) drainPending(through int) (bool, error) {
@@ -565,19 +557,13 @@ func (r *runCoordinator) releasePending(index int) error {
 			err,
 		)
 	}
-	if err := r.trace.emit(Event{
+	return r.trace.emit(Event{
 		Kind:   EventPointReleased,
 		Step:   index,
 		Worker: step.Worker,
 		Point:  step.Point,
 		Status: ControlStatusReleased,
-	}); err != nil {
-		return err
-	}
-	if step.Point == r.value.SyncPoints[len(r.value.SyncPoints)-1] {
-		return r.collect(step.Worker, index)
-	}
-	return nil
+	})
 }
 
 func (r *runCoordinator) collect(workerID string, step int) error {

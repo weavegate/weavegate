@@ -300,6 +300,56 @@ func TestRunPreservesScheduleBarrierWhenDrainingPending(t *testing.T) {
 	}
 }
 
+func TestRunReleasesLaterStepsBeforeCollectingFinalWorker(t *testing.T) {
+	runtime := syncpoint.New()
+	adapter := newScriptedAdapter(runtime)
+	adapter.w1WaitsForW2Final = true
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               &recordingFixture{},
+		DB:                    &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "after_read_request"},
+		{Worker: "w1", Point: "before_insert_assignment"},
+		{Worker: "w2", Point: "after_read_request"},
+		{Worker: "w2", Point: "before_insert_assignment"},
+	})
+	if err != nil {
+		t.Fatalf("create post-final dependency schedule: %v", err)
+	}
+
+	result, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		schedule,
+		stableObserver,
+	)
+	if err != nil {
+		t.Fatalf("run post-final dependency schedule: %v", err)
+	}
+	for _, worker := range result.Workers {
+		if worker.Err != nil {
+			t.Fatalf("worker %q error = %v, want nil", worker.WorkerID, worker.Err)
+		}
+	}
+
+	var released []int
+	for _, event := range result.Trace {
+		if event.Kind == EventPointReleased {
+			released = append(released, event.Step)
+		}
+	}
+	if !reflect.DeepEqual(released, []int{0, 1, 2, 3}) {
+		t.Fatalf("post-final dependency releases = %v, want [0 1 2 3]", released)
+	}
+}
+
 func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
 	runtime := &timeoutWaitRuntime{Runtime: syncpoint.New()}
 	t.Cleanup(runtime.Close)
@@ -825,6 +875,7 @@ type scriptedAdapter struct {
 	stopErr              error
 	keepResultsOpen      bool
 	unbufferedResults    bool
+	w1WaitsForW2Final    bool
 	w2VisitsBeforeInsert bool
 
 	mu       sync.Mutex
@@ -833,6 +884,8 @@ type scriptedAdapter struct {
 	wait     sync.WaitGroup
 	w1Result chan struct{}
 	w1Once   sync.Once
+	w2Final  chan struct{}
+	w2Once   sync.Once
 
 	active    atomic.Int32
 	stopCalls atomic.Int32
@@ -843,6 +896,7 @@ func newScriptedAdapter(client syncpoint.Client) *scriptedAdapter {
 	return &scriptedAdapter{
 		client:   client,
 		w1Result: make(chan struct{}),
+		w2Final:  make(chan struct{}),
 	}
 }
 
@@ -898,17 +952,31 @@ func (a *scriptedAdapter) Invoke(
 			if workerErr == nil {
 				workerErr = a.client.Arrive(ctx, workerID, "before_insert_assignment")
 			}
+			if workerErr == nil && a.w1WaitsForW2Final {
+				select {
+				case <-a.w2Final:
+				case <-ctx.Done():
+					workerErr = ctx.Err()
+				}
+			}
 			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
 			a.w1Once.Do(func() { close(a.w1Result) })
 		case "w2":
-			select {
-			case <-a.w1Result:
+			if a.w1WaitsForW2Final {
 				workerErr = a.client.Arrive(ctx, workerID, "after_read_request")
-			case <-ctx.Done():
-				workerErr = ctx.Err()
+			} else {
+				select {
+				case <-a.w1Result:
+					workerErr = a.client.Arrive(ctx, workerID, "after_read_request")
+				case <-ctx.Done():
+					workerErr = ctx.Err()
+				}
 			}
-			if workerErr == nil && a.w2VisitsBeforeInsert {
+			if workerErr == nil && (a.w2VisitsBeforeInsert || a.w1WaitsForW2Final) {
 				workerErr = a.client.Arrive(ctx, workerID, "before_insert_assignment")
+			}
+			if workerErr == nil && a.w1WaitsForW2Final {
+				a.w2Once.Do(func() { close(a.w2Final) })
 			}
 			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
 		case "w3":
