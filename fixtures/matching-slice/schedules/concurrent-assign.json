@@ -1,0 +1,21 @@
+{
+  "id": "sch_ba00582f9632",
+  "steps": [
+    {
+      "worker": "w1",
+      "point": "after_read_request"
+    },
+    {
+      "worker": "w2",
+      "point": "after_read_request"
+    },
+    {
+      "worker": "w1",
+      "point": "before_insert_assignment"
+    },
+    {
+      "worker": "w2",
+      "point": "before_insert_assignment"
+    }
+  ]
+}

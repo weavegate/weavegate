@@ -82,51 +82,63 @@ The workflow exposes two named coordination points:
 - `after_read_request`
 - `before_insert_assignment`
 
-The default coordination implementation is a no-op. The concurrent integration
-test instead injects the reusable in-process sync-point runtime and registers
-workers `w1` and `w2`. The runtime pauses `Arrive` calls until the test performs
-a targeted release for that exact worker and point.
+The default coordination implementation is a no-op. The replay integration
+test instead gives the reusable in-process sync-point runtime to the
+orchestrator and registers workers `w1` and `w2`. The runtime pauses `Arrive`
+calls until the orchestrator performs a targeted release for that exact worker
+and point.
 
-The vulnerable schedule waits until both workers have passed the plain request
-read and then releases each worker from `after_read_request`. Both workers see
-no existing assignment and arrive at `before_insert_assignment`. Releasing and
+The saved schedule is
+[`concurrent-assign.json`](schedules/concurrent-assign.json), with ID
+`sch_ba00582f9632`. Its four steps target `w1` and `w2` at
+`after_read_request`, followed by the same workers at
+`before_insert_assignment`.
+
+In the vulnerable replay, both workers pass the plain request read, see no
+existing assignment, and arrive at `before_insert_assignment`. Releasing and
 finishing `w1` before releasing `w2` produces two active assignments.
 
-The fixed schedule holds `w1` after its locking request read and starts `w2`.
-When `w2` does not reach `after_read_request` within 250 ms, the runtime records
-the nonterminal, timeout-inferred `db_blocked` state. This timeout is not proof
-of a database lock. The integration test separately verifies that MySQL reports
-one current InnoDB row-lock wait before it releases `w1`. After `w1` commits,
-`w2` reaches and is released from `after_read_request`, sees the committed
-assignment, and finishes without visiting `before_insert_assignment`.
+In the fixed replay, `w1` holds its locking request read while `w2` starts.
+When `w2` does not reach `after_read_request` within 250 ms, the orchestrator
+records the nonterminal, timeout-inferred `db_blocked` state. This timeout is
+not proof of a database lock. The integration test separately verifies that
+MySQL reports at least one current InnoDB row-lock wait before it releases
+`w1`. After `w1` commits, `w2` reaches and is released from
+`after_read_request`, sees the committed assignment, and finishes without
+visiting `before_insert_assignment`.
 
 Normal point coordination uses a 5-second step deadline and each complete
 scenario has a 15-second deadline. These deadlines fail the test; only explicit
 targeted release advances a paused worker.
 
-Run the sequential and concurrent SUT tests with Docker available:
+Run the sequential SUT test and the saved schedule replay with Docker
+available:
 
 ```bash
 go test ./fixtures/matching-slice/sut -run TestAssignSequential -v -count=1
-go test ./fixtures/matching-slice/sut -run TestAssignConcurrent -v -count=1
+go test ./fixtures/matching-slice/sut \
+  -run '^TestReplayConcurrentAssign$' -v -count=1
 ```
 
-The concurrent test emits these result markers:
+The replay repeats each application variant 20 times. It produces one stable
+fingerprint per variant and emits these result markers:
 
 ```text
-SUT_SYNCPOINT_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true w2_after_read=arrived timeout_inferred=0 worker_identity=preserved
-SUT_SYNCPOINT_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false w2_after_read=timeout terminal_before_insert=done timeout_inferred=1 worker_identity=preserved
+MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=vulnerable repeat=20 duplicate_runs=20 blocked_runs=0 sessions=2 assignments=2 active_assignments=2 worker_errors=0 deadlocks=0 flaky=false
+MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=fixed repeat=20 pass_runs=20 blocked_runs=20 lock_wait_runs=20 sessions=1 assignments=1 active_assignments=1 worker_errors=0 deadlocks=0 flaky=false
 ```
+
+The full measurement, realized release behavior, and evidence limits are in
+[Matching-slice replay determinism](../../docs/experiments/determinism.md).
 
 ## Current boundary
 
 This fixture verifies the schema, seed and reset behavior, an application
-assignment workflow, and a test-controlled comparison of plain and locking
-reads. The row counts and lock-wait observation above are assertions inside
-that integration test. The in-process runtime provides reusable coordination,
-but the schedule is still owned by the test. Engine-driven orchestration, a
-saved schedule, repeat-run evidence, and a reusable invariant Oracle are not
-implemented yet.
+assignment workflow, and orchestrator-controlled saved schedule replay for
+plain and locking reads. The row counts and lock-wait observation above are
+assertions inside that integration test. The 20/20 evidence applies only to the
+recorded schedule, fixture state, MySQL image, and application variant. It is
+not schedule-space exploration. A reusable invariant Oracle remains pending.
 
 The evidence status is tracked in
 [Why the fix works](../../docs/why-the-fix-works.md).

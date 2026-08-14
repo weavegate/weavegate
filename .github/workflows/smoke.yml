@@ -44,7 +44,8 @@ jobs:
 
       - name: Run database fixture tests
         run: >-
-          go test ./internal/fixture/... ./internal/syncpoint/... ./internal/sut/...
+          go test ./internal/fixture/... ./internal/scenario/... ./internal/orchestrator/...
+          ./internal/syncpoint/... ./internal/sut/...
           ./fixtures/matching-slice/...
           -v -count=1 | tee fixture.log
 
@@ -68,10 +69,18 @@ jobs:
           grep -F 'SYNCPOINT_CANCEL_RESULT worker=w1 canceled_arrival=cleared release_after_cancel=error release_wins=nil ghost_arrival=false' fixture.log
           grep -F 'SYNCPOINT_CLOSE_RESULT blocked_arrivers=2 blocked_waiters=1 unblocked=3 close_idempotent=true' fixture.log
 
+      - name: Assert the saved replay invariants
+        run: |
+          grep -F 'SCHEDULE_REPLAY_RESULT id=sch_ba00582f9632 steps=4 workers=2 per_worker_order=valid roundtrip=stable tamper=error' fixture.log
+          grep -F 'ORCHESTRATOR_RUN_RESULT schedule=sch_ba00582f9632 workers=2 steps=4 timeouts=1 pending_resolved=1 terminal_done=2 cleanup=ok' fixture.log
+          grep -F 'ORCHESTRATOR_REPLAY_CORE_RESULT schedule=sch_ba00582f9632 repeat=20 fingerprints=1 resets=20 flaky=false' fixture.log
+          grep -F 'ORCHESTRATOR_CLASSIFY_RESULT timeout=timeout_inferred deadlock=mysql_deadlock_1213 distinct=true wrapped=true' fixture.log
+
       - name: Assert the matching assignment invariants
         run: |
-          grep -F 'SUT_SYNCPOINT_RESULT variant=vulnerable workers=2 errors=0 sessions=2 assignments=2 active_assignments=2 duplicate=true w2_after_read=arrived timeout_inferred=0 worker_identity=preserved' fixture.log
-          grep -F 'SUT_SYNCPOINT_RESULT variant=fixed workers=2 errors=0 sessions=1 assignments=1 active_assignments=1 duplicate=false w2_after_read=timeout terminal_before_insert=done timeout_inferred=1 worker_identity=preserved' fixture.log
+          grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=vulnerable repeat=20 duplicate_runs=20 blocked_runs=0 sessions=2 assignments=2 active_assignments=2 worker_errors=0 deadlocks=0 flaky=false' fixture.log
+          grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=fixed repeat=20 pass_runs=20 blocked_runs=20 lock_wait_runs=20 sessions=1 assignments=1 active_assignments=1 worker_errors=0 deadlocks=0 flaky=false' fixture.log
+          grep -F 'MATCHING_REPLAY_TIMING schedule=sch_ba00582f9632 runs=40 elapsed=' fixture.log
 
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log

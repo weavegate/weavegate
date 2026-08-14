@@ -1,0 +1,299 @@
+package orchestrator
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/sut"
+	"github.com/weavegate/weavegate/internal/syncpoint"
+)
+
+func TestReplayStableFingerprint(t *testing.T) {
+	fixtureRunner := &recordingFixture{}
+	orchestrator := newReplayTestOrchestrator(t, fixtureRunner, nil)
+
+	result, err := orchestrator.Replay(
+		context.Background(),
+		matchingScenario(),
+		matchingSchedule(t),
+		20,
+		stableObserver,
+	)
+	if err != nil {
+		t.Fatalf("replay stable schedule: %v", err)
+	}
+	if result.ScheduleID != "sch_ba00582f9632" || result.Repeat != 20 {
+		t.Fatalf("replay identity = %q/%d, want sch_ba00582f9632/20", result.ScheduleID, result.Repeat)
+	}
+	if len(result.Runs) != 20 {
+		t.Fatalf("replay runs = %d, want 20", len(result.Runs))
+	}
+	if len(result.Fingerprints) != 1 {
+		t.Fatalf("unique fingerprints = %d, want 1", len(result.Fingerprints))
+	}
+	if result.Flaky {
+		t.Fatal("stable replay flaky = true, want false")
+	}
+	if len(result.MismatchRuns) != 0 {
+		t.Fatalf("stable replay mismatch runs = %v, want none", result.MismatchRuns)
+	}
+	if fixtureRunner.resetCalls != 20 {
+		t.Fatalf("fixture resets = %d, want 20", fixtureRunner.resetCalls)
+	}
+	for index, run := range result.Runs {
+		if run.Fingerprint == "" {
+			t.Fatalf("run %d fingerprint is empty", index+1)
+		}
+		if run.StateFingerprint != "stable" {
+			t.Fatalf("run %d state fingerprint = %q, want stable", index+1, run.StateFingerprint)
+		}
+	}
+
+	t.Log(
+		"ORCHESTRATOR_REPLAY_CORE_RESULT schedule=sch_ba00582f9632 " +
+			"repeat=20 fingerprints=1 resets=20 flaky=false",
+	)
+}
+
+func TestReplayReportsLogicalMismatch(t *testing.T) {
+	fixtureRunner := &recordingFixture{}
+	orchestrator := newReplayTestOrchestrator(t, fixtureRunner, nil)
+	observerCalls := 0
+
+	result, err := orchestrator.Replay(
+		context.Background(),
+		matchingScenario(),
+		matchingSchedule(t),
+		10,
+		func(context.Context, *fixture.DB, RunResult) (string, error) {
+			observerCalls++
+			if observerCalls == 7 {
+				return "different", nil
+			}
+			return "stable", nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("replay mismatched schedule: %v", err)
+	}
+	if !result.Flaky {
+		t.Fatal("mismatched replay flaky = false, want true")
+	}
+	if len(result.Fingerprints) != 2 {
+		t.Fatalf("unique fingerprints = %d, want 2", len(result.Fingerprints))
+	}
+	if !reflect.DeepEqual(result.MismatchRuns, []int{7}) {
+		t.Fatalf("mismatch runs = %v, want [7]", result.MismatchRuns)
+	}
+	if fixtureRunner.resetCalls != 10 {
+		t.Fatalf("fixture resets = %d, want 10", fixtureRunner.resetCalls)
+	}
+}
+
+func TestReplayKeepsInfrastructureErrorDistinct(t *testing.T) {
+	fixtureRunner := &recordingFixture{}
+	orchestrator := newReplayTestOrchestrator(t, fixtureRunner, nil)
+	observerErr := errors.New("observer unavailable")
+	observerCalls := 0
+
+	result, err := orchestrator.Replay(
+		context.Background(),
+		matchingScenario(),
+		matchingSchedule(t),
+		20,
+		func(context.Context, *fixture.DB, RunResult) (string, error) {
+			observerCalls++
+			if observerCalls == 3 {
+				return "", observerErr
+			}
+			return "stable", nil
+		},
+	)
+	if !errors.Is(err, observerErr) {
+		t.Fatalf("replay error = %v, want errors.Is(_, observerErr)", err)
+	}
+	if result.Flaky {
+		t.Fatal("infrastructure error reported flaky = true, want false")
+	}
+	if len(result.Runs) != 2 {
+		t.Fatalf("successful runs before error = %d, want 2", len(result.Runs))
+	}
+	if fixtureRunner.resetCalls != 3 {
+		t.Fatalf("fixture resets = %d, want 3", fixtureRunner.resetCalls)
+	}
+
+	invalidFixture := &recordingFixture{}
+	invalid := newReplayTestOrchestrator(t, invalidFixture, nil)
+	invalidResult, invalidErr := invalid.Replay(
+		context.Background(),
+		matchingScenario(),
+		matchingSchedule(t),
+		0,
+		stableObserver,
+	)
+	if invalidErr == nil {
+		t.Fatal("repeat=0 error = nil, want configuration error")
+	}
+	if invalidResult.Flaky {
+		t.Fatal("repeat=0 flaky = true, want false")
+	}
+	if invalidFixture.resetCalls != 0 {
+		t.Fatalf("repeat=0 fixture resets = %d, want 0", invalidFixture.resetCalls)
+	}
+}
+
+func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
+	first := RunResult{
+		StateFingerprint: "state",
+		Workers: []sut.WorkerResult{
+			{WorkerID: "w1", Err: errors.New("first raw error"), Duration: time.Second},
+		},
+		Terminals: []WorkerTerminal{
+			{Worker: "w1", State: TerminalStateFailed, FailureClass: WorkerFailureError},
+		},
+		Trace: []Event{
+			{
+				Seq:          1,
+				Kind:         EventWorkerFailed,
+				Step:         1,
+				Worker:       "w1",
+				Status:       ControlStatusNone,
+				FailureClass: WorkerFailureError,
+			},
+		},
+		Elapsed: time.Second,
+	}
+	second := first.clone()
+	second.Workers[0].Err = errors.New("different raw error")
+	second.Workers[0].Duration = 99 * time.Second
+	second.Elapsed = 100 * time.Second
+
+	firstFingerprint, err := normalizedFingerprint(first)
+	if err != nil {
+		t.Fatalf("fingerprint first run: %v", err)
+	}
+	secondFingerprint, err := normalizedFingerprint(second)
+	if err != nil {
+		t.Fatalf("fingerprint second run: %v", err)
+	}
+	if firstFingerprint != secondFingerprint {
+		t.Fatalf("nondeterministic values changed fingerprint: %q != %q", firstFingerprint, secondFingerprint)
+	}
+
+	second.Terminals[0].FailureClass = WorkerFailureMySQLDeadlock
+	changedFingerprint, err := normalizedFingerprint(second)
+	if err != nil {
+		t.Fatalf("fingerprint changed terminal: %v", err)
+	}
+	if changedFingerprint == firstFingerprint {
+		t.Fatal("failure class did not change fingerprint")
+	}
+}
+
+func newReplayTestOrchestrator(
+	t *testing.T,
+	fixtureRunner *recordingFixture,
+	onEvent EventObserver,
+) *Orchestrator {
+	t.Helper()
+
+	return newTestOrchestrator(t, Config{
+		Fixture:    fixtureRunner,
+		DB:         &fixture.DB{},
+		NewRuntime: syncpoint.New,
+		NewAdapter: func(client syncpoint.Client) sut.Adapter {
+			return newEagerAdapter(client)
+		},
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+		OnEvent:               onEvent,
+	})
+}
+
+type eagerAdapter struct {
+	client syncpoint.Client
+
+	mu     sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	wait   sync.WaitGroup
+	errors map[string]error
+
+	active    atomic.Int32
+	stopCalls atomic.Int32
+}
+
+func newEagerAdapter(client syncpoint.Client) *eagerAdapter {
+	return &eagerAdapter{client: client, errors: make(map[string]error)}
+}
+
+func (a *eagerAdapter) Start(
+	ctx context.Context,
+	_ sut.SUTConfig,
+	_ *fixture.DB,
+) (sut.Handle, error) {
+	a.mu.Lock()
+	a.ctx, a.cancel = context.WithCancel(ctx)
+	a.mu.Unlock()
+	return a, nil
+}
+
+func (a *eagerAdapter) Invoke(
+	_ context.Context,
+	workerID string,
+	_ string,
+) (<-chan sut.WorkerResult, error) {
+	a.mu.Lock()
+	ctx := a.ctx
+	workerErr := a.errors[workerID]
+	a.mu.Unlock()
+
+	results := make(chan sut.WorkerResult, 1)
+	a.wait.Add(1)
+	a.active.Add(1)
+	go func() {
+		defer a.wait.Done()
+		defer a.active.Add(-1)
+		defer close(results)
+
+		err := a.client.Arrive(ctx, workerID, "after_read_request")
+		if err == nil {
+			err = a.client.Arrive(ctx, workerID, "before_insert_assignment")
+		}
+		if err == nil {
+			err = workerErr
+		}
+		results <- sut.WorkerResult{WorkerID: workerID, Err: err}
+	}()
+	return results, nil
+}
+
+func (a *eagerAdapter) Stop(ctx context.Context) error {
+	a.stopCalls.Add(1)
+	a.mu.Lock()
+	cancel := a.cancel
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		a.wait.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
