@@ -181,6 +181,58 @@ func TestRunDefersPointBehindPendingWorkerArrival(t *testing.T) {
 	}
 }
 
+func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
+	runtime := &timeoutWaitRuntime{Runtime: syncpoint.New()}
+	t.Cleanup(runtime.Close)
+	collected := make(chan collectedResult, 1)
+	collected <- collectedResult{result: sut.WorkerResult{WorkerID: "w1"}}
+	close(collected)
+
+	result := RunResult{}
+	execution := &workerExecution{
+		worker:          scenario.Worker{ID: "w1", Command: "assign"},
+		collectedResult: collected,
+	}
+	coordinator := runCoordinator{
+		ctx:     context.Background(),
+		runtime: runtime,
+		value:   scenario.Scenario{SyncPoints: []string{"after_read_request"}},
+		schedule: scenario.Schedule{Steps: []scenario.CoordinationStep{
+			{Worker: "w1", Point: "after_read_request"},
+		}},
+		result:     &result,
+		trace:      newTraceRecorder(nil),
+		executions: map[string]*workerExecution{"w1": execution},
+		pending:    map[int]bool{0: true},
+	}
+
+	progressed, err := coordinator.drainPending()
+	if err != nil {
+		t.Fatalf("drain terminal pending step: %v", err)
+	}
+	if !progressed {
+		t.Fatal("drain terminal pending step progressed = false, want true")
+	}
+	if len(coordinator.pending) != 0 {
+		t.Fatalf("pending steps = %v, want none", coordinator.pending)
+	}
+	if !execution.terminal || execution.terminalState != TerminalStateDone {
+		t.Fatalf("execution terminal = %+v, want done", execution)
+	}
+	if result.Timeouts != 0 {
+		t.Fatalf("timeouts = %d, want 0 after terminal poll", result.Timeouts)
+	}
+
+	wantKinds := []EventKind{EventWorkerDone, EventStepTerminalSkipped}
+	var gotKinds []EventKind
+	for _, event := range coordinator.trace.events {
+		gotKinds = append(gotKinds, event.Kind)
+	}
+	if !reflect.DeepEqual(gotKinds, wantKinds) {
+		t.Fatalf("terminal pending trace = %v, want %v", gotKinds, wantKinds)
+	}
+}
+
 func TestRunCleanup(t *testing.T) {
 	rootErr := errors.New("injected run failure")
 	cleanupErr := errors.New("injected cleanup failure")
@@ -441,6 +493,19 @@ type runtimeProbe struct {
 	failFinish   error
 
 	closeCalls atomic.Int32
+}
+
+type timeoutWaitRuntime struct {
+	syncpoint.Runtime
+}
+
+func (r *timeoutWaitRuntime) WaitArrive(
+	context.Context,
+	string,
+	string,
+	time.Duration,
+) (syncpoint.ArriveStatus, error) {
+	return syncpoint.ArriveStatusTimeout, nil
 }
 
 func newRuntimeProbe() *runtimeProbe {

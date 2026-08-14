@@ -370,6 +370,12 @@ func (r *runCoordinator) recordObservation(index int, status syncpoint.ArriveSta
 		if err := r.pollCollector(step.Worker, index); err != nil {
 			return err
 		}
+		if r.executions[step.Worker].terminal {
+			if bootstrap {
+				return nil
+			}
+			return r.emitTerminalSkipped(index)
+		}
 		if err := r.emitTimeout(index); err != nil {
 			return err
 		}
@@ -486,6 +492,14 @@ func (r *runCoordinator) drainPending() (bool, error) {
 		case syncpoint.ArriveStatusTimeout:
 			if err := r.pollCollector(step.Worker, index); err != nil {
 				return progressed, err
+			}
+			if execution.terminal {
+				if err := r.emitTerminalSkipped(index); err != nil {
+					return progressed, err
+				}
+				delete(r.pending, index)
+				progressed = true
+				continue
 			}
 			if err := r.emitTimeout(index); err != nil {
 				return progressed, err
