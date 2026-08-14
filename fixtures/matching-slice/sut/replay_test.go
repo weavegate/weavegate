@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/orchestrator"
 	"github.com/weavegate/weavegate/internal/scenario"
 	internalsut "github.com/weavegate/weavegate/internal/sut"
@@ -188,7 +189,7 @@ func replayMatchingVariant(
 		value,
 		saved,
 		matchingReplayRepeat,
-		observeMatchingCounts,
+		matchingCountEvaluator(db),
 	)
 	if err != nil {
 		t.Fatalf("replay matching %s variant: %v", selected, err)
@@ -210,21 +211,30 @@ func replayMatchingVariant(
 	}
 
 	wantCounts := workflowCounts{sessions: 2, assignments: 2, activeAssignments: 2}
-	wantFingerprint := "sessions=2;assignments=2;active=2;duplicate=true"
+	wantViolations := 1
 	if selected == string(variantFixed) {
 		wantCounts = workflowCounts{sessions: 1, assignments: 1, activeAssignments: 1}
-		wantFingerprint = "sessions=1;assignments=1;active=1;duplicate=false"
+		wantViolations = 0
 	}
 
 	for index, run := range replay.Runs {
 		runNumber := index + 1
-		if run.StateFingerprint != wantFingerprint {
+		if len(run.Evaluation.Results) != 1 ||
+			run.Evaluation.Results[0].OracleID != "matching-counts" {
 			t.Fatalf(
-				"matching %s run %d state = %q, want %q",
+				"matching %s run %d evaluation = %+v, want matching-counts result",
 				selected,
 				runNumber,
-				run.StateFingerprint,
-				wantFingerprint,
+				run.Evaluation,
+			)
+		}
+		if got := len(run.Evaluation.Results[0].Violations); got != wantViolations {
+			t.Fatalf(
+				"matching %s run %d violations = %d, want %d",
+				selected,
+				runNumber,
+				got,
+				wantViolations,
 			)
 		}
 
@@ -366,25 +376,37 @@ func waitForInnoDBRowLockWaitEvidence(
 	}
 }
 
-func observeMatchingCounts(
-	ctx context.Context,
-	db *fixture.DB,
-	_ orchestrator.RunResult,
-) (string, error) {
-	if db == nil || db.SQL == nil {
-		return "", fmt.Errorf("observe matching counts: database is required")
-	}
-	counts, err := readWorkflowCountsResult(ctx, db.SQL)
-	if err != nil {
-		return "", fmt.Errorf("observe matching counts: %w", err)
-	}
-	return fmt.Sprintf(
-		"sessions=%d;assignments=%d;active=%d;duplicate=%t",
-		counts.sessions,
-		counts.assignments,
-		counts.activeAssignments,
-		counts.activeAssignments > 1,
-	), nil
+func matchingCountEvaluator(db *fixture.DB) oracle.Evaluator {
+	return oracle.EvaluatorFunc(func(
+		ctx context.Context,
+		_ oracle.DB,
+		_ oracle.RunContext,
+	) (oracle.Evaluation, error) {
+		if db == nil || db.SQL == nil {
+			return oracle.Evaluation{}, fmt.Errorf("evaluate matching counts: database is required")
+		}
+		counts, err := readWorkflowCountsResult(ctx, db.SQL)
+		if err != nil {
+			return oracle.Evaluation{}, fmt.Errorf("evaluate matching counts: %w", err)
+		}
+
+		violations := []oracle.Violation{}
+		if counts.activeAssignments > 1 {
+			violations = append(violations, oracle.Violation{
+				OracleID: "matching-counts",
+				Kind:     oracle.KindAssertion,
+				Rows: []oracle.Row{{
+					"sessions":           int64(counts.sessions),
+					"assignments":        int64(counts.assignments),
+					"active_assignments": int64(counts.activeAssignments),
+				}},
+			})
+		}
+		return oracle.NewEvaluation(oracle.OracleResult{
+			OracleID:   "matching-counts",
+			Violations: violations,
+		})
+	})
 }
 
 func readWorkflowCountsResult(ctx context.Context, db *sql.DB) (workflowCounts, error) {

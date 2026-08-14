@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/scenario"
 	"github.com/weavegate/weavegate/internal/sut"
 	"github.com/weavegate/weavegate/internal/syncpoint"
@@ -24,7 +25,7 @@ const (
 	testStopTimeout  = 500 * time.Millisecond
 )
 
-func TestRunSavedSchedule(t *testing.T) {
+func TestRunSavedScheduleWithOracle(t *testing.T) {
 	fixtureRunner := &recordingFixture{}
 	runtime := newRuntimeProbe()
 	var adapter *scriptedAdapter
@@ -44,28 +45,35 @@ func TestRunSavedSchedule(t *testing.T) {
 		StopTimeout:           testStopTimeout,
 	})
 
-	observerCalled := false
+	evaluatorCalled := false
 	result, err := orchestrator.Run(
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
-		func(_ context.Context, _ *fixture.DB, result RunResult) (string, error) {
-			observerCalled = true
+		oracle.EvaluatorFunc(func(_ context.Context, _ oracle.DB, run oracle.RunContext) (oracle.Evaluation, error) {
+			evaluatorCalled = true
 			if adapter.stopped.Load() {
-				t.Fatal("adapter stopped before observer")
+				t.Fatal("adapter stopped before Oracle evaluation")
 			}
-			if len(result.Workers) != 2 {
-				t.Fatalf("observer workers = %d, want 2", len(result.Workers))
+			if len(run.Terminals) != 2 {
+				t.Fatalf("Oracle terminals = %d, want 2", len(run.Terminals))
 			}
-			result.Workers[0].WorkerID = "observer_mutation"
-			return "sessions=1;assignments=1;active=1;duplicate=false", nil
-		},
+			if adapter.terminalResourcesReleased.Load() != 2 {
+				t.Fatalf("released terminal resources = %d, want 2", adapter.terminalResourcesReleased.Load())
+			}
+			if len(run.Trace) == 0 || run.Trace[len(run.Trace)-1].Kind != EventScheduleComplete {
+				t.Fatalf("Oracle trace lacks schedule_complete: %#v", run.Trace)
+			}
+			run.Terminals[0].Worker = "evaluator_mutation"
+			run.Trace[0].Worker = "evaluator_mutation"
+			return oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+		}),
 	)
 	if err != nil {
 		t.Fatalf("run saved schedule: %v", err)
 	}
-	if !observerCalled {
-		t.Fatal("observer was not called")
+	if !evaluatorCalled {
+		t.Fatal("Oracle evaluator was not called")
 	}
 	if result.ScheduleID != "sch_ba00582f9632" || result.Steps != 4 {
 		t.Fatalf("run identity = %q/%d, want sch_ba00582f9632/4", result.ScheduleID, result.Steps)
@@ -87,8 +95,14 @@ func TestRunSavedSchedule(t *testing.T) {
 			t.Fatalf("worker[%d] error = %v, want nil", index, result.Workers[index].Err)
 		}
 	}
-	if result.Fingerprint != "sessions=1;assignments=1;active=1;duplicate=false" {
-		t.Fatalf("run fingerprint = %q", result.Fingerprint)
+	if result.Fingerprint == "" || result.Evaluation.Fingerprint == "" {
+		t.Fatalf("run/evaluation fingerprints = %q/%q, want nonempty", result.Fingerprint, result.Evaluation.Fingerprint)
+	}
+	if len(result.Evaluation.Results) != 1 || result.Evaluation.Results[0].OracleID != "stable-pass" {
+		t.Fatalf("run evaluation = %#v, want stable-pass", result.Evaluation)
+	}
+	if result.Terminals[0].Worker != "w1" || result.Trace[0].Worker != "" {
+		t.Fatalf("evaluator mutation changed stored run evidence: terminals=%#v trace=%#v", result.Terminals, result.Trace)
 	}
 	if result.Elapsed <= 0 {
 		t.Fatalf("run elapsed = %s, want positive", result.Elapsed)
@@ -150,7 +164,7 @@ func TestRunDefersPointBehindPendingWorkerArrival(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		schedule,
-		stableObserver,
+		stableEvaluator,
 	)
 	if err != nil {
 		t.Fatalf("run dependent-point schedule: %v", err)
@@ -217,7 +231,7 @@ func TestRunResolvesDeferredWorkerPointsInOrder(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		schedule,
-		stableObserver,
+		stableEvaluator,
 	)
 	if err != nil {
 		t.Fatalf("run deferred-worker schedule: %v", err)
@@ -277,7 +291,7 @@ func TestRunPreservesScheduleBarrierWhenDrainingPending(t *testing.T) {
 		t.Fatalf("create schedule-barrier schedule: %v", err)
 	}
 
-	result, err := orchestrator.Run(context.Background(), value, schedule, stableObserver)
+	result, err := orchestrator.Run(context.Background(), value, schedule, stableEvaluator)
 	if err != nil {
 		t.Fatalf("run schedule-barrier schedule: %v", err)
 	}
@@ -328,7 +342,7 @@ func TestRunReleasesLaterStepsBeforeCollectingFinalWorker(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		schedule,
-		stableObserver,
+		stableEvaluator,
 	)
 	if err != nil {
 		t.Fatalf("run post-final dependency schedule: %v", err)
@@ -382,7 +396,7 @@ func TestRunContinuesPendingDrainBeforeCollectingFinalWorker(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		schedule,
-		stableObserver,
+		stableEvaluator,
 	)
 	if err != nil {
 		t.Fatalf("run pending post-final dependency schedule: %v", err)
@@ -487,11 +501,11 @@ func TestRunSerializesSharedFixtureLifecycle(t *testing.T) {
 			context.Background(),
 			matchingScenario(),
 			schedule,
-			func(context.Context, *fixture.DB, RunResult) (string, error) {
+			oracle.EvaluatorFunc(func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
 				close(firstObserved)
 				<-releaseFirst
-				return "first", nil
-			},
+				return oracle.NewEvaluation(oracle.OracleResult{OracleID: "first-pass"})
+			}),
 		)
 		firstResult <- err
 	}()
@@ -508,7 +522,7 @@ func TestRunSerializesSharedFixtureLifecycle(t *testing.T) {
 		secondCtx,
 		matchingScenario(),
 		schedule,
-		stableObserver,
+		stableEvaluator,
 	)
 	if !errors.Is(secondErr, context.DeadlineExceeded) {
 		t.Fatalf("overlapping run error = %v, want deadline exceeded", secondErr)
@@ -531,7 +545,7 @@ func TestRunSerializesSharedFixtureLifecycle(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		schedule,
-		stableObserver,
+		stableEvaluator,
 	); err != nil {
 		t.Fatalf("run after gate release: %v", err)
 	}
@@ -565,7 +579,7 @@ func TestRunCleanup(t *testing.T) {
 			context.Background(),
 			matchingScenario(),
 			matchingSchedule(t),
-			stableObserver,
+			stableEvaluator,
 		)
 		if !errors.Is(err, rootErr) {
 			t.Fatalf("reset error = %v, want errors.Is(_, rootErr)", err)
@@ -578,7 +592,7 @@ func TestRunCleanup(t *testing.T) {
 	tests := []struct {
 		name      string
 		configure func(*runtimeProbe, *scriptedAdapter)
-		observer  Observer
+		evaluator oracle.Evaluator
 	}{
 		{
 			name: "start",
@@ -617,11 +631,11 @@ func TestRunCleanup(t *testing.T) {
 			},
 		},
 		{
-			name:      "observer",
+			name:      "evaluator",
 			configure: func(_ *runtimeProbe, _ *scriptedAdapter) {},
-			observer: func(context.Context, *fixture.DB, RunResult) (string, error) {
-				return "", rootErr
-			},
+			evaluator: oracle.EvaluatorFunc(func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
+				return oracle.Evaluation{}, rootErr
+			}),
 		},
 	}
 
@@ -632,9 +646,9 @@ func TestRunCleanup(t *testing.T) {
 			adapter := newScriptedAdapter(runtime)
 			adapter.stopErr = cleanupErr
 			test.configure(runtime, adapter)
-			observer := test.observer
-			if observer == nil {
-				observer = stableObserver
+			evaluator := test.evaluator
+			if evaluator == nil {
+				evaluator = stableEvaluator
 			}
 
 			orchestrator := newTestOrchestrator(t, Config{
@@ -652,7 +666,7 @@ func TestRunCleanup(t *testing.T) {
 				context.Background(),
 				matchingScenario(),
 				matchingSchedule(t),
-				observer,
+				evaluator,
 			)
 			if !errors.Is(err, rootErr) {
 				t.Fatalf("run error = %v, want errors.Is(_, rootErr)", err)
@@ -697,7 +711,7 @@ func TestRunStopsWorkersBeforeCancelingCollectors(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
-		stableObserver,
+		stableEvaluator,
 	)
 	if !errors.Is(err, rootErr) {
 		t.Fatalf("run error = %v, want errors.Is(_, rootErr)", err)
@@ -761,8 +775,8 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 		matchingSchedule(t),
 		nil,
 	)
-	if err == nil || !strings.Contains(err.Error(), "observer is required") {
-		t.Fatalf("nil observer error = %v, want observer context", err)
+	if err == nil || !strings.Contains(err.Error(), "Oracle evaluator is required") {
+		t.Fatalf("nil evaluator error = %v, want Oracle evaluator context", err)
 	}
 }
 
@@ -776,9 +790,11 @@ func newTestOrchestrator(t *testing.T, config Config) *Orchestrator {
 	return orchestrator
 }
 
-func stableObserver(context.Context, *fixture.DB, RunResult) (string, error) {
-	return "stable", nil
-}
+var stableEvaluator = oracle.EvaluatorFunc(
+	func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
+		return oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+	},
+)
 
 func matchingScenario() scenario.Scenario {
 	return scenario.Scenario{
@@ -973,6 +989,8 @@ type scriptedAdapter struct {
 	active    atomic.Int32
 	stopCalls atomic.Int32
 	stopped   atomic.Bool
+
+	terminalResourcesReleased atomic.Int32
 }
 
 func newScriptedAdapter(client syncpoint.Client) *scriptedAdapter {
@@ -1042,7 +1060,7 @@ func (a *scriptedAdapter) Invoke(
 					workerErr = ctx.Err()
 				}
 			}
-			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
+			a.publishTerminal(results, sut.WorkerResult{WorkerID: workerID, Err: workerErr})
 			a.w1Once.Do(func() { close(a.w1Result) })
 		case "w2":
 			if a.w1WaitsForW2Final {
@@ -1061,21 +1079,31 @@ func (a *scriptedAdapter) Invoke(
 			if workerErr == nil && a.w1WaitsForW2Final {
 				a.w2Once.Do(func() { close(a.w2Final) })
 			}
-			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
+			a.publishTerminal(results, sut.WorkerResult{WorkerID: workerID, Err: workerErr})
 		case "w3":
 			workerErr = a.client.Arrive(ctx, workerID, "after_read_request")
 			if workerErr == nil {
 				workerErr = a.client.Arrive(ctx, workerID, "before_insert_assignment")
 			}
-			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
+			a.publishTerminal(results, sut.WorkerResult{WorkerID: workerID, Err: workerErr})
 		default:
-			results <- sut.WorkerResult{
+			a.publishTerminal(results, sut.WorkerResult{
 				WorkerID: workerID,
 				Err:      fmt.Errorf("unsupported scripted worker %q", workerID),
-			}
+			})
 		}
 	}()
 	return results, nil
+}
+
+func (a *scriptedAdapter) publishTerminal(
+	results chan<- sut.WorkerResult,
+	result sut.WorkerResult,
+) {
+	// This fake has no database, so the flag models the production adapter's
+	// transaction/connection release cut immediately before terminal publication.
+	a.terminalResourcesReleased.Add(1)
+	results <- result
 }
 
 func (a *scriptedAdapter) Stop(ctx context.Context) error {

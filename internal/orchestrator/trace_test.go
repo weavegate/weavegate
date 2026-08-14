@@ -39,7 +39,7 @@ func TestTraceRecordsSavedAndRealizedOrder(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
-		stableObserver,
+		stableEvaluator,
 	)
 	if err != nil {
 		t.Fatalf("run traced schedule: %v", err)
@@ -137,7 +137,7 @@ func TestTraceObserverErrorTriggersCleanup(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
-		stableObserver,
+		stableEvaluator,
 	)
 	if !errors.Is(err, observerErr) {
 		t.Fatalf("trace observer run error = %v, want errors.Is(_, observerErr)", err)
@@ -179,7 +179,7 @@ func TestTracePreservesClassifiedWorkerCause(t *testing.T) {
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
-		stableObserver,
+		stableEvaluator,
 	)
 	if err != nil {
 		t.Fatalf("run deadlock-classified schedule: %v", err)

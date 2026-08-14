@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/sut"
 	"github.com/weavegate/weavegate/internal/syncpoint"
 )
@@ -19,13 +20,26 @@ import (
 func TestReplayStableFingerprint(t *testing.T) {
 	fixtureRunner := &recordingFixture{}
 	orchestrator := newReplayTestOrchestrator(t, fixtureRunner, nil)
+	evaluations := 0
+	terminalBeforeEvaluation := true
+	evaluator := oracle.EvaluatorFunc(func(
+		_ context.Context,
+		_ oracle.DB,
+		run oracle.RunContext,
+	) (oracle.Evaluation, error) {
+		evaluations++
+		terminalBeforeEvaluation = terminalBeforeEvaluation &&
+			len(run.Terminals) == 2 && len(run.Trace) > 0 &&
+			run.Trace[len(run.Trace)-1].Kind == EventScheduleComplete
+		return oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+	})
 
 	result, err := orchestrator.Replay(
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
 		20,
-		stableObserver,
+		evaluator,
 	)
 	if err != nil {
 		t.Fatalf("replay stable schedule: %v", err)
@@ -52,34 +66,47 @@ func TestReplayStableFingerprint(t *testing.T) {
 		if run.Fingerprint == "" {
 			t.Fatalf("run %d fingerprint is empty", index+1)
 		}
-		if run.StateFingerprint != "stable" {
-			t.Fatalf("run %d state fingerprint = %q, want stable", index+1, run.StateFingerprint)
+		if len(run.Evaluation.Results) != 1 || run.Evaluation.Results[0].OracleID != "stable-pass" {
+			t.Fatalf("run %d evaluation = %#v, want one stable-pass result", index+1, run.Evaluation)
 		}
+	}
+	if evaluations != 20 || !terminalBeforeEvaluation {
+		t.Fatalf("Oracle evaluation count/order = %d/%t, want 20/true", evaluations, terminalBeforeEvaluation)
 	}
 
 	t.Log(
 		"ORCHESTRATOR_REPLAY_CORE_RESULT schedule=sch_ba00582f9632 " +
 			"repeat=20 fingerprints=1 resets=20 flaky=false",
 	)
+	t.Log(
+		"ORCHESTRATOR_ORACLE_RESULT schedule=sch_ba00582f9632 evaluations=20 " +
+			"oracles_per_evaluation=1 terminal_before_evaluation=true " +
+			"fingerprints=1 cleanup=ok flaky=false",
+	)
 }
 
 func TestReplayReportsLogicalMismatch(t *testing.T) {
 	fixtureRunner := &recordingFixture{}
 	orchestrator := newReplayTestOrchestrator(t, fixtureRunner, nil)
-	observerCalls := 0
+	evaluatorCalls := 0
 
 	result, err := orchestrator.Replay(
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
 		10,
-		func(context.Context, *fixture.DB, RunResult) (string, error) {
-			observerCalls++
-			if observerCalls == 7 {
-				return "different", nil
+		oracle.EvaluatorFunc(func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
+			evaluatorCalls++
+			if evaluatorCalls == 7 {
+				return oracle.NewEvaluation(oracle.OracleResult{
+					OracleID: "stable-pass",
+					Violations: []oracle.Violation{
+						{OracleID: "stable-pass", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"different": true}}},
+					},
+				})
 			}
-			return "stable", nil
-		},
+			return oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+		}),
 	)
 	if err != nil {
 		t.Fatalf("replay mismatched schedule: %v", err)
@@ -101,24 +128,24 @@ func TestReplayReportsLogicalMismatch(t *testing.T) {
 func TestReplayKeepsInfrastructureErrorDistinct(t *testing.T) {
 	fixtureRunner := &recordingFixture{}
 	orchestrator := newReplayTestOrchestrator(t, fixtureRunner, nil)
-	observerErr := errors.New("observer unavailable")
-	observerCalls := 0
+	evaluatorErr := errors.New("evaluator unavailable")
+	evaluatorCalls := 0
 
 	result, err := orchestrator.Replay(
 		context.Background(),
 		matchingScenario(),
 		matchingSchedule(t),
 		20,
-		func(context.Context, *fixture.DB, RunResult) (string, error) {
-			observerCalls++
-			if observerCalls == 3 {
-				return "", observerErr
+		oracle.EvaluatorFunc(func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
+			evaluatorCalls++
+			if evaluatorCalls == 3 {
+				return oracle.Evaluation{}, evaluatorErr
 			}
-			return "stable", nil
-		},
+			return oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+		}),
 	)
-	if !errors.Is(err, observerErr) {
-		t.Fatalf("replay error = %v, want errors.Is(_, observerErr)", err)
+	if !errors.Is(err, evaluatorErr) {
+		t.Fatalf("replay error = %v, want errors.Is(_, evaluatorErr)", err)
 	}
 	if result.Flaky {
 		t.Fatal("infrastructure error reported flaky = true, want false")
@@ -137,7 +164,7 @@ func TestReplayKeepsInfrastructureErrorDistinct(t *testing.T) {
 		matchingScenario(),
 		matchingSchedule(t),
 		0,
-		stableObserver,
+		stableEvaluator,
 	)
 	if invalidErr == nil {
 		t.Fatal("repeat=0 error = nil, want configuration error")
@@ -151,8 +178,12 @@ func TestReplayKeepsInfrastructureErrorDistinct(t *testing.T) {
 }
 
 func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
+	evaluation, err := oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+	if err != nil {
+		t.Fatalf("create evaluation: %v", err)
+	}
 	first := RunResult{
-		StateFingerprint: "state",
+		Evaluation: evaluation,
 		Workers: []sut.WorkerResult{
 			{WorkerID: "w1", Err: errors.New("first raw error"), Duration: time.Second},
 		},
@@ -171,7 +202,10 @@ func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
 		},
 		Elapsed: time.Second,
 	}
-	second := first.clone()
+	second := first
+	second.Workers = append([]sut.WorkerResult(nil), first.Workers...)
+	second.Terminals = first.Terminals.Clone()
+	second.Trace = first.Trace.Clone()
 	second.Workers[0].Err = errors.New("different raw error")
 	second.Workers[0].Duration = 99 * time.Second
 	second.Elapsed = 100 * time.Second
@@ -187,11 +221,13 @@ func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
 	if firstFingerprint != secondFingerprint {
 		t.Fatalf("nondeterministic values changed fingerprint: %q != %q", firstFingerprint, secondFingerprint)
 	}
-	// Pinned pre-move payload hash, produced by running normalizedFingerprint
-	// from commit 3173df2 with the representative RunResult above.
-	// EXPECTED TO CHANGE EXACTLY ONCE, at the A-22 payload switch ("state" -> "oracle").
-	// When it changes: recompute from the new canonical struct, do not edit to match observed output.
-	const wantFingerprint = "e8732c89488b65d875681d782feec162c8e8e7978550499cd34867750da975e2"
+	// A-22's one-time payload switch is complete. Keep the canonical struct shape
+	// explicit here; do not replace this calculation with the observed hash.
+	canonical := fmt.Sprintf(
+		`{"oracle":%q,"terminals":[{"worker":"w1","state":"failed","failure_class":"worker_error"}],"trace":[{"seq":1,"kind":"worker_failed","step":1,"worker":"w1","point":"","status":"none","failure_class":"worker_error"}]}`,
+		evaluation.Fingerprint,
+	)
+	wantFingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(canonical)))
 	if firstFingerprint != wantFingerprint {
 		t.Fatalf("normalized fingerprint = %q, want pre-extraction hash %q", firstFingerprint, wantFingerprint)
 	}
@@ -207,12 +243,16 @@ func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
 }
 
 func TestReplayFingerprintNormalizesEmptyEvidence(t *testing.T) {
-	fingerprint, err := normalizedFingerprint(RunResult{StateFingerprint: "state"})
+	evaluation, err := oracle.NewEvaluation(oracle.OracleResult{OracleID: "stable-pass"})
+	if err != nil {
+		t.Fatalf("create empty-evidence evaluation: %v", err)
+	}
+	fingerprint, err := normalizedFingerprint(RunResult{Evaluation: evaluation})
 	if err != nil {
 		t.Fatalf("fingerprint empty evidence: %v", err)
 	}
 
-	const canonical = `{"state":"state","terminals":[],"trace":[]}`
+	canonical := fmt.Sprintf(`{"oracle":%q,"terminals":[],"trace":[]}`, evaluation.Fingerprint)
 	want := fmt.Sprintf("%x", sha256.Sum256([]byte(canonical)))
 	if fingerprint != want {
 		t.Fatalf("empty evidence fingerprint = %q, want canonical [] payload hash %q", fingerprint, want)

@@ -28,6 +28,8 @@ type SUTConfig struct {
 }
 
 // WorkerResult is the single terminal result of an asynchronous invocation.
+// An adapter may publish it only after the worker command has committed or
+// rolled back and its worker-owned database connection has been returned.
 type WorkerResult struct {
 	WorkerID string
 	Err      error
