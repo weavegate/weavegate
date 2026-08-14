@@ -8,7 +8,7 @@ repository contains an executable test and observable result for that stage.
 
 | Fixture | Anomaly | Fixture state | Controlled execution | Oracle | Fix evidence |
 | --- | --- | --- | --- | --- | --- |
-| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | In-process sync-point runtime | Pending | Locking path observed |
+| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Saved schedule replay (20/20) | Pending | Locking replay 20/20 |
 
 ## Matching slice
 
@@ -19,8 +19,8 @@ project request has at most one active assignment.
 The vulnerable schema deliberately permits multiple assignment rows for the
 same request. This makes a duplicate state representable, but schema capability
 alone is not evidence that a concurrent workflow has produced the anomaly. The
-Go-native assignment test now executes that workflow through two worker-owned
-database connections.
+Go-native assignment test executes that workflow through two worker-owned
+database connections and a content-addressed saved schedule.
 
 ### Locking mechanism
 
@@ -28,9 +28,9 @@ Both variants run the same read-check-insert workflow inside a service-owned
 transaction. The vulnerable variant reads the parent `project_request` without
 a locking clause. Its two workers can both read the active request, observe no
 active assignment, and reach `before_insert_assignment`. The in-process
-sync-point runtime records both arrivals and the test performs a targeted
-release for each worker. Each transaction then inserts a matching session and
-an assignment.
+sync-point runtime records both arrivals and the orchestrator performs a
+targeted release for each worker. Each transaction then inserts a matching
+session and an assignment.
 
 The fixed variant reads the same parent row with `FOR UPDATE`. The first worker
 holds that row lock while it checks and writes. The second worker's locking read
@@ -55,27 +55,27 @@ another session or assignment.
 - The in-process sync-point runtime registers each worker, records named
   arrivals, performs targeted worker-and-point release, and receives terminal
   results from the test's result collector.
-- The vulnerable path produced two sessions and two active assignments after
-  both workers reached `before_insert_assignment`.
+- Schedule `sch_ba00582f9632` drives four named worker-and-point control steps
+  independently of the integration test implementation.
+- The vulnerable replay produced two sessions and two active assignments in
+  20/20 runs after both workers reached `before_insert_assignment`.
 - The `FOR UPDATE` path paired the runtime's timeout inference with a separate
   InnoDB row-lock wait observation, then resumed the second worker.
-- The locking path produced one session and one active assignment; both workers
-  completed without a command error, and the second worker did not visit
-  `before_insert_assignment`.
-- The smoke workflow checks the observed vulnerable and fixed result markers.
+- The locking replay produced one session and one active assignment in 20/20
+  runs; both workers completed without a command error, and the second worker
+  did not visit `before_insert_assignment`.
+- Each variant produced one normalized state fingerprint with `flaky=false`.
+- The smoke workflow checks the observed vulnerable and fixed replay markers.
 
 ### Pending evidence
 
-The following evidence is not implemented yet:
+The following evidence remains pending:
 
 - a reusable SQL Oracle that evaluates the active-assignment invariant;
-- engine-driven orchestration of the named coordination points;
-- a saved schedule artifact that can drive the workflow independently of the
-  integration test; and
-- repeat-run evidence produced from that saved schedule.
+- exploration beyond the recorded schedule; and
+- rule `RG001`, which depends on the reusable Oracle.
 
 The coverage table keeps the Oracle pending until the repository contains that
-executable invariant check. Engine-driven replay, schedule persistence, and
-repeat evidence also remain pending. The current fix evidence is limited to the
-locking path, row-lock wait observation, and result counts exercised by the
-matching-slice integration test.
+executable invariant check. Saved schedule replay supplies repeat evidence for
+the recorded vulnerable and locking paths, but it does not replace broader
+schedule exploration or an invariant-based verdict.
