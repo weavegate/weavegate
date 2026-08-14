@@ -3,6 +3,7 @@ package matchingsut
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -22,6 +23,8 @@ const (
 	replayRunTimeout           = 15 * time.Second
 	replayStepTimeout          = 5 * time.Second
 	replayLockInferenceTimeout = 250 * time.Millisecond
+	replayLockObservationWait  = 2 * time.Second
+	replayLockObservationPoll  = 10 * time.Millisecond
 	replayStopTimeout          = 5 * time.Second
 )
 
@@ -128,7 +131,14 @@ func replayMatchingVariant(
 			return fmt.Errorf("fixed timeout event has mixed taxonomy: %+v", event)
 		}
 
-		waits, err := currentInnoDBRowLockWaits(ctx, db.SQL)
+		waits, err := waitForInnoDBRowLockWaitEvidence(
+			ctx,
+			replayLockObservationWait,
+			replayLockObservationPoll,
+			func(sampleCtx context.Context) (int, error) {
+				return currentInnoDBRowLockWaits(sampleCtx, db.SQL)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("observe fixed InnoDB row lock wait: %w", err)
 		}
@@ -290,6 +300,70 @@ func replayMatchingVariant(
 		t.Fatalf("final matching %s counts = %+v, want %+v", selected, counts, wantCounts)
 	}
 	return evidence
+}
+
+func TestWaitForInnoDBRowLockWaitEvidenceRetriesUntilVisible(t *testing.T) {
+	attempts := 0
+	waits, err := waitForInnoDBRowLockWaitEvidence(
+		context.Background(),
+		time.Second,
+		time.Millisecond,
+		func(context.Context) (int, error) {
+			attempts++
+			if attempts < 3 {
+				return 0, nil
+			}
+			return 1, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("wait for delayed row-lock evidence: %v", err)
+	}
+	if waits != 1 || attempts != 3 {
+		t.Fatalf("row-lock evidence waits=%d attempts=%d, want 1/3", waits, attempts)
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = waitForInnoDBRowLockWaitEvidence(
+		canceledCtx,
+		time.Second,
+		time.Millisecond,
+		func(context.Context) (int, error) { return 0, nil },
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled row-lock evidence error = %v, want context canceled", err)
+	}
+}
+
+func waitForInnoDBRowLockWaitEvidence(
+	ctx context.Context,
+	timeout time.Duration,
+	pollInterval time.Duration,
+	sample func(context.Context) (int, error),
+) (int, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	last := 0
+	for {
+		waits, err := sample(waitCtx)
+		if err != nil {
+			return last, err
+		}
+		last = waits
+		if waits >= 1 {
+			return waits, nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return last, fmt.Errorf("row-lock wait remained %d: %w", last, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func observeMatchingCounts(
