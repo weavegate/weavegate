@@ -60,7 +60,6 @@ type runCoordinator struct {
 	firstSteps  map[string]int
 	preObserved map[int]bool
 	pending     map[int]bool
-	drained     map[int]bool
 }
 
 // Run resets the fixture and executes one saved control schedule. Worker
@@ -170,7 +169,6 @@ func (o *Orchestrator) Run(
 		firstSteps:        make(map[string]int, len(value.Workers)),
 		preObserved:       make(map[int]bool),
 		pending:           make(map[int]bool),
-		drained:           make(map[int]bool),
 	}
 	if err := coordinator.execute(); err != nil {
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
@@ -217,14 +215,19 @@ func (r *runCoordinator) execute() error {
 		}
 	}
 
+	// Traverse every saved intent before draining any deferred work. This keeps
+	// untraversed steps as ordering barriers while allowing an unavailable intent
+	// to remain pending instead of blocking later workers.
 	for index := range r.schedule.Steps {
 		if err := r.traverse(index); err != nil {
 			return err
 		}
 	}
 
+	// Once the saved frontier is fully traversed, pending intents may realize in
+	// a different order. Each pass still scans saved indices in ascending order.
 	for len(r.pending) > 0 {
-		progressed, err := r.drainPending(len(r.schedule.Steps) - 1)
+		progressed, err := r.drainPending()
 		if err != nil {
 			return err
 		}
@@ -325,9 +328,6 @@ func (r *runCoordinator) bootstrap(index int) error {
 }
 
 func (r *runCoordinator) traverse(index int) error {
-	if r.drained[index] {
-		return nil
-	}
 	step := r.schedule.Steps[index]
 	execution := r.executions[step.Worker]
 	if execution.terminal {
@@ -403,11 +403,7 @@ func (r *runCoordinator) recordObservation(index int, status syncpoint.ArriveSta
 				return err
 			}
 		}
-		if bootstrap {
-			return nil
-		}
-		_, err := r.drainPending(index)
-		return err
+		return nil
 	case syncpoint.ArriveStatusUnknown:
 		return fmt.Errorf(
 			"step[%d] worker %q at %q returned unknown arrival status",
@@ -443,12 +439,9 @@ func (r *runCoordinator) release(index int) error {
 	return nil
 }
 
-func (r *runCoordinator) drainPending(through int) (bool, error) {
+func (r *runCoordinator) drainPending() (bool, error) {
 	progressed := false
 	for index := range r.schedule.Steps {
-		if index > through {
-			break
-		}
 		if !r.pending[index] {
 			continue
 		}
@@ -460,7 +453,6 @@ func (r *runCoordinator) drainPending(through int) (bool, error) {
 				return progressed, err
 			}
 			delete(r.pending, index)
-			r.markDrained(index)
 			progressed = true
 			continue
 		}
@@ -490,7 +482,6 @@ func (r *runCoordinator) drainPending(through int) (bool, error) {
 			if err := r.releasePending(index); err != nil {
 				return progressed, err
 			}
-			r.markDrained(index)
 			r.result.PendingResolved++
 			progressed = true
 		case syncpoint.ArriveStatusDone, syncpoint.ArriveStatusFailed:
@@ -501,7 +492,6 @@ func (r *runCoordinator) drainPending(through int) (bool, error) {
 				return progressed, err
 			}
 			delete(r.pending, index)
-			r.markDrained(index)
 			progressed = true
 		case syncpoint.ArriveStatusTimeout:
 			if err := r.pollCollector(step.Worker, index); err != nil {
@@ -512,7 +502,6 @@ func (r *runCoordinator) drainPending(through int) (bool, error) {
 					return progressed, err
 				}
 				delete(r.pending, index)
-				r.markDrained(index)
 				progressed = true
 				continue
 			}
@@ -537,13 +526,6 @@ func (r *runCoordinator) drainPending(through int) (bool, error) {
 		}
 	}
 	return progressed, nil
-}
-
-func (r *runCoordinator) markDrained(index int) {
-	if r.drained == nil {
-		r.drained = make(map[int]bool)
-	}
-	r.drained[index] = true
 }
 
 func (r *runCoordinator) releasePending(index int) error {

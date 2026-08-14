@@ -375,7 +375,7 @@ func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
 		pending:    map[int]bool{0: true},
 	}
 
-	progressed, err := coordinator.drainPending(0)
+	progressed, err := coordinator.drainPending()
 	if err != nil {
 		t.Fatalf("drain terminal pending step: %v", err)
 	}
