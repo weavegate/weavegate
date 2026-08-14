@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,66 @@ func TestRunSavedSchedule(t *testing.T) {
 		"ORCHESTRATOR_RUN_RESULT schedule=sch_ba00582f9632 workers=2 steps=4 " +
 			"timeouts=1 pending_resolved=1 terminal_done=2 cleanup=ok",
 	)
+}
+
+func TestRunDefersPointBehindPendingWorkerArrival(t *testing.T) {
+	fixtureRunner := &recordingFixture{}
+	runtime := newRuntimeProbe()
+	adapter := newScriptedAdapter(runtime)
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               fixtureRunner,
+		DB:                    &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "after_read_request"},
+		{Worker: "w2", Point: "after_read_request"},
+		{Worker: "w2", Point: "before_insert_assignment"},
+		{Worker: "w1", Point: "before_insert_assignment"},
+	})
+	if err != nil {
+		t.Fatalf("create dependent-point schedule: %v", err)
+	}
+
+	result, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		schedule,
+		stableObserver,
+	)
+	if err != nil {
+		t.Fatalf("run dependent-point schedule: %v", err)
+	}
+	if result.Timeouts != 1 || result.PendingResolved != 1 {
+		t.Fatalf(
+			"dependent-point progress timeouts=%d pending_resolved=%d, want 1/1",
+			result.Timeouts,
+			result.PendingResolved,
+		)
+	}
+
+	var released []int
+	var skipped []int
+	for _, event := range result.Trace {
+		switch event.Kind {
+		case EventPointReleased:
+			released = append(released, event.Step)
+		case EventStepTerminalSkipped:
+			skipped = append(skipped, event.Step)
+		}
+	}
+	if !reflect.DeepEqual(released, []int{0, 3, 1}) {
+		t.Fatalf("dependent-point releases = %v, want [0 3 1]", released)
+	}
+	if !reflect.DeepEqual(skipped, []int{2}) {
+		t.Fatalf("dependent-point skips = %v, want [2]", skipped)
+	}
 }
 
 func TestRunCleanup(t *testing.T) {

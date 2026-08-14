@@ -323,6 +323,10 @@ func (r *runCoordinator) traverse(index int) error {
 	if r.pending[index] {
 		return nil
 	}
+	if r.hasPendingPredecessor(index, step.Worker) {
+		r.pending[index] = true
+		return nil
+	}
 	if r.preObserved[index] {
 		delete(r.preObserved, index)
 		return r.release(index)
@@ -333,6 +337,15 @@ func (r *runCoordinator) traverse(index int) error {
 		return fmt.Errorf("wait for step[%d] worker %q at %q: %w", index, step.Worker, step.Point, err)
 	}
 	return r.recordObservation(index, status, false)
+}
+
+func (r *runCoordinator) hasPendingPredecessor(index int, workerID string) bool {
+	for pendingIndex := range r.pending {
+		if pendingIndex < index && r.schedule.Steps[pendingIndex].Worker == workerID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *runCoordinator) recordObservation(index int, status syncpoint.ArriveStatus, bootstrap bool) error {
