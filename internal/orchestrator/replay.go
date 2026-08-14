@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/scenario"
+	"github.com/weavegate/weavegate/internal/trace"
 )
 
 // ReplayResult summarizes repeated executions of one saved schedule.
@@ -23,9 +24,9 @@ type ReplayResult struct {
 }
 
 type normalizedRun struct {
-	State     string           `json:"state"`
-	Terminals []WorkerTerminal `json:"terminals"`
-	Trace     []Event          `json:"trace"`
+	State     string          `json:"state"`
+	Terminals trace.Terminals `json:"terminals"`
+	Trace     trace.Trace     `json:"trace"`
 }
 
 // Replay executes the same validated schedule repeat times. A logical
@@ -98,8 +99,8 @@ func normalizedFingerprint(run RunResult) (string, error) {
 	}
 	canonical, err := json.Marshal(normalizedRun{
 		State:     state,
-		Terminals: append([]WorkerTerminal(nil), run.Terminals...),
-		Trace:     append([]Event(nil), run.Trace...),
+		Terminals: run.Terminals.Clone(),
+		Trace:     run.Trace.Clone(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal normalized run: %w", err)

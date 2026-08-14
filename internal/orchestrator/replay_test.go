@@ -2,7 +2,9 @@ package orchestrator
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -185,6 +187,14 @@ func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
 	if firstFingerprint != secondFingerprint {
 		t.Fatalf("nondeterministic values changed fingerprint: %q != %q", firstFingerprint, secondFingerprint)
 	}
+	// Pinned pre-move payload hash, produced by running normalizedFingerprint
+	// from commit 3173df2 with the representative RunResult above.
+	// EXPECTED TO CHANGE EXACTLY ONCE, at the A-22 payload switch ("state" -> "oracle").
+	// When it changes: recompute from the new canonical struct, do not edit to match observed output.
+	const wantFingerprint = "e8732c89488b65d875681d782feec162c8e8e7978550499cd34867750da975e2"
+	if firstFingerprint != wantFingerprint {
+		t.Fatalf("normalized fingerprint = %q, want pre-extraction hash %q", firstFingerprint, wantFingerprint)
+	}
 
 	second.Terminals[0].FailureClass = WorkerFailureMySQLDeadlock
 	changedFingerprint, err := normalizedFingerprint(second)
@@ -193,6 +203,19 @@ func TestReplayFingerprintExcludesNondeterministicValues(t *testing.T) {
 	}
 	if changedFingerprint == firstFingerprint {
 		t.Fatal("failure class did not change fingerprint")
+	}
+}
+
+func TestReplayFingerprintNormalizesEmptyEvidence(t *testing.T) {
+	fingerprint, err := normalizedFingerprint(RunResult{StateFingerprint: "state"})
+	if err != nil {
+		t.Fatalf("fingerprint empty evidence: %v", err)
+	}
+
+	const canonical = `{"state":"state","terminals":[],"trace":[]}`
+	want := fmt.Sprintf("%x", sha256.Sum256([]byte(canonical)))
+	if fingerprint != want {
+		t.Fatalf("empty evidence fingerprint = %q, want canonical [] payload hash %q", fingerprint, want)
 	}
 }
 

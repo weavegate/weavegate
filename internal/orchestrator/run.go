@@ -10,6 +10,7 @@ import (
 	"github.com/weavegate/weavegate/internal/scenario"
 	"github.com/weavegate/weavegate/internal/sut"
 	"github.com/weavegate/weavegate/internal/syncpoint"
+	"github.com/weavegate/weavegate/internal/trace"
 )
 
 // RunResult contains the stable single-run outcome needed by an observer and
@@ -18,8 +19,8 @@ type RunResult struct {
 	ScheduleID       string
 	Steps            int
 	Workers          []sut.WorkerResult
-	Terminals        []WorkerTerminal
-	Trace            []Event
+	Terminals        trace.Terminals
+	Trace            trace.Trace
 	Timeouts         int
 	PendingResolved  int
 	StateFingerprint string
@@ -240,7 +241,7 @@ func (r *runCoordinator) execute() error {
 	}
 
 	workers := make([]sut.WorkerResult, 0, len(r.value.Workers))
-	terminals := make([]WorkerTerminal, 0, len(r.value.Workers))
+	terminals := make(trace.Terminals, 0, len(r.value.Workers))
 	for _, worker := range r.value.Workers {
 		execution := r.executions[worker.ID]
 		if !execution.collected {
@@ -649,7 +650,7 @@ func (r *runCoordinator) configuredStepTimeout() time.Duration {
 func (r RunResult) clone() RunResult {
 	clone := r
 	clone.Workers = append([]sut.WorkerResult(nil), r.Workers...)
-	clone.Terminals = append([]WorkerTerminal(nil), r.Terminals...)
-	clone.Trace = append([]Event(nil), r.Trace...)
+	clone.Terminals = r.Terminals.Clone()
+	clone.Trace = r.Trace.Clone()
 	return clone
 }

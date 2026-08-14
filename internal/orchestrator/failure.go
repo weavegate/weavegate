@@ -4,16 +4,20 @@ import (
 	"errors"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+
+	"github.com/weavegate/weavegate/internal/trace"
 )
 
 // WorkerFailureClass classifies terminal worker errors independently from
 // timeout-inferred control observations.
-type WorkerFailureClass string
+type WorkerFailureClass = trace.WorkerFailureClass
 
+// All previously exported orchestrator failure-class constants remain aliases
+// of the shared model during migration.
 const (
-	WorkerFailureNone          WorkerFailureClass = "none"
-	WorkerFailureError         WorkerFailureClass = "worker_error"
-	WorkerFailureMySQLDeadlock WorkerFailureClass = "mysql_deadlock_1213"
+	WorkerFailureNone          = trace.WorkerFailureNone
+	WorkerFailureError         = trace.WorkerFailureError
+	WorkerFailureMySQLDeadlock = trace.WorkerFailureMySQLDeadlock
 )
 
 // ClassifyWorkerFailure preserves MySQL deadlock 1213 through error wrapping.

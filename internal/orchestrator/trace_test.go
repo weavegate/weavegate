@@ -12,13 +12,14 @@ import (
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/sut"
 	"github.com/weavegate/weavegate/internal/syncpoint"
+	"github.com/weavegate/weavegate/internal/trace"
 )
 
 func TestTraceRecordsSavedAndRealizedOrder(t *testing.T) {
 	fixtureRunner := &recordingFixture{}
 	runtime := newRuntimeProbe()
 	adapter := newScriptedAdapter(runtime)
-	var observed []Event
+	var observed trace.Trace
 	orchestrator := newTestOrchestrator(t, Config{
 		Fixture:               fixtureRunner,
 		DB:                    &fixture.DB{},

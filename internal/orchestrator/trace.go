@@ -1,68 +1,65 @@
 package orchestrator
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/weavegate/weavegate/internal/trace"
+)
 
 // EventKind identifies one deterministic orchestration observation.
-type EventKind string
+type EventKind = trace.EventKind
 
+// All previously exported orchestrator event constants remain aliases of the
+// shared model during migration.
 const (
-	EventFixtureReset        EventKind = "fixture_reset"
-	EventWorkerRegistered    EventKind = "worker_registered"
-	EventWorkerInvoked       EventKind = "worker_invoked"
-	EventPointArrived        EventKind = "point_arrived"
-	EventPointTimeout        EventKind = "point_timeout"
-	EventPointReleased       EventKind = "point_released"
-	EventStepTerminalSkipped EventKind = "step_terminal_skipped"
-	EventWorkerDone          EventKind = "worker_done"
-	EventWorkerFailed        EventKind = "worker_failed"
-	EventScheduleComplete    EventKind = "schedule_complete"
+	EventFixtureReset        = trace.EventFixtureReset
+	EventWorkerRegistered    = trace.EventWorkerRegistered
+	EventWorkerInvoked       = trace.EventWorkerInvoked
+	EventPointArrived        = trace.EventPointArrived
+	EventPointTimeout        = trace.EventPointTimeout
+	EventPointReleased       = trace.EventPointReleased
+	EventStepTerminalSkipped = trace.EventStepTerminalSkipped
+	EventWorkerDone          = trace.EventWorkerDone
+	EventWorkerFailed        = trace.EventWorkerFailed
+	EventScheduleComplete    = trace.EventScheduleComplete
 )
 
 // ControlStatus describes nonterminal control-plane observations. It is kept
 // separate from worker terminal failure classification.
-type ControlStatus string
+type ControlStatus = trace.ControlStatus
 
+// All previously exported orchestrator control-status constants remain aliases
+// of the shared model during migration.
 const (
-	ControlStatusNone            ControlStatus = "none"
-	ControlStatusArrived         ControlStatus = "arrived"
-	ControlStatusTimeoutInferred ControlStatus = "timeout_inferred"
-	ControlStatusReleased        ControlStatus = "released"
-	ControlStatusTerminalSkipped ControlStatus = "terminal_skipped"
+	ControlStatusNone            = trace.ControlStatusNone
+	ControlStatusArrived         = trace.ControlStatusArrived
+	ControlStatusTimeoutInferred = trace.ControlStatusTimeoutInferred
+	ControlStatusReleased        = trace.ControlStatusReleased
+	ControlStatusTerminalSkipped = trace.ControlStatusTerminalSkipped
 )
 
 // TerminalState is the normalized outcome of a worker invocation.
-type TerminalState string
+type TerminalState = trace.TerminalState
 
+// All previously exported orchestrator terminal-state constants remain aliases
+// of the shared model during migration.
 const (
-	TerminalStateDone   TerminalState = "done"
-	TerminalStateFailed TerminalState = "failed"
+	TerminalStateDone   = trace.TerminalStateDone
+	TerminalStateFailed = trace.TerminalStateFailed
 )
 
-// Event is the ordered, wall-clock-free trace draft for one run. Step is the
-// zero-based saved schedule index, or -1 for lifecycle events without a step.
-type Event struct {
-	Seq          int                `json:"seq"`
-	Kind         EventKind          `json:"kind"`
-	Step         int                `json:"step"`
-	Worker       string             `json:"worker"`
-	Point        string             `json:"point"`
-	Status       ControlStatus      `json:"status"`
-	FailureClass WorkerFailureClass `json:"failure_class"`
-}
+// Event is kept as an alias while callers migrate to the shared trace model.
+type Event = trace.Event
 
-// WorkerTerminal is the normalized terminal data included in replay
-// fingerprints. Raw error strings and worker durations are deliberately absent.
-type WorkerTerminal struct {
-	Worker       string             `json:"worker"`
-	State        TerminalState      `json:"state"`
-	FailureClass WorkerFailureClass `json:"failure_class"`
-}
+// WorkerTerminal is kept as an alias while callers migrate to the shared trace
+// model.
+type WorkerTerminal = trace.WorkerTerminal
 
 // EventObserver synchronously receives a value copy of each appended event.
 type EventObserver func(Event) error
 
 type traceRecorder struct {
-	events   []Event
+	events   trace.Trace
 	observer EventObserver
 }
 
@@ -87,6 +84,6 @@ func (r *traceRecorder) emit(event Event) error {
 	return nil
 }
 
-func (r *traceRecorder) clone() []Event {
-	return append([]Event(nil), r.events...)
+func (r *traceRecorder) clone() trace.Trace {
+	return r.events.Clone()
 }
