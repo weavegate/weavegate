@@ -60,6 +60,7 @@ type runCoordinator struct {
 	firstSteps  map[string]int
 	preObserved map[int]bool
 	pending     map[int]bool
+	drained     map[int]bool
 }
 
 // Run resets the fixture and executes one saved control schedule. Worker
@@ -169,6 +170,7 @@ func (o *Orchestrator) Run(
 		firstSteps:        make(map[string]int, len(value.Workers)),
 		preObserved:       make(map[int]bool),
 		pending:           make(map[int]bool),
+		drained:           make(map[int]bool),
 	}
 	if err := coordinator.execute(); err != nil {
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
@@ -323,6 +325,9 @@ func (r *runCoordinator) bootstrap(index int) error {
 }
 
 func (r *runCoordinator) traverse(index int) error {
+	if r.drained[index] {
+		return nil
+	}
 	step := r.schedule.Steps[index]
 	execution := r.executions[step.Worker]
 	if execution.terminal {
@@ -457,6 +462,7 @@ func (r *runCoordinator) drainPending() (bool, error) {
 				return progressed, err
 			}
 			delete(r.pending, index)
+			r.markDrained(index)
 			progressed = true
 			continue
 		}
@@ -486,6 +492,7 @@ func (r *runCoordinator) drainPending() (bool, error) {
 			if err := r.releasePending(index); err != nil {
 				return progressed, err
 			}
+			r.markDrained(index)
 			r.result.PendingResolved++
 			progressed = true
 		case syncpoint.ArriveStatusDone, syncpoint.ArriveStatusFailed:
@@ -496,6 +503,7 @@ func (r *runCoordinator) drainPending() (bool, error) {
 				return progressed, err
 			}
 			delete(r.pending, index)
+			r.markDrained(index)
 			progressed = true
 		case syncpoint.ArriveStatusTimeout:
 			if err := r.pollCollector(step.Worker, index); err != nil {
@@ -506,6 +514,7 @@ func (r *runCoordinator) drainPending() (bool, error) {
 					return progressed, err
 				}
 				delete(r.pending, index)
+				r.markDrained(index)
 				progressed = true
 				continue
 			}
@@ -530,6 +539,13 @@ func (r *runCoordinator) drainPending() (bool, error) {
 		}
 	}
 	return progressed, nil
+}
+
+func (r *runCoordinator) markDrained(index int) {
+	if r.drained == nil {
+		r.drained = make(map[int]bool)
+	}
+	r.drained[index] = true
 }
 
 func (r *runCoordinator) releasePending(index int) error {

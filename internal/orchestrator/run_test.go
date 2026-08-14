@@ -181,6 +181,66 @@ func TestRunDefersPointBehindPendingWorkerArrival(t *testing.T) {
 	}
 }
 
+func TestRunSkipsStepDrainedBeforeTraversal(t *testing.T) {
+	baseRuntime := syncpoint.New()
+	runtime := &waitForNextPointOnReleaseRuntime{
+		Runtime:      baseRuntime,
+		workerID:     "w2",
+		releasePoint: "after_read_request",
+		nextPoint:    "before_insert_assignment",
+		timeout:      testStepTimeout,
+	}
+	adapter := newScriptedAdapter(runtime)
+	adapter.w2VisitsBeforeInsert = true
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               &recordingFixture{},
+		DB:                    &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "after_read_request"},
+		{Worker: "w1", Point: "before_insert_assignment"},
+		{Worker: "w2", Point: "after_read_request"},
+		{Worker: "w2", Point: "before_insert_assignment"},
+	})
+	if err != nil {
+		t.Fatalf("create early-drain schedule: %v", err)
+	}
+
+	result, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		schedule,
+		stableObserver,
+	)
+	if err != nil {
+		t.Fatalf("run early-drain schedule: %v", err)
+	}
+	if result.Timeouts != 1 || result.PendingResolved != 1 {
+		t.Fatalf(
+			"early-drain progress timeouts=%d pending_resolved=%d, want 1/1",
+			result.Timeouts,
+			result.PendingResolved,
+		)
+	}
+
+	var released []int
+	for _, event := range result.Trace {
+		if event.Kind == EventPointReleased {
+			released = append(released, event.Step)
+		}
+	}
+	if !reflect.DeepEqual(released, []int{0, 1, 2, 3}) {
+		t.Fatalf("early-drain releases = %v, want [0 1 2 3]", released)
+	}
+}
+
 func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
 	runtime := &timeoutWaitRuntime{Runtime: syncpoint.New()}
 	t.Cleanup(runtime.Close)
@@ -576,6 +636,40 @@ type timeoutWaitRuntime struct {
 	syncpoint.Runtime
 }
 
+type waitForNextPointOnReleaseRuntime struct {
+	syncpoint.Runtime
+	workerID     string
+	releasePoint string
+	nextPoint    string
+	timeout      time.Duration
+}
+
+func (r *waitForNextPointOnReleaseRuntime) Release(
+	ctx context.Context,
+	workerID string,
+	point string,
+) error {
+	if err := r.Runtime.Release(ctx, workerID, point); err != nil {
+		return err
+	}
+	if workerID != r.workerID || point != r.releasePoint {
+		return nil
+	}
+	status, err := r.Runtime.WaitArrive(ctx, workerID, r.nextPoint, r.timeout)
+	if err != nil {
+		return err
+	}
+	if status != syncpoint.ArriveStatusArrived {
+		return fmt.Errorf(
+			"worker %q next point %q status = %s, want arrived",
+			workerID,
+			r.nextPoint,
+			status,
+		)
+	}
+	return nil
+}
+
 func (r *timeoutWaitRuntime) WaitArrive(
 	context.Context,
 	string,
@@ -630,10 +724,11 @@ func (r *runtimeProbe) Close() {
 type scriptedAdapter struct {
 	client syncpoint.Client
 
-	startErr        error
-	invokeErr       error
-	stopErr         error
-	keepResultsOpen bool
+	startErr             error
+	invokeErr            error
+	stopErr              error
+	keepResultsOpen      bool
+	w2VisitsBeforeInsert bool
 
 	mu       sync.Mutex
 	ctx      context.Context
@@ -710,6 +805,9 @@ func (a *scriptedAdapter) Invoke(
 				workerErr = a.client.Arrive(ctx, workerID, "after_read_request")
 			case <-ctx.Done():
 				workerErr = ctx.Err()
+			}
+			if workerErr == nil && a.w2VisitsBeforeInsert {
+				workerErr = a.client.Arrive(ctx, workerID, "before_insert_assignment")
 			}
 			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
 		default:
