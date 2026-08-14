@@ -506,6 +506,43 @@ func TestRunCleanup(t *testing.T) {
 	}
 }
 
+func TestRunStopsWorkersBeforeCancelingCollectors(t *testing.T) {
+	rootErr := errors.New("injected wait failure")
+	runtime := newRuntimeProbe()
+	runtime.failWait = rootErr
+	adapter := newScriptedAdapter(runtime)
+	adapter.unbufferedResults = true
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               &recordingFixture{},
+		DB:                    &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+
+	_, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		matchingSchedule(t),
+		stableObserver,
+	)
+	if !errors.Is(err, rootErr) {
+		t.Fatalf("run error = %v, want errors.Is(_, rootErr)", err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("run error = %v, want no stop timeout", err)
+	}
+	if adapter.stopCalls.Load() != 1 {
+		t.Fatalf("adapter stops = %d, want 1", adapter.stopCalls.Load())
+	}
+	if adapter.active.Load() != 0 {
+		t.Fatalf("active adapter workers = %d, want 0", adapter.active.Load())
+	}
+}
+
 func TestRunRejectsInvalidConfig(t *testing.T) {
 	base := Config{
 		Fixture:               &recordingFixture{},
@@ -728,6 +765,7 @@ type scriptedAdapter struct {
 	invokeErr            error
 	stopErr              error
 	keepResultsOpen      bool
+	unbufferedResults    bool
 	w2VisitsBeforeInsert bool
 
 	mu       sync.Mutex
@@ -780,7 +818,11 @@ func (a *scriptedAdapter) Invoke(
 		return nil, errors.New("scripted adapter was not started")
 	}
 
-	results := make(chan sut.WorkerResult, 1)
+	resultBuffer := 1
+	if a.unbufferedResults {
+		resultBuffer = 0
+	}
+	results := make(chan sut.WorkerResult, resultBuffer)
 	a.wait.Add(1)
 	a.active.Add(1)
 	go func() {

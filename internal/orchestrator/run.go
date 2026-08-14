@@ -121,9 +121,8 @@ func (o *Orchestrator) Run(
 		adapter        sut.Adapter
 		collectorsWait sync.WaitGroup
 	)
-	collectorsCtx, cancelCollectors := context.WithCancel(runCtx)
+	collectorsCtx, cancelCollectors := context.WithCancel(context.WithoutCancel(runCtx))
 	defer func() {
-		cancelCollectors()
 		if adapter != nil {
 			stopCtx, cancelStop := context.WithTimeout(
 				context.WithoutCancel(ctx),
@@ -138,8 +137,9 @@ func (o *Orchestrator) Run(
 				)
 			}
 		}
-		runtime.Close()
+		cancelCollectors()
 		collectorsWait.Wait()
+		runtime.Close()
 	}()
 
 	adapter = o.config.NewAdapter(runtime)
