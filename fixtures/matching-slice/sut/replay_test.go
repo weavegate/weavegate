@@ -3,6 +3,7 @@ package matchingsut
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/oracle"
+	"github.com/weavegate/weavegate/internal/oracle/sqlassert"
 	"github.com/weavegate/weavegate/internal/orchestrator"
 	"github.com/weavegate/weavegate/internal/scenario"
 	internalsut "github.com/weavegate/weavegate/internal/sut"
@@ -19,6 +21,8 @@ import (
 )
 
 const (
+	matchingOracleID           = "active-assignment-is-unique"
+	matchingViolationEvidence  = `{"active_assignment_count":2,"project_request_id":42}`
 	matchingReplayRepeat       = 20
 	matchingReplayTestTimeout  = 14 * time.Minute
 	replayRunTimeout           = 15 * time.Second
@@ -75,6 +79,27 @@ func TestReplayConcurrentAssign(t *testing.T) {
 	elapsed := time.Since(startedAt)
 
 	t.Logf(
+		"MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable "+
+			"oracle=active-assignment-is-unique oracles_evaluated=%d repeat=20 "+
+			"violation_runs=%d violations=%d evidence_rows=%d evidence_json=%s flaky=%t",
+		vulnerable.oraclesEvaluated,
+		vulnerable.violationRuns,
+		vulnerable.violations,
+		vulnerable.evidenceRows,
+		vulnerable.evidenceJSON,
+		vulnerable.flaky,
+	)
+	t.Logf(
+		"MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed "+
+			"oracle=active-assignment-is-unique oracles_evaluated=%d repeat=20 "+
+			"pass_runs=%d violations=%d evidence_rows=%d flaky=%t",
+		fixed.oraclesEvaluated,
+		fixed.passRuns,
+		fixed.violations,
+		fixed.evidenceRows,
+		fixed.flaky,
+	)
+	t.Logf(
 		"MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=vulnerable repeat=20 "+
 			"duplicate_runs=%d blocked_runs=%d sessions=2 assignments=2 active_assignments=2 "+
 			"worker_errors=%d deadlocks=%d flaky=%t",
@@ -103,13 +128,41 @@ func TestReplayConcurrentAssign(t *testing.T) {
 }
 
 type matchingReplayEvidence struct {
-	passRuns      int
-	duplicateRuns int
-	blockedRuns   int
-	lockWaitRuns  int
-	workerErrors  int
-	deadlocks     int
-	flaky         bool
+	oraclesEvaluated int
+	passRuns         int
+	violationRuns    int
+	violations       int
+	evidenceRows     int
+	evidenceJSON     string
+	duplicateRuns    int
+	blockedRuns      int
+	lockWaitRuns     int
+	workerErrors     int
+	deadlocks        int
+	flaky            bool
+}
+
+const matchingAssertionQuery = `
+SELECT
+    project_request_id,
+    COUNT(*) AS active_assignment_count
+FROM assignment
+WHERE status = 'ACTIVE'
+GROUP BY project_request_id
+HAVING COUNT(*) > 1
+ORDER BY project_request_id;
+`
+
+func newMatchingOracleSet() (*oracle.Set, error) {
+	assertion, err := sqlassert.NewZeroRow(matchingOracleID, matchingAssertionQuery)
+	if err != nil {
+		return nil, fmt.Errorf("create matching SQL assertion: %w", err)
+	}
+	set, err := oracle.NewSet(assertion)
+	if err != nil {
+		return nil, fmt.Errorf("create matching Oracle set: %w", err)
+	}
+	return set, nil
 }
 
 func replayMatchingVariant(
@@ -183,20 +236,27 @@ func replayMatchingVariant(
 			Params:  map[string]string{"request_id": fmt.Sprint(seededRequestID)},
 		},
 	}
+	evaluator, err := newMatchingOracleSet()
+	if err != nil {
+		t.Fatalf("create %s matching Oracle set: %v", selected, err)
+	}
 
 	replay, err := executor.Replay(
 		ctx,
 		value,
 		saved,
 		matchingReplayRepeat,
-		matchingCountEvaluator(db),
+		evaluator,
 	)
 	if err != nil {
 		t.Fatalf("replay matching %s variant: %v", selected, err)
 	}
 	evidence.flaky = replay.Flaky
 	if replay.Flaky {
-		t.Fatalf(
+		failMatchingReplay(
+			t,
+			selected,
+			replay,
 			"matching %s replay is flaky: fingerprints=%d mismatch_runs=%v",
 			selected,
 			len(replay.Fingerprints),
@@ -204,38 +264,99 @@ func replayMatchingVariant(
 		)
 	}
 	if len(replay.Fingerprints) != 1 {
-		t.Fatalf("matching %s fingerprints = %d, want 1", selected, len(replay.Fingerprints))
+		failMatchingReplay(
+			t,
+			selected,
+			replay,
+			"matching %s fingerprints = %d, want 1",
+			selected,
+			len(replay.Fingerprints),
+		)
 	}
 	if len(replay.Runs) != matchingReplayRepeat {
 		t.Fatalf("matching %s runs = %d, want %d", selected, len(replay.Runs), matchingReplayRepeat)
 	}
 
 	wantCounts := workflowCounts{sessions: 2, assignments: 2, activeAssignments: 2}
-	wantViolations := 1
 	if selected == string(variantFixed) {
 		wantCounts = workflowCounts{sessions: 1, assignments: 1, activeAssignments: 1}
-		wantViolations = 0
 	}
 
 	for index, run := range replay.Runs {
 		runNumber := index + 1
-		if len(run.Evaluation.Results) != 1 ||
-			run.Evaluation.Results[0].OracleID != "matching-counts" {
-			t.Fatalf(
-				"matching %s run %d evaluation = %+v, want matching-counts result",
+		if len(run.Evaluation.Results) != 1 {
+			failMatchingRun(
+				t,
 				selected,
 				runNumber,
-				run.Evaluation,
+				run,
+				"matching %s run %d results = %d, want 1",
+				selected,
+				runNumber,
+				len(run.Evaluation.Results),
 			)
 		}
-		if got := len(run.Evaluation.Results[0].Violations); got != wantViolations {
-			t.Fatalf(
-				"matching %s run %d violations = %d, want %d",
+		result := run.Evaluation.Results[0]
+		if result.OracleID != matchingOracleID {
+			failMatchingRun(
+				t,
 				selected,
 				runNumber,
-				got,
-				wantViolations,
+				run,
+				"matching %s run %d Oracle ID = %q, want %q",
+				selected,
+				runNumber,
+				result.OracleID,
+				matchingOracleID,
 			)
+		}
+		evidence.oraclesEvaluated = 1
+		if selected == string(variantVulnerable) {
+			if len(result.Violations) != 1 ||
+				result.Violations[0].OracleID != matchingOracleID ||
+				result.Violations[0].Kind != oracle.KindAssertion ||
+				len(result.Violations[0].Rows) != 1 {
+				failMatchingRun(
+					t,
+					selected,
+					runNumber,
+					run,
+					"matching vulnerable run %d verdict = %+v, want one assertion violation with one row",
+					runNumber,
+					result,
+				)
+			}
+			evidenceJSON, marshalErr := json.Marshal(result.Violations[0].Rows[0])
+			if marshalErr != nil || string(evidenceJSON) != matchingViolationEvidence {
+				failMatchingRun(
+					t,
+					selected,
+					runNumber,
+					run,
+					"matching vulnerable run %d evidence JSON = %s (error=%v), want %s",
+					runNumber,
+					evidenceJSON,
+					marshalErr,
+					matchingViolationEvidence,
+				)
+			}
+			evidence.violationRuns++
+			evidence.violations += len(result.Violations)
+			evidence.evidenceRows += len(result.Violations[0].Rows)
+			evidence.evidenceJSON = string(evidenceJSON)
+		} else {
+			if len(result.Violations) != 0 {
+				failMatchingRun(
+					t,
+					selected,
+					runNumber,
+					run,
+					"matching fixed run %d violations = %d, want evaluated PASS",
+					runNumber,
+					len(result.Violations),
+				)
+			}
+			evidence.passRuns++
 		}
 
 		timeoutCount := 0
@@ -276,7 +397,6 @@ func replayMatchingVariant(
 			if timeoutCount != 0 {
 				t.Fatalf("vulnerable run %d timeout events = %d, want 0", runNumber, timeoutCount)
 			}
-			evidence.duplicateRuns++
 			continue
 		}
 
@@ -286,17 +406,27 @@ func replayMatchingVariant(
 		if !terminalSkipped {
 			t.Fatalf("fixed run %d lacks terminal skip for w2 before insert", runNumber)
 		}
-		evidence.passRuns++
 	}
+	// duplicate_runs is retained only as a compatibility alias for the SQL
+	// Oracle's violation_runs; it is not an independent verdict.
+	evidence.duplicateRuns = evidence.violationRuns
 
 	if selected == string(variantVulnerable) {
-		if evidence.duplicateRuns != matchingReplayRepeat || evidence.blockedRuns != 0 {
-			t.Fatalf("vulnerable replay evidence = %+v", evidence)
+		if evidence.oraclesEvaluated != 1 ||
+			evidence.violationRuns != matchingReplayRepeat ||
+			evidence.violations != matchingReplayRepeat ||
+			evidence.evidenceRows != matchingReplayRepeat ||
+			evidence.evidenceJSON != matchingViolationEvidence ||
+			evidence.blockedRuns != 0 {
+			failMatchingReplay(t, selected, replay, "vulnerable replay evidence = %+v", evidence)
 		}
-	} else if evidence.passRuns != matchingReplayRepeat ||
+	} else if evidence.oraclesEvaluated != 1 ||
+		evidence.passRuns != matchingReplayRepeat ||
+		evidence.violations != 0 ||
+		evidence.evidenceRows != 0 ||
 		evidence.blockedRuns != matchingReplayRepeat ||
 		evidence.lockWaitRuns != matchingReplayRepeat {
-		t.Fatalf("fixed replay evidence = %+v", evidence)
+		failMatchingReplay(t, selected, replay, "fixed replay evidence = %+v", evidence)
 	}
 	if evidence.workerErrors != 0 || evidence.deadlocks != 0 {
 		t.Fatalf("matching %s terminal failures = %+v", selected, evidence)
@@ -376,37 +506,86 @@ func waitForInnoDBRowLockWaitEvidence(
 	}
 }
 
-func matchingCountEvaluator(db *fixture.DB) oracle.Evaluator {
-	return oracle.EvaluatorFunc(func(
-		ctx context.Context,
-		_ oracle.DB,
-		_ oracle.RunContext,
-	) (oracle.Evaluation, error) {
-		if db == nil || db.SQL == nil {
-			return oracle.Evaluation{}, fmt.Errorf("evaluate matching counts: database is required")
-		}
-		counts, err := readWorkflowCountsResult(ctx, db.SQL)
-		if err != nil {
-			return oracle.Evaluation{}, fmt.Errorf("evaluate matching counts: %w", err)
-		}
+func failMatchingReplay(
+	t *testing.T,
+	selected string,
+	replay orchestrator.ReplayResult,
+	format string,
+	args ...any,
+) {
+	t.Helper()
+	for index, run := range replay.Runs {
+		logMatchingRunDiagnostic(t, selected, index+1, run)
+	}
+	t.Fatalf(format, args...)
+}
 
-		violations := []oracle.Violation{}
-		if counts.activeAssignments > 1 {
-			violations = append(violations, oracle.Violation{
-				OracleID: "matching-counts",
-				Kind:     oracle.KindAssertion,
-				Rows: []oracle.Row{{
-					"sessions":           int64(counts.sessions),
-					"assignments":        int64(counts.assignments),
-					"active_assignments": int64(counts.activeAssignments),
-				}},
-			})
+func failMatchingRun(
+	t *testing.T,
+	selected string,
+	runNumber int,
+	run orchestrator.RunResult,
+	format string,
+	args ...any,
+) {
+	t.Helper()
+	logMatchingRunDiagnostic(t, selected, runNumber, run)
+	t.Fatalf(format, args...)
+}
+
+func logMatchingRunDiagnostic(
+	t *testing.T,
+	selected string,
+	runNumber int,
+	run orchestrator.RunResult,
+) {
+	t.Helper()
+	type oracleDiagnostic struct {
+		OracleID   string       `json:"oracle_id"`
+		Violations int          `json:"violations"`
+		Evidence   []oracle.Row `json:"evidence"`
+	}
+	type terminalDiagnostic struct {
+		Worker       string                          `json:"worker"`
+		FailureClass orchestrator.WorkerFailureClass `json:"failure_class"`
+	}
+
+	oracles := make([]oracleDiagnostic, 0, len(run.Evaluation.Results))
+	for _, result := range run.Evaluation.Results {
+		evidence := make([]oracle.Row, 0)
+		for _, violation := range result.Violations {
+			evidence = append(evidence, violation.Rows...)
 		}
-		return oracle.NewEvaluation(oracle.OracleResult{
-			OracleID:   "matching-counts",
-			Violations: violations,
+		oracles = append(oracles, oracleDiagnostic{
+			OracleID:   result.OracleID,
+			Violations: len(result.Violations),
+			Evidence:   evidence,
 		})
-	})
+	}
+	terminals := make([]terminalDiagnostic, 0, len(run.Terminals))
+	for _, terminal := range run.Terminals {
+		terminals = append(terminals, terminalDiagnostic{
+			Worker:       terminal.Worker,
+			FailureClass: terminal.FailureClass,
+		})
+	}
+
+	oracleJSON, oracleErr := json.Marshal(oracles)
+	terminalJSON, terminalErr := json.Marshal(terminals)
+	traceJSON, traceErr := json.Marshal(run.Trace)
+	t.Logf(
+		"MATCHING_ORACLE_DIAGNOSTIC variant=%s run=%d evaluation_fingerprint=%s "+
+			"oracles=%s terminals=%s trace=%s marshal_errors=%v/%v/%v",
+		selected,
+		runNumber,
+		run.Evaluation.Fingerprint,
+		oracleJSON,
+		terminalJSON,
+		traceJSON,
+		oracleErr,
+		terminalErr,
+		traceErr,
+	)
 }
 
 func readWorkflowCountsResult(ctx context.Context, db *sql.DB) (workflowCounts, error) {
