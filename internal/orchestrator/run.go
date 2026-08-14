@@ -224,7 +224,7 @@ func (r *runCoordinator) execute() error {
 	}
 
 	for len(r.pending) > 0 {
-		progressed, err := r.drainPending()
+		progressed, err := r.drainPending(len(r.schedule.Steps) - 1)
 		if err != nil {
 			return err
 		}
@@ -403,7 +403,10 @@ func (r *runCoordinator) recordObservation(index int, status syncpoint.ArriveSta
 				return err
 			}
 		}
-		_, err := r.drainPending()
+		if bootstrap {
+			return nil
+		}
+		_, err := r.drainPending(index)
 		return err
 	case syncpoint.ArriveStatusUnknown:
 		return fmt.Errorf(
@@ -444,13 +447,16 @@ func (r *runCoordinator) release(index int) error {
 	if err := r.collect(step.Worker, index); err != nil {
 		return err
 	}
-	_, err := r.drainPending()
+	_, err := r.drainPending(index)
 	return err
 }
 
-func (r *runCoordinator) drainPending() (bool, error) {
+func (r *runCoordinator) drainPending(through int) (bool, error) {
 	progressed := false
 	for index := range r.schedule.Steps {
+		if index > through {
+			break
+		}
 		if !r.pending[index] {
 			continue
 		}

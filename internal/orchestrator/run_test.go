@@ -181,7 +181,7 @@ func TestRunDefersPointBehindPendingWorkerArrival(t *testing.T) {
 	}
 }
 
-func TestRunSkipsStepDrainedBeforeTraversal(t *testing.T) {
+func TestRunResolvesDeferredWorkerPointsInOrder(t *testing.T) {
 	baseRuntime := syncpoint.New()
 	runtime := &waitForNextPointOnReleaseRuntime{
 		Runtime:      baseRuntime,
@@ -210,7 +210,7 @@ func TestRunSkipsStepDrainedBeforeTraversal(t *testing.T) {
 		{Worker: "w2", Point: "before_insert_assignment"},
 	})
 	if err != nil {
-		t.Fatalf("create early-drain schedule: %v", err)
+		t.Fatalf("create deferred-worker schedule: %v", err)
 	}
 
 	result, err := orchestrator.Run(
@@ -220,11 +220,11 @@ func TestRunSkipsStepDrainedBeforeTraversal(t *testing.T) {
 		stableObserver,
 	)
 	if err != nil {
-		t.Fatalf("run early-drain schedule: %v", err)
+		t.Fatalf("run deferred-worker schedule: %v", err)
 	}
-	if result.Timeouts != 1 || result.PendingResolved != 1 {
+	if result.Timeouts != 1 || result.PendingResolved != 2 {
 		t.Fatalf(
-			"early-drain progress timeouts=%d pending_resolved=%d, want 1/1",
+			"deferred-worker progress timeouts=%d pending_resolved=%d, want 1/2",
 			result.Timeouts,
 			result.PendingResolved,
 		)
@@ -237,7 +237,66 @@ func TestRunSkipsStepDrainedBeforeTraversal(t *testing.T) {
 		}
 	}
 	if !reflect.DeepEqual(released, []int{0, 1, 2, 3}) {
-		t.Fatalf("early-drain releases = %v, want [0 1 2 3]", released)
+		t.Fatalf("deferred-worker releases = %v, want [0 1 2 3]", released)
+	}
+}
+
+func TestRunPreservesScheduleBarrierWhenDrainingPending(t *testing.T) {
+	runtime := syncpoint.New()
+	adapter := newScriptedAdapter(runtime)
+	adapter.w2VisitsBeforeInsert = true
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               &recordingFixture{},
+		DB:                    &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+	value := scenario.Scenario{
+		Name: "schedule-barrier",
+		Workers: []scenario.Worker{
+			{ID: "w1", Command: "assign"},
+			{ID: "w3", Command: "assign"},
+			{ID: "w2", Command: "assign"},
+		},
+		SyncPoints: []string{"after_read_request", "before_insert_assignment"},
+		SUTConfig:  sut.SUTConfig{Variant: "fixed"},
+	}
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "after_read_request"},
+		{Worker: "w1", Point: "before_insert_assignment"},
+		{Worker: "w3", Point: "after_read_request"},
+		{Worker: "w3", Point: "before_insert_assignment"},
+		{Worker: "w2", Point: "after_read_request"},
+		{Worker: "w2", Point: "before_insert_assignment"},
+	})
+	if err != nil {
+		t.Fatalf("create schedule-barrier schedule: %v", err)
+	}
+
+	result, err := orchestrator.Run(context.Background(), value, schedule, stableObserver)
+	if err != nil {
+		t.Fatalf("run schedule-barrier schedule: %v", err)
+	}
+	if result.Timeouts != 1 || result.PendingResolved != 2 {
+		t.Fatalf(
+			"schedule-barrier progress timeouts=%d pending_resolved=%d, want 1/2",
+			result.Timeouts,
+			result.PendingResolved,
+		)
+	}
+
+	var released []int
+	for _, event := range result.Trace {
+		if event.Kind == EventPointReleased {
+			released = append(released, event.Step)
+		}
+	}
+	if !reflect.DeepEqual(released, []int{0, 1, 2, 3, 4, 5}) {
+		t.Fatalf("schedule-barrier releases = %v, want [0 1 2 3 4 5]", released)
 	}
 }
 
@@ -266,7 +325,7 @@ func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
 		pending:    map[int]bool{0: true},
 	}
 
-	progressed, err := coordinator.drainPending()
+	progressed, err := coordinator.drainPending(0)
 	if err != nil {
 		t.Fatalf("drain terminal pending step: %v", err)
 	}
@@ -849,6 +908,12 @@ func (a *scriptedAdapter) Invoke(
 				workerErr = ctx.Err()
 			}
 			if workerErr == nil && a.w2VisitsBeforeInsert {
+				workerErr = a.client.Arrive(ctx, workerID, "before_insert_assignment")
+			}
+			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
+		case "w3":
+			workerErr = a.client.Arrive(ctx, workerID, "after_read_request")
+			if workerErr == nil {
 				workerErr = a.client.Arrive(ctx, workerID, "before_insert_assignment")
 			}
 			results <- sut.WorkerResult{WorkerID: workerID, Err: workerErr}
