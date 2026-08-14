@@ -350,6 +350,67 @@ func TestRunReleasesLaterStepsBeforeCollectingFinalWorker(t *testing.T) {
 	}
 }
 
+func TestRunContinuesPendingDrainBeforeCollectingFinalWorker(t *testing.T) {
+	baseRuntime := syncpoint.New()
+	runtime := &timeoutFirstWaitPerWorkerRuntime{
+		Runtime: baseRuntime,
+		waited:  make(map[string]bool),
+	}
+	adapter := newScriptedAdapter(runtime)
+	adapter.w1WaitsForW2Final = true
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               &recordingFixture{},
+		DB:                    &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "after_read_request"},
+		{Worker: "w1", Point: "before_insert_assignment"},
+		{Worker: "w2", Point: "after_read_request"},
+		{Worker: "w2", Point: "before_insert_assignment"},
+	})
+	if err != nil {
+		t.Fatalf("create pending post-final dependency schedule: %v", err)
+	}
+
+	result, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		schedule,
+		stableObserver,
+	)
+	if err != nil {
+		t.Fatalf("run pending post-final dependency schedule: %v", err)
+	}
+	if result.Timeouts != 2 || result.PendingResolved != 4 {
+		t.Fatalf(
+			"pending post-final progress timeouts=%d pending_resolved=%d, want 2/4",
+			result.Timeouts,
+			result.PendingResolved,
+		)
+	}
+	for _, worker := range result.Workers {
+		if worker.Err != nil {
+			t.Fatalf("worker %q error = %v, want nil", worker.WorkerID, worker.Err)
+		}
+	}
+
+	var released []int
+	for _, event := range result.Trace {
+		if event.Kind == EventPointReleased {
+			released = append(released, event.Step)
+		}
+	}
+	if !reflect.DeepEqual(released, []int{0, 1, 2, 3}) {
+		t.Fatalf("pending post-final releases = %v, want [0 1 2 3]", released)
+	}
+}
+
 func TestDrainPendingClearsStepWhenPollCollectsTerminal(t *testing.T) {
 	runtime := &timeoutWaitRuntime{Runtime: syncpoint.New()}
 	t.Cleanup(runtime.Close)
@@ -780,6 +841,28 @@ type runtimeProbe struct {
 
 type timeoutWaitRuntime struct {
 	syncpoint.Runtime
+}
+
+type timeoutFirstWaitPerWorkerRuntime struct {
+	syncpoint.Runtime
+	mu     sync.Mutex
+	waited map[string]bool
+}
+
+func (r *timeoutFirstWaitPerWorkerRuntime) WaitArrive(
+	ctx context.Context,
+	workerID string,
+	point string,
+	timeout time.Duration,
+) (syncpoint.ArriveStatus, error) {
+	r.mu.Lock()
+	if !r.waited[workerID] {
+		r.waited[workerID] = true
+		r.mu.Unlock()
+		return syncpoint.ArriveStatusTimeout, nil
+	}
+	r.mu.Unlock()
+	return r.Runtime.WaitArrive(ctx, workerID, point, timeout)
 }
 
 type waitForNextPointOnReleaseRuntime struct {
