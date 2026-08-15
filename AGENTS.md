@@ -10,10 +10,15 @@ see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contribution process.
 
 ## Repository shape
 
-The engine is a set of Go packages. There is no CLI binary yet.
+The engine is a set of Go packages, driven by the `weavegate` CLI in
+`cmd/weavegate`.
 
 | Package | Responsibility |
 | --- | --- |
+| `cmd/weavegate` | The `weavegate` CLI — `run` and `report` subcommands, config resolution, exit codes |
+| `internal/config` | Loads and validates `.weavegate/config.yaml` |
+| `internal/ci` | Maps a run outcome to a process exit code |
+| `internal/report` | Writes the run directory artifacts and renders `report.md` |
 | `internal/fixture` | Starts the database container, applies migrations and seed data, resets state between runs |
 | `internal/sut` (+ `gonative`) | The adapter boundary for the workflow under test |
 | `internal/syncpoint` | The sync-point runtime — arrive/release, blocked and terminal states |
@@ -66,12 +71,14 @@ explicitly as planned rather than writing about it as if it already ran.
 Run what applies to the change:
 
 ```bash
-gofmt -l internal fixtures experiments
+gofmt -l cmd internal fixtures experiments
 go vet ./...
 go build ./...
 go test ./internal/... -count=1     # Docker required
 go test ./fixtures/... -count=1     # Docker required
 go test ./experiments/... -count=1  # Docker required
+go test ./cmd/... -count=1          # Docker required
+go test ./cmd/... -short -count=1   # no Docker; skips the integration test
 ```
 
 State plainly in the pull request which of these you ran and which you
