@@ -10,8 +10,8 @@ import (
 
 func run(args ...string) (stdout, stderr string, exitCode int) {
 	var outBuf, errBuf bytes.Buffer
-	err := Execute(args, &outBuf, &errBuf)
-	return outBuf.String(), errBuf.String(), ci.ExitCode(err, ci.Verdict{})
+	exitCode = Execute(args, &outBuf, &errBuf)
+	return outBuf.String(), errBuf.String(), exitCode
 }
 
 func TestRootCommand(t *testing.T) {

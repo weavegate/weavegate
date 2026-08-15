@@ -1,0 +1,423 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/weavegate/weavegate/internal/ci"
+	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/report"
+	"github.com/weavegate/weavegate/internal/scenario"
+)
+
+func requireDocker(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping Docker-backed test in -short mode")
+	}
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		t.Skipf("skipping Docker-backed test: docker unavailable: %v", err)
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	return filepath.Clean(filepath.Join(wd, "..", ".."))
+}
+
+func matchingSliceConfigPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repoRoot(t), "fixtures", "matching-slice", ".weavegate", "config.yaml")
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("change directory to %q: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Fatalf("restore working directory to %q: %v", original, err)
+		}
+	})
+}
+
+func latestRunDir(t *testing.T, outDir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(outDir, "runs"))
+	if err != nil {
+		t.Fatalf("read runs directory under %q: %v", outDir, err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("runs directory under %q has %d entries, want 1", outDir, len(entries))
+	}
+	return filepath.Join(outDir, "runs", entries[0].Name())
+}
+
+func listRunFiles(t *testing.T, dir string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read run directory %q: %v", dir, err)
+	}
+	return entries
+}
+
+func readObservation(t *testing.T, dir string) report.Observation {
+	t.Helper()
+	var observation report.Observation
+	content, err := os.ReadFile(filepath.Join(dir, report.ObservationFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", report.ObservationFile, err)
+	}
+	if err := json.Unmarshal(content, &observation); err != nil {
+		t.Fatalf("parse %s: %v", report.ObservationFile, err)
+	}
+	return observation
+}
+
+func readScenario(t *testing.T, dir string) report.Scenario {
+	t.Helper()
+	var doc report.Scenario
+	content, err := os.ReadFile(filepath.Join(dir, report.ScenarioFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", report.ScenarioFile, err)
+	}
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatalf("parse %s: %v", report.ScenarioFile, err)
+	}
+	return doc
+}
+
+func extractReplayLine(t *testing.T, dir string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(dir, report.MarkdownFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", report.MarkdownFile, err)
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.HasPrefix(line, "replay: ") {
+			return strings.TrimPrefix(line, "replay: ")
+		}
+	}
+	t.Fatalf("report.md has no replay line: %s", content)
+	return ""
+}
+
+type teardownFailingFixture struct {
+	fixture.Fixture
+}
+
+func (f teardownFailingFixture) Teardown(ctx context.Context) error {
+	_ = f.Fixture.Teardown(ctx)
+	return errors.New("simulated cleanup failure")
+}
+
+func TestRun(t *testing.T) {
+	requireDocker(t)
+
+	observed := map[string]string{}
+	configPath := matchingSliceConfigPath(t)
+
+	vulnerableOutDir := t.TempDir()
+	var vulnerableDir string
+
+	t.Run("explore_vulnerable", func(t *testing.T) {
+		stdout, stderr, exit := run(
+			"run",
+			"--config", configPath,
+			"--scenario", "concurrent-assign",
+			"--variant", "vulnerable",
+			"--out", vulnerableOutDir,
+		)
+		if exit != ci.ExitViolation {
+			t.Fatalf("vulnerable explore exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitViolation, stdout, stderr)
+		}
+		dir := latestRunDir(t, vulnerableOutDir)
+		entries := listRunFiles(t, dir)
+		if len(entries) != 6 {
+			t.Fatalf("run directory has %d files, want 6", len(entries))
+		}
+		obs := readObservation(t, dir)
+		if obs.Repeat != 20 || obs.ViolationRuns != 20 || obs.Flaky {
+			t.Fatalf("vulnerable observation = %+v, want repeat=20 violation_runs=20 flaky=false", obs)
+		}
+		doc := readScenario(t, dir)
+		if doc.ViolatingSchedule == nil || !strings.HasPrefix(doc.ViolatingSchedule.ID, "sch_") {
+			t.Fatalf("vulnerable scenario.json violating schedule missing/invalid: %+v", doc)
+		}
+		if !strings.Contains(stdout, "## weavegate: FAIL") {
+			t.Fatalf("vulnerable stdout = %q, want the report.md headline", stdout)
+		}
+
+		vulnerableDir = dir
+
+		t.Logf(
+			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
+			obs.ExplorePasses, obs.SchedulesExplored, doc.ViolatingSchedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
+		)
+	})
+
+	t.Run("explore_fixed", func(t *testing.T) {
+		outDir := t.TempDir()
+		stdout, stderr, exit := run(
+			"run",
+			"--config", configPath,
+			"--scenario", "concurrent-assign",
+			"--variant", "fixed",
+			"--out", outDir,
+		)
+		if exit != ci.ExitOK {
+			t.Fatalf("fixed explore exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitOK, stdout, stderr)
+		}
+		dir := latestRunDir(t, outDir)
+		entries := listRunFiles(t, dir)
+		if len(entries) != 6 {
+			t.Fatalf("run directory has %d files, want 6", len(entries))
+		}
+		obs := readObservation(t, dir)
+		if obs.SchedulesExplored != 18 || obs.ExplorePasses != 3 || obs.Flaky || obs.ViolationRuns != 0 {
+			t.Fatalf("fixed observation = %+v, want evaluated=18 passes=3 flaky=false violation_runs=0", obs)
+		}
+		doc := readScenario(t, dir)
+		if doc.ViolatingSchedule != nil {
+			t.Fatalf("fixed scenario.json has a violating schedule, want none: %+v", doc.ViolatingSchedule)
+		}
+
+		observed["artifacts_written_on_pass"] = "true"
+
+		t.Logf(
+			"CLI_RUN_RESULT mode=explore variant=fixed passes=%d evaluated=%d violating=none exhausted=true flaky=%t artifacts=%d exit=%d",
+			obs.ExplorePasses, obs.SchedulesExplored, obs.Flaky, len(entries), exit,
+		)
+	})
+
+	t.Run("replay_known_schedule", func(t *testing.T) {
+		// The registry's schedules directory is a repo-relative path
+		// (A-3): run from the repo root so stage ② of A-5 resolves it.
+		chdir(t, repoRoot(t))
+
+		outDir := t.TempDir()
+		stdout, stderr, exit := run(
+			"run",
+			"--config", configPath,
+			"--scenario", "concurrent-assign",
+			"--variant", "vulnerable",
+			"--replay", "sch_ba00582f9632",
+			"--repeat", "20",
+			"--out", outDir,
+		)
+		if exit != ci.ExitViolation {
+			t.Fatalf("replay known schedule exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitViolation, stdout, stderr)
+		}
+		dir := latestRunDir(t, outDir)
+		entries := listRunFiles(t, dir)
+		obs := readObservation(t, dir)
+		doc := readScenario(t, dir)
+		if doc.ViolatingSchedule == nil || doc.ViolatingSchedule.ID != "sch_ba00582f9632" {
+			t.Fatalf("replay schedule = %+v, want sch_ba00582f9632", doc.ViolatingSchedule)
+		}
+
+		t.Logf(
+			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
+			doc.ViolatingSchedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
+		)
+	})
+
+	t.Run("replay_command_roundtrip", func(t *testing.T) {
+		if vulnerableDir == "" {
+			t.Fatal("vulnerable run directory not captured; explore_vulnerable must run first")
+		}
+		replayLine := extractReplayLine(t, vulnerableDir)
+		fields := strings.Fields(replayLine)
+		if len(fields) < 2 || fields[0] != "weavegate" || fields[1] != "run" {
+			t.Fatalf("replay line = %q, does not start with \"weavegate run\"", replayLine)
+		}
+
+		stdout, stderr, exit := run(fields[1:]...)
+		if exit != ci.ExitViolation {
+			t.Fatalf("replay command roundtrip exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitViolation, stdout, stderr)
+		}
+
+		t.Logf("CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim resolved_from=run_directory verdict=identical exit=%d", exit)
+	})
+
+	t.Run("bad_config", func(t *testing.T) {
+		_, _, exit := run("run", "--config", filepath.Join(t.TempDir(), "does-not-exist.yaml"), "--scenario", "concurrent-assign")
+		if exit != ci.ExitInput {
+			t.Fatalf("bad config exit = %d, want %d", exit, ci.ExitInput)
+		}
+		observed["bad_config"] = "5"
+	})
+
+	t.Run("missing_scenario", func(t *testing.T) {
+		_, _, exit := run("run", "--config", configPath)
+		if exit != ci.ExitInput {
+			t.Fatalf("missing --scenario exit = %d, want %d", exit, ci.ExitInput)
+		}
+		observed["missing_scenario"] = "5"
+	})
+
+	t.Run("unknown_scenario", func(t *testing.T) {
+		_, _, exit := run("run", "--config", configPath, "--scenario", "does-not-exist")
+		if exit != ci.ExitInput {
+			t.Fatalf("unknown scenario exit = %d, want %d", exit, ci.ExitInput)
+		}
+		observed["unknown_scenario"] = "5"
+	})
+
+	t.Run("unknown_schedule", func(t *testing.T) {
+		_, _, exit := run(
+			"run", "--config", configPath, "--scenario", "concurrent-assign",
+			"--replay", "sch_000000000000", "--out", t.TempDir(),
+		)
+		if exit != ci.ExitInput {
+			t.Fatalf("unknown schedule exit = %d, want %d", exit, ci.ExitInput)
+		}
+		observed["unknown_schedule"] = "5"
+	})
+
+	t.Run("ambiguous_schedule", func(t *testing.T) {
+		// resolveReplaySchedule is a pure filesystem lookup; exercise it
+		// directly rather than through a full Docker-backed run.
+		outDir := t.TempDir()
+		runDirA := filepath.Join(outDir, "runs", "run_a")
+		runDirB := filepath.Join(outDir, "runs", "run_b")
+		if err := os.MkdirAll(runDirA, 0o755); err != nil {
+			t.Fatalf("create run dir A: %v", err)
+		}
+		if err := os.MkdirAll(runDirB, 0o755); err != nil {
+			t.Fatalf("create run dir B: %v", err)
+		}
+
+		scheduleA, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w1", Point: "p1"}})
+		if err != nil {
+			t.Fatalf("build schedule A: %v", err)
+		}
+		scheduleB, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w2", Point: "p2"}})
+		if err != nil {
+			t.Fatalf("build schedule B: %v", err)
+		}
+		// Force the same ID onto conflicting content, simulating tampered
+		// or corrupted saved evidence.
+		scheduleB.ID = scheduleA.ID
+
+		writeScenarioDoc(t, filepath.Join(runDirA, "scenario.json"), scheduleA)
+		writeScenarioDoc(t, filepath.Join(runDirB, "scenario.json"), scheduleB)
+
+		_, err = resolveReplaySchedule(scheduleA.ID, outDir, "")
+		if err == nil {
+			t.Fatal("resolve ambiguous schedule: want error, got nil")
+		}
+		if got := ci.ExitCode(err, ci.Verdict{}); got != ci.ExitInput {
+			t.Fatalf("ambiguous schedule exit = %d, want %d", got, ci.ExitInput)
+		}
+		observed["ambiguous_schedule"] = "5"
+	})
+
+	t.Run("unreachable_docker", func(t *testing.T) {
+		badConfig := writeConfigWithBadMigrations(t, configPath)
+		_, _, exit := run("run", "--config", badConfig, "--scenario", "concurrent-assign", "--out", t.TempDir())
+		if exit != ci.ExitFixture {
+			t.Fatalf("unreachable fixture exit = %d, want %d", exit, ci.ExitFixture)
+		}
+		observed["unreachable_docker"] = "4"
+	})
+
+	t.Run("unwritable_out", func(t *testing.T) {
+		blocked := filepath.Join(t.TempDir(), "blocked")
+		if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
+			t.Fatalf("create blocking file: %v", err)
+		}
+		_, _, exit := run(
+			"run", "--config", configPath, "--scenario", "concurrent-assign",
+			"--variant", "fixed", "--out", filepath.Join(blocked, "out"),
+		)
+		if exit != ci.ExitInput {
+			t.Fatalf("unwritable --out exit = %d, want %d", exit, ci.ExitInput)
+		}
+		observed["unwritable_out"] = "5"
+	})
+
+	t.Run("cleanup_failure_on_pass", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		flags := runFlags{
+			config:   configPath,
+			scenario: "concurrent-assign",
+			variant:  "fixed",
+			out:      t.TempDir(),
+		}
+		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
+			return teardownFailingFixture{Fixture: fixture.NewMySQLFixture()}
+		})
+		exit := exitCodeFromError(err)
+		if exit != ci.ExitFixture {
+			t.Fatalf("cleanup failure on pass exit = %d, want %d; stderr=%s", exit, ci.ExitFixture, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "cleanup failed") {
+			t.Fatalf("cleanup failure stderr = %q, want a cleanup warning", stderr.String())
+		}
+		observed["cleanup_failure_on_pass"] = "4"
+	})
+
+	order := []string{
+		"bad_config", "missing_scenario", "unknown_scenario", "unknown_schedule",
+		"ambiguous_schedule", "unwritable_out", "unreachable_docker",
+		"artifacts_written_on_pass", "cleanup_failure_on_pass",
+	}
+	parts := make([]string, 0, len(order))
+	for _, key := range order {
+		value, ok := observed[key]
+		if !ok {
+			t.Fatalf("marker attribute %q was not observed by any subtest", key)
+		}
+		parts = append(parts, key+"="+value)
+	}
+	t.Logf("CLI_RUN_FAILURE_RESULT %s", strings.Join(parts, " "))
+}
+
+func writeScenarioDoc(t *testing.T, path string, schedule scenario.Schedule) {
+	t.Helper()
+	doc := struct {
+		ViolatingSchedule scenario.Schedule `json:"violating_schedule"`
+	}{ViolatingSchedule: schedule}
+	content, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal scenario document: %v", err)
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("write scenario document %q: %v", path, err)
+	}
+}
+
+func writeConfigWithBadMigrations(t *testing.T, configPath string) string {
+	t.Helper()
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config %q: %v", configPath, err)
+	}
+	mutated := strings.Replace(string(content), "migrations: ../db/migration", "migrations: ../db/does-not-exist", 1)
+	if mutated == string(content) {
+		t.Fatal("write bad-migrations config: expected substring not found in source config")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(mutated), 0o644); err != nil {
+		t.Fatalf("write bad-migrations config: %v", err)
+	}
+	return path
+}
