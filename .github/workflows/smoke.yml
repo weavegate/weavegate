@@ -73,6 +73,7 @@ jobs:
       - name: Assert the saved replay invariants
         run: |
           grep -F 'EXHAUSTIVE_STRATEGY_RESULT workers=2 points=2 candidates=6 total_known=true order=canonical per_worker_order=preserved unique_ids=6 saved_schedule_index=2 cap_exceeded=error invalid_scenario=error' fixture.log
+          grep -F 'SCHEDULE_WRITE_RESULT id=sch_ba00582f9632 source=committed_fixture bytes=identical trailing_newline=true mode=0644 roundtrip=stable overwrite=ok nil_writer=error tamper=error' fixture.log
           grep -F 'SCHEDULE_REPLAY_RESULT id=sch_ba00582f9632 steps=4 workers=2 per_worker_order=valid roundtrip=stable tamper=error' fixture.log
           grep -F 'ORCHESTRATOR_RUN_RESULT schedule=sch_ba00582f9632 workers=2 steps=4 timeouts=1 pending_resolved=1 terminal_done=2 cleanup=ok' fixture.log
           grep -F 'ORCHESTRATOR_REPLAY_CORE_RESULT schedule=sch_ba00582f9632 repeat=20 fingerprints=1 resets=20 flaky=false' fixture.log

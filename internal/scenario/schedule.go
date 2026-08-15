@@ -1,12 +1,14 @@
 package scenario
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -103,6 +105,89 @@ func LoadScheduleFile(path string) (Schedule, error) {
 		return Schedule{}, fmt.Errorf("load schedule file %q: %w", path, err)
 	}
 	return schedule, nil
+}
+
+// WriteSchedule writes one schedule using the canonical artifact format.
+func WriteSchedule(writer io.Writer, schedule Schedule) error {
+	if writer == nil {
+		return errors.New("write schedule: writer is required")
+	}
+	if strings.TrimSpace(schedule.ID) == "" {
+		return errors.New("write schedule: ID is required")
+	}
+
+	expectedID, err := ContentID(schedule.Steps)
+	if err != nil {
+		return fmt.Errorf("write schedule %q: %w", schedule.ID, err)
+	}
+	if schedule.ID != expectedID {
+		return fmt.Errorf(
+			"write schedule %q: content ID mismatch: expected %q",
+			schedule.ID,
+			expectedID,
+		)
+	}
+
+	encoded, err := json.MarshalIndent(schedule, "", "  ")
+	if err != nil {
+		return fmt.Errorf("write schedule %q JSON: %w", schedule.ID, err)
+	}
+	encoded = append(encoded, '\n')
+
+	written, err := writer.Write(encoded)
+	if err != nil {
+		return fmt.Errorf("write schedule %q: %w", schedule.ID, err)
+	}
+	if written != len(encoded) {
+		return fmt.Errorf("write schedule %q: %w", schedule.ID, io.ErrShortWrite)
+	}
+	return nil
+}
+
+// WriteScheduleFile atomically replaces path with a canonical schedule file.
+func WriteScheduleFile(path string, schedule Schedule) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("write schedule file: path is required")
+	}
+
+	var encoded bytes.Buffer
+	if err := WriteSchedule(&encoded, schedule); err != nil {
+		return fmt.Errorf("write schedule file %q: %w", path, err)
+	}
+
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-")
+	if err != nil {
+		return fmt.Errorf("write schedule file %q: create temporary file: %w", path, err)
+	}
+	temporaryPath := temporary.Name()
+	keepTemporary := true
+	defer func() {
+		if keepTemporary {
+			temporary.Close()
+			os.Remove(temporaryPath)
+		}
+	}()
+
+	written, err := temporary.Write(encoded.Bytes())
+	if err != nil {
+		return fmt.Errorf("write schedule file %q: write temporary file: %w", path, err)
+	}
+	if written != encoded.Len() {
+		return fmt.Errorf("write schedule file %q: write temporary file: %w", path, io.ErrShortWrite)
+	}
+	if err := temporary.Chmod(0o644); err != nil {
+		return fmt.Errorf("write schedule file %q: set temporary file mode: %w", path, err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("write schedule file %q: close temporary file: %w", path, err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("write schedule file %q: replace destination: %w", path, err)
+	}
+
+	keepTemporary = false
+	return nil
 }
 
 // Validate verifies the scenario value and that schedule contains every
