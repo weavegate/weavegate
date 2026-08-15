@@ -113,7 +113,7 @@ targeted release advances a paused worker.
 
 ## SQL assertion verdict
 
-Both variants use the same SQL assertion Oracle named
+Both variants use the same two SQL assertion Oracles. The first is named
 `active-assignment-is-unique`:
 
 ```sql
@@ -136,8 +136,15 @@ violation in 20/20 runs with this evidence in every run:
 {"active_assignment_count":2,"project_request_id":42}
 ```
 
-The fixed variant produced one evaluated Oracle result with zero violations in
-20/20 runs. A missing or empty result set is not accepted as PASS.
+The second Oracle, `matching-workflow-counts`, returns the three actual
+workflow counts only when they differ from the variant's expected state. It
+requires sessions/assignments/active assignments of `2/2/2` for the vulnerable
+variant and `1/1/1` for the fixed variant. This makes every run's complete count
+state part of its Oracle evaluation and replay fingerprint.
+
+The fixed variant produced two evaluated Oracle results with zero violations in
+20/20 runs. The vulnerable variant's count Oracle also passed in 20/20 runs. A
+missing or empty result set is not accepted as PASS.
 
 Evaluation starts after both worker terminals, so command transactions have
 committed or rolled back and worker-owned connections have been returned. It
@@ -165,8 +172,8 @@ The replay repeats each application variant 20 times. It produces one stable
 fingerprint per variant and emits these result markers:
 
 ```text
-MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable oracle=active-assignment-is-unique oracles_evaluated=1 repeat=20 violation_runs=20 violations=20 evidence_rows=20 evidence_json={"active_assignment_count":2,"project_request_id":42} flaky=false
-MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed oracle=active-assignment-is-unique oracles_evaluated=1 repeat=20 pass_runs=20 violations=0 evidence_rows=0 flaky=false
+MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable oracle=active-assignment-is-unique count_oracle=matching-workflow-counts oracles_evaluated=2 repeat=20 violation_runs=20 violations=20 evidence_rows=20 evidence_json={"active_assignment_count":2,"project_request_id":42} flaky=false
+MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed oracle=active-assignment-is-unique count_oracle=matching-workflow-counts oracles_evaluated=2 repeat=20 pass_runs=20 violations=0 evidence_rows=0 flaky=false
 MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=vulnerable repeat=20 duplicate_runs=20 blocked_runs=0 sessions=2 assignments=2 active_assignments=2 worker_errors=0 deadlocks=0 flaky=false
 MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=fixed repeat=20 pass_runs=20 blocked_runs=20 lock_wait_runs=20 sessions=1 assignments=1 active_assignments=1 worker_errors=0 deadlocks=0 flaky=false
 SQL_ASSERT_MYSQL_READONLY_RESULT write=error state_unchanged=true
@@ -174,7 +181,8 @@ SQL_ASSERT_MYSQL_READONLY_RESULT write=error state_unchanged=true
 
 The legacy vulnerable marker's `duplicate_runs` field is a compatibility alias
 for the Oracle marker's `violation_runs`; it is not an independent verdict. The
-final `2/2/2` and `1/1/1` row counts remain separate fixture regression checks.
+`2/2/2` and `1/1/1` row counts are evaluated inside every run. The final
+snapshot check remains as a fixture regression check.
 
 The full measurement, realized release behavior, and evidence limits are in
 [Matching-slice replay determinism](../../docs/experiments/determinism.md).
@@ -183,9 +191,9 @@ The full measurement, realized release behavior, and evidence limits are in
 
 This fixture verifies the schema, seed and reset behavior, an application
 assignment workflow, and orchestrator-controlled saved schedule replay for
-plain and locking reads. The reusable SQL assertion evaluates the active
-assignment invariant after each run. The row counts and lock-wait observation
-remain separate assertions inside the integration test. The 20/20 evidence
+plain and locking reads. Reusable SQL assertions evaluate both the active
+assignment invariant and exact workflow counts after each run. The lock-wait
+observation remains a separate assertion inside the integration test. The 20/20 evidence
 applies only to the recorded schedule, fixture state, MySQL image, and
 application variant. It is not schedule-space exploration or proof of all
 possible races.

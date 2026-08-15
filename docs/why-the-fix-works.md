@@ -61,13 +61,14 @@ another session or assignment.
   20/20 vulnerable runs. Every run contained the canonical request `42`, count
   `2` evidence row.
 - The vulnerable replay also produced two sessions and two active assignments
-  in 20/20 runs after both workers reached `before_insert_assignment`.
+  in 20/20 runs after both workers reached `before_insert_assignment`. A
+  second SQL assertion evaluated the exact `2/2/2` workflow counts in every run.
 - The `FOR UPDATE` path paired the runtime's timeout inference with a separate
   InnoDB row-lock wait observation, then resumed the second worker.
 - The locking replay produced one evaluated PASS result for the same SQL
-  assertion in 20/20 runs, plus one session and one active assignment in every
-  run. Both workers completed without a command error, and the second worker
-  did not visit `before_insert_assignment`.
+  assertion in 20/20 runs. The exact-count assertion also evaluated PASS for
+  `1/1/1` in every run. Both workers completed without a command error, and
+  the second worker did not visit `before_insert_assignment`.
 - A MySQL 8.4 integration test rejected a mutating assertion in a read-only
   transaction and verified that the seed row count and value were unchanged.
 - Each variant produced one normalized run fingerprint with `flaky=false`.

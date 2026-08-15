@@ -87,8 +87,8 @@ jobs:
 
       - name: Assert the matching assignment invariants
         run: |
-          grep -F 'MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable oracle=active-assignment-is-unique oracles_evaluated=1 repeat=20 violation_runs=20 violations=20 evidence_rows=20 evidence_json={"active_assignment_count":2,"project_request_id":42} flaky=false' fixture.log
-          grep -F 'MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed oracle=active-assignment-is-unique oracles_evaluated=1 repeat=20 pass_runs=20 violations=0 evidence_rows=0 flaky=false' fixture.log
+          grep -F 'MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable oracle=active-assignment-is-unique count_oracle=matching-workflow-counts oracles_evaluated=2 repeat=20 violation_runs=20 violations=20 evidence_rows=20 evidence_json={"active_assignment_count":2,"project_request_id":42} flaky=false' fixture.log
+          grep -F 'MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed oracle=active-assignment-is-unique count_oracle=matching-workflow-counts oracles_evaluated=2 repeat=20 pass_runs=20 violations=0 evidence_rows=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=vulnerable repeat=20 duplicate_runs=20 blocked_runs=0 sessions=2 assignments=2 active_assignments=2 worker_errors=0 deadlocks=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=fixed repeat=20 pass_runs=20 blocked_runs=20 lock_wait_runs=20 sessions=1 assignments=1 active_assignments=1 worker_errors=0 deadlocks=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_TIMING schedule=sch_ba00582f9632 runs=40 elapsed=' fixture.log

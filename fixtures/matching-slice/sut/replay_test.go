@@ -22,7 +22,9 @@ import (
 
 const (
 	matchingOracleID           = "active-assignment-is-unique"
+	matchingCountsOracleID     = "matching-workflow-counts"
 	matchingViolationEvidence  = `{"active_assignment_count":2,"project_request_id":42}`
+	matchingCountDriftEvidence = `{"active_assignment_count":1,"assignment_count":1,"matching_session_count":2}`
 	matchingReplayRepeat       = 20
 	matchingReplayTestTimeout  = 14 * time.Minute
 	replayRunTimeout           = 15 * time.Second
@@ -80,7 +82,8 @@ func TestReplayConcurrentAssign(t *testing.T) {
 
 	t.Logf(
 		"MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable "+
-			"oracle=active-assignment-is-unique oracles_evaluated=%d repeat=20 "+
+			"oracle=active-assignment-is-unique count_oracle=matching-workflow-counts "+
+			"oracles_evaluated=%d repeat=20 "+
 			"violation_runs=%d violations=%d evidence_rows=%d evidence_json=%s flaky=%t",
 		vulnerable.oraclesEvaluated,
 		vulnerable.violationRuns,
@@ -91,7 +94,8 @@ func TestReplayConcurrentAssign(t *testing.T) {
 	)
 	t.Logf(
 		"MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed "+
-			"oracle=active-assignment-is-unique oracles_evaluated=%d repeat=20 "+
+			"oracle=active-assignment-is-unique count_oracle=matching-workflow-counts "+
+			"oracles_evaluated=%d repeat=20 "+
 			"pass_runs=%d violations=%d evidence_rows=%d flaky=%t",
 		fixed.oraclesEvaluated,
 		fixed.passRuns,
@@ -153,12 +157,33 @@ HAVING COUNT(*) > 1
 ORDER BY project_request_id;
 `
 
-func newMatchingOracleSet() (*oracle.Set, error) {
+func newMatchingOracleSet(selected string) (*oracle.Set, error) {
 	assertion, err := sqlassert.NewZeroRow(matchingOracleID, matchingAssertionQuery)
 	if err != nil {
 		return nil, fmt.Errorf("create matching SQL assertion: %w", err)
 	}
-	set, err := oracle.NewSet(assertion)
+
+	wantCounts := workflowCounts{sessions: 2, assignments: 2, activeAssignments: 2}
+	if selected == string(variantFixed) {
+		wantCounts = workflowCounts{sessions: 1, assignments: 1, activeAssignments: 1}
+	} else if selected != string(variantVulnerable) {
+		return nil, fmt.Errorf("create matching count assertion: unsupported variant %q", selected)
+	}
+	countQuery := fmt.Sprintf(`
+SELECT
+    (SELECT COUNT(*) FROM matching_session) AS matching_session_count,
+    (SELECT COUNT(*) FROM assignment) AS assignment_count,
+    (SELECT COUNT(*) FROM assignment WHERE status = 'ACTIVE') AS active_assignment_count
+HAVING matching_session_count <> %d
+    OR assignment_count <> %d
+    OR active_assignment_count <> %d;
+`, wantCounts.sessions, wantCounts.assignments, wantCounts.activeAssignments)
+	countAssertion, err := sqlassert.NewZeroRow(matchingCountsOracleID, countQuery)
+	if err != nil {
+		return nil, fmt.Errorf("create matching count SQL assertion: %w", err)
+	}
+
+	set, err := oracle.NewSet(assertion, countAssertion)
 	if err != nil {
 		return nil, fmt.Errorf("create matching Oracle set: %w", err)
 	}
@@ -236,7 +261,7 @@ func replayMatchingVariant(
 			Params:  map[string]string{"request_id": fmt.Sprint(seededRequestID)},
 		},
 	}
-	evaluator, err := newMatchingOracleSet()
+	evaluator, err := newMatchingOracleSet(selected)
 	if err != nil {
 		t.Fatalf("create %s matching Oracle set: %v", selected, err)
 	}
@@ -284,13 +309,13 @@ func replayMatchingVariant(
 
 	for index, run := range replay.Runs {
 		runNumber := index + 1
-		if len(run.Evaluation.Results) != 1 {
+		if len(run.Evaluation.Results) != 2 {
 			failMatchingRun(
 				t,
 				selected,
 				runNumber,
 				run,
-				"matching %s run %d results = %d, want 1",
+				"matching %s run %d results = %d, want 2",
 				selected,
 				runNumber,
 				len(run.Evaluation.Results),
@@ -310,7 +335,21 @@ func replayMatchingVariant(
 				matchingOracleID,
 			)
 		}
-		evidence.oraclesEvaluated = 1
+		countResult := run.Evaluation.Results[1]
+		if countResult.OracleID != matchingCountsOracleID || len(countResult.Violations) != 0 {
+			failMatchingRun(
+				t,
+				selected,
+				runNumber,
+				run,
+				"matching %s run %d count verdict = %+v, want evaluated PASS from %q",
+				selected,
+				runNumber,
+				countResult,
+				matchingCountsOracleID,
+			)
+		}
+		evidence.oraclesEvaluated = len(run.Evaluation.Results)
 		if selected == string(variantVulnerable) {
 			if len(result.Violations) != 1 ||
 				result.Violations[0].OracleID != matchingOracleID ||
@@ -412,7 +451,7 @@ func replayMatchingVariant(
 	evidence.duplicateRuns = evidence.violationRuns
 
 	if selected == string(variantVulnerable) {
-		if evidence.oraclesEvaluated != 1 ||
+		if evidence.oraclesEvaluated != 2 ||
 			evidence.violationRuns != matchingReplayRepeat ||
 			evidence.violations != matchingReplayRepeat ||
 			evidence.evidenceRows != matchingReplayRepeat ||
@@ -420,7 +459,7 @@ func replayMatchingVariant(
 			evidence.blockedRuns != 0 {
 			failMatchingReplay(t, selected, replay, "vulnerable replay evidence = %+v", evidence)
 		}
-	} else if evidence.oraclesEvaluated != 1 ||
+	} else if evidence.oraclesEvaluated != 2 ||
 		evidence.passRuns != matchingReplayRepeat ||
 		evidence.violations != 0 ||
 		evidence.evidenceRows != 0 ||
@@ -440,6 +479,71 @@ func replayMatchingVariant(
 		t.Fatalf("final matching %s counts = %+v, want %+v", selected, counts, wantCounts)
 	}
 	return evidence
+}
+
+func TestMatchingCountOracleDetectsDrift(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	runner := fixture.NewMySQLFixture()
+	t.Cleanup(func() {
+		if err := runner.Teardown(context.Background()); err != nil {
+			t.Errorf("cleanup matching count Oracle fixture: %v", err)
+		}
+	})
+	db, err := runner.Provision(ctx, fixture.FixtureSpec{
+		Image:      "mysql:8.4",
+		Migrations: filepath.Join("..", "db", "migration"),
+		Seed:       filepath.Join("..", "db", "seed.sql"),
+	})
+	if err != nil {
+		t.Fatalf("provision matching count Oracle fixture: %v", err)
+	}
+
+	if _, err := db.SQL.ExecContext(
+		ctx,
+		"INSERT INTO matching_session (status) VALUES ('ACTIVE'), ('INACTIVE')",
+	); err != nil {
+		t.Fatalf("seed matching count drift sessions: %v", err)
+	}
+	if _, err := db.SQL.ExecContext(
+		ctx,
+		`INSERT INTO assignment (project_request_id, matching_session_id, status)
+         VALUES (?, 1, 'ACTIVE')`,
+		seededRequestID,
+	); err != nil {
+		t.Fatalf("seed matching count drift assignment: %v", err)
+	}
+
+	evaluator, err := newMatchingOracleSet(string(variantFixed))
+	if err != nil {
+		t.Fatalf("create fixed matching Oracle set: %v", err)
+	}
+	evaluation, err := evaluator.Evaluate(ctx, db.SQL, oracle.RunContext{})
+	if err != nil {
+		t.Fatalf("evaluate fixed matching count drift: %v", err)
+	}
+	if len(evaluation.Results) != 2 {
+		t.Fatalf("matching count drift results = %d, want 2", len(evaluation.Results))
+	}
+	if len(evaluation.Results[0].Violations) != 0 {
+		t.Fatalf("matching uniqueness drift result = %+v, want PASS", evaluation.Results[0])
+	}
+	countResult := evaluation.Results[1]
+	if countResult.OracleID != matchingCountsOracleID ||
+		len(countResult.Violations) != 1 ||
+		len(countResult.Violations[0].Rows) != 1 {
+		t.Fatalf("matching count drift result = %+v, want one violation row", countResult)
+	}
+	evidenceJSON, err := json.Marshal(countResult.Violations[0].Rows[0])
+	if err != nil || string(evidenceJSON) != matchingCountDriftEvidence {
+		t.Fatalf(
+			"matching count drift evidence = %s (error=%v), want %s",
+			evidenceJSON,
+			err,
+			matchingCountDriftEvidence,
+		)
+	}
 }
 
 func TestWaitForInnoDBRowLockWaitEvidenceRetriesUntilVisible(t *testing.T) {
