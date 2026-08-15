@@ -58,15 +58,17 @@ Use headings in exactly this order:
 
 1. `Related Issues`
 2. `Summary`
-3. `Review Points`
-4. `Docs`
-5. `Notes`
-6. `Validation`
+3. `Description`
+4. `Review Points`
+5. `Docs`
+6. `Notes`
+7. `Validation`
 
 Write the PR as implementation evidence, not as a file inventory or implementation diary:
 
 - `Related Issues`: use `Closes #<issue-number>` for issues completed by the PR and public links for related but non-closing issues.
-- `Summary`: explain how the issue's intended capability was implemented at the behavior, data-flow, coordination, or design level; state what purpose or invariant the implementation now achieves. Use past or present-perfect implementation language, not the issue's future-tense TODO wording.
+- `Summary`: one or two lines stating what the PR does, so a reader knows the change at a glance without reading further. This is not a shortened `Description` — it is the headline.
+- `Description`: explain how the issue's intended capability was implemented at the behavior, data-flow, coordination, or design level; state what purpose or invariant the implementation now achieves. Use past or present-perfect implementation language, not the issue's future-tense TODO wording. Add a table, diagram, or chart here when it makes the implementation easier to follow.
 - `Review Points`: derive concrete review targets from the actual diff—important decisions, invariants, failure modes, concurrency behavior, compatibility, operational risk, or deliberately chosen tradeoffs. Do not paste a generic checklist.
 - `Docs`: check exactly one of the two boxes the template provides — documentation was updated in this PR, or the change does not alter a user-visible contract. Never leave both unchecked.
 - `Notes`: record concise follow-up work, limitations, migration considerations, or tradeoffs. Use `- None.` when there is nothing material so the required heading order remains stable.
@@ -125,7 +127,7 @@ This mode publishes fixes already made by a review-comment, CI-fix, or implement
 2. Inspect the new diff and identify which review or CI concern each change addresses.
 3. Run relevant validation.
 4. Stage only the intended follow-up changes, commit with the linked issue number, and push the existing branch.
-5. Update the PR body when the implementation summary, review points, notes, or validation evidence materially changed. Preserve the canonical heading order.
+5. Update the PR body when the summary, description, review points, notes, or validation evidence materially changed. Preserve the canonical heading order.
 6. Do not open a new PR. Do not reply to or resolve review threads unless explicitly requested.
 
 ### Merge
