@@ -127,7 +127,7 @@ This mode publishes fixes already made by a review-comment, CI-fix, or implement
 2. Inspect the new diff and identify which review or CI concern each change addresses.
 3. Run relevant validation.
 4. Stage only the intended follow-up changes, commit with the linked issue number, and push the existing branch.
-5. Update the PR body when the summary, description, review points, notes, or validation evidence materially changed. Preserve the canonical heading order.
+5. Update the PR body when the summary, description, review points, docs decision, notes, or validation evidence materially changed. Preserve the canonical heading order.
 6. Do not open a new PR. Do not reply to or resolve review threads unless explicitly requested.
 
 ### Merge
