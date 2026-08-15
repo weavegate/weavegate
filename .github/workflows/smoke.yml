@@ -48,6 +48,7 @@ jobs:
           ./internal/fixture/... ./internal/scenario/... ./internal/orchestrator/...
           ./internal/syncpoint/... ./internal/sut/...
           ./fixtures/matching-slice/...
+          ./cmd/weavegate/... ./internal/config/... ./internal/ci/... ./internal/report/...
           -v -count=1 | tee fixture.log
 
       - name: Assert the fixture invariant
@@ -103,6 +104,21 @@ jobs:
           grep -E 'MATCHING_EXPLORE_RESULT variant=vulnerable candidates=6 repeats=20 evaluated=[1-9][0-9]* distinct_schedules=1 distinct_indices=1 distinct_fingerprints=1 violating_index=[1-6] schedule=sch_[0-9a-f]{12} saved=reloaded replay_repeat=20 violation_runs=20 fingerprint_match=true worker_errors=0 deadlocks=0 flaky=false' fixture.log
           grep -E 'MATCHING_EXPLORE_CENSUS variant=vulnerable candidates=6 repeats=3 evaluated=18 violating_candidates=[0-6] stable=true' fixture.log
           grep -E 'MATCHING_EXPLORE_RESULT variant=fixed candidates=6 repeats=5 evaluated=30 violating=none exhausted=true pending_resolved_runs=[0-9]+ terminal_skipped_runs=[0-9]+ worker_errors=0 deadlocks=0' fixture.log
+
+      - name: Assert the command-line contract
+        run: |
+          grep -F 'CONFIG_LOAD_RESULT scenarios=1 workers=2 sync_points=2 assertions=1 repeat=20 arrive_timeout_ms=250 explore_passes=3 defaults=applied relative_paths=resolved unknown_key=error report_section=error missing_required=error non_mysql_db=error path_entrypoint=error bad_expect_rows=error bad_assertion_id=error duplicate_worker=error duplicate_sync_point=error nonpositive_run_value=error worker_args_mismatch=error unsupported_adapter=error' fixture.log
+          grep -F 'EXIT_CODE_RESULT pass=0 violation=2 flaky=3 fixture=4 input=5 output=5 unclassified=5 error_beats_verdict=true flaky_beats_violation=true cleanup_on_pass=4 cleanup_keeps_violation=2 cleanup_never_masks=true' fixture.log
+          grep -F 'RUN_ARTIFACT_RESULT files=6 dir_mode=0755 file_mode=0644 key_order=canonical empty_slice=json_array trailing_newline=true volatile_files=manifest+report_json deterministic_files=4 rerun_identical=4_of_6 replay_line=self_sufficient config_path=as_given tmp_same_filesystem=true partial_write=cleaned write_failure=output_error' fixture.log
+          grep -F 'CLI_ROOT_RESULT version=printed no_args=help exit=0 unknown_command=5 unknown_flag=5 errors=stderr results=stdout usage_dump=suppressed' fixture.log
+          grep -F 'CLI_RESOLVE_RESULT entrypoint=matching-slice adapter=gonative variant=vulnerable workers=2 sync_points=2 oracles=1 oracle_order=preserved image=mysql:8.4 block_ms=250 step_ms=5000 run_ms=15000 stop_ms=5000 unknown_entrypoint=5 unknown_variant=5 bad_scenario=5 no_container=true' fixture.log
+          grep -F 'CLI_REPORT_RESULT json=byte_identical md=byte_identical default_format=json latest_run=lexicographic_max same_second_ties=ordered missing_run=5 bad_format=5 no_rerender=true' fixture.log
+          grep -F 'CLI_VERDICT_RESULT all_violation=2 partial_violation=3 all_pass_after_discovery=3 fingerprint_mismatch=3 replay_mode_flaky=3 exhausted=0' fixture.log
+          grep -F 'CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim resolved_from=run_directory verdict=identical exit=2' fixture.log
+          grep -F 'CLI_RUN_FAILURE_RESULT bad_config=5 missing_scenario=5 unknown_scenario=5 unknown_schedule=5 ambiguous_schedule=5 unwritable_out=5 unreachable_docker=4 artifacts_written_on_pass=true cleanup_failure_on_pass=4' fixture.log
+          grep -E 'CLI_RUN_RESULT mode=explore variant=vulnerable passes=1 evaluated=[1-9][0-9]* schedule=sch_[0-9a-f]{12} repeat=20 violation_runs=20 flaky=false artifacts=6 exit=2' fixture.log
+          grep -F 'CLI_RUN_RESULT mode=explore variant=fixed passes=3 evaluated=18 violating=none exhausted=true flaky=false artifacts=6 exit=0' fixture.log
+          grep -F 'CLI_RUN_RESULT mode=replay variant=vulnerable schedule=sch_ba00582f9632 repeat=20 violation_runs=20 flaky=false artifacts=6 exit=2' fixture.log
 
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
