@@ -1,0 +1,32 @@
+target:
+  db: mysql:8.4
+  schema:
+    migrations: ../fixtures/matching-slice/db/migration
+    seed: ../fixtures/matching-slice/db/seed.sql
+  sut:
+    adapter: gonative
+    entrypoint: matching-slice
+    variant: vulnerable
+scenarios:
+  concurrent-assign:
+    workers:
+      - id: A
+        command: assign
+        args:
+          request_id: "42"
+      - id: B
+        command: assign
+        args:
+          request_id: "42"
+    sync_points:
+      - after_read_request
+      - before_insert_assignment
+oracle:
+  assertions:
+    - id: active-assignment-is-unique
+      sql: |
+        SELECT project_request_id FROM assignment
+        WHERE status = 'ACTIVE' GROUP BY project_request_id HAVING COUNT(*) > 1
+      expect_rows: 0
+run:
+  arrive_timeout_ms: 250
