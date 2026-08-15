@@ -36,7 +36,7 @@ When supplying a body explicitly through an app or CLI, reproduce the correspond
 - Reuse an existing related issue when one is supplied or already exists. Never create a duplicate issue for the same delivery unit.
 - When a dedicated issue-writing workflow supplies a reviewed draft or created issue, validate it against the public template and reuse it instead of generating competing content.
 - If the user explicitly requests an end-to-end public workflow and no issue exists, write and create one from public repository context using the canonical template.
-- Use heading order `Summary` → `TODO` → `Validation` → optional `Notes`.
+- Use heading order `Summary` → `TODO` → `Validation` → optional `Notes`. This order applies to issues created from `.github/ISSUE_TEMPLATE/issue.md`. `bug_report.md` and `fixture_contribution.md` are separate entry points with their own section order — do not force their content into the `issue.md` order.
 - Write the issue title in English as `Type: title`. Capitalize only the first letter of `Type`, keep the title after the colon lowercase, and use wording that covers the full delivery scope.
 - State what capability will be implemented and why it matters, not a file/function-level implementation plan.
 - Keep the title conventional and omit issue, PR, sequence, and private feature numbers.
@@ -58,15 +58,19 @@ Use headings in exactly this order:
 
 1. `Related Issues`
 2. `Summary`
-3. `Review Points`
-4. `Notes`
-5. `Validation`
+3. `Description`
+4. `Review Points`
+5. `Docs`
+6. `Notes`
+7. `Validation`
 
 Write the PR as implementation evidence, not as a file inventory or implementation diary:
 
 - `Related Issues`: use `Closes #<issue-number>` for issues completed by the PR and public links for related but non-closing issues.
-- `Summary`: explain how the issue's intended capability was implemented at the behavior, data-flow, coordination, or design level; state what purpose or invariant the implementation now achieves. Use past or present-perfect implementation language, not the issue's future-tense TODO wording.
+- `Summary`: one or two lines stating what the PR does, so a reader knows the change at a glance without reading further. This is not a shortened `Description` — it is the headline.
+- `Description`: explain how the issue's intended capability was implemented at the behavior, data-flow, coordination, or design level; state what purpose or invariant the implementation now achieves. Use past or present-perfect implementation language, not the issue's future-tense TODO wording. Add a table, diagram, or chart here when it makes the implementation easier to follow.
 - `Review Points`: derive concrete review targets from the actual diff—important decisions, invariants, failure modes, concurrency behavior, compatibility, operational risk, or deliberately chosen tradeoffs. Do not paste a generic checklist.
+- `Docs`: check exactly one of the two boxes the template provides — documentation was updated in this PR, or the change does not alter a user-visible contract. Never leave both unchecked.
 - `Notes`: record concise follow-up work, limitations, migration considerations, or tradeoffs. Use `- None.` when there is nothing material so the required heading order remains stable.
 - `Validation`: report only checks actually run, using `PASS`, `FAIL`, or `SKIP` with an honest reason and relevant observable evidence. Keep this section last.
 
@@ -123,7 +127,7 @@ This mode publishes fixes already made by a review-comment, CI-fix, or implement
 2. Inspect the new diff and identify which review or CI concern each change addresses.
 3. Run relevant validation.
 4. Stage only the intended follow-up changes, commit with the linked issue number, and push the existing branch.
-5. Update the PR body when the implementation summary, review points, notes, or validation evidence materially changed. Preserve the canonical heading order.
+5. Update the PR body when the summary, description, review points, docs decision, notes, or validation evidence materially changed. Preserve the canonical heading order.
 6. Do not open a new PR. Do not reply to or resolve review threads unless explicitly requested.
 
 ### Merge

@@ -68,6 +68,10 @@ After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying
 
 weavegate runs on [Testcontainers](https://testcontainers.com/) (real MySQL 8/InnoDB, not mocks) and draws design ideas from the PostgreSQL isolation tester, [Hermitage](https://github.com/ept/hermitage), [Lincheck](https://github.com/JetBrains/lincheck), and the replay thinking of deterministic-simulation testing (FoundationDB, TigerBeetle). It applies none of them as-is: those tools ask *"does the DB permit this anomaly?"* — weavegate asks *"does your application code survive the anomalies the DB permits, and does your fix close them?"* A full attribution list will ship in `docs/related-work.md`.
 
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build the project, run the checks, and open a pull request; adding a fixture is the most welcome way to contribute. Repository working conventions live in [`AGENTS.md`](AGENTS.md), conduct is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), and vulnerabilities are reported through [`SECURITY.md`](SECURITY.md). Questions and usage discussion go to [GitHub Discussions](https://github.com/weavegate/weavegate/discussions) rather than an issue.
+
 ## License
 
 Apache-2.0.

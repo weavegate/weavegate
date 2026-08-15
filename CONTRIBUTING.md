@@ -1,0 +1,120 @@
+# Contributing to weavegate
+
+Thanks for your interest in weavegate. This guide covers how to report a bug,
+propose a feature, contribute a fixture, set up the development environment,
+run the checks, and structure commits and pull requests.
+
+## Ways to contribute
+
+- **Report a bug** — open a bug report issue. Include the commit SHA and the
+  steps needed to reproduce the behavior.
+- **Propose a feature** — open a general issue describing the capability and
+  its purpose.
+- **Add a fixture (recommended)** — open a fixture contribution issue. See
+  [Contributing a fixture](#contributing-a-fixture) below; this is the
+  entry point that needs the least context about the rest of the codebase.
+- **Improve documentation** — open a general issue first, same as a feature
+  proposal. Every pull request in this repository, including a small
+  documentation fix, needs an issue number for its branch name and commit
+  message (see [Commits and branches](#commits-and-branches)).
+
+## Development environment
+
+The Go version this project builds with is pinned in `go.mod`.
+
+Running the fixture, engine, and experiment tests requires Docker, because
+they start a real MySQL 8.4 container through Testcontainers. Without Docker
+you can still format, vet, and build the code; you cannot run `go test`
+against `internal/...`, `fixtures/...`, or `experiments/...`.
+
+## Running checks
+
+Only run commands that exist in this repository:
+
+```bash
+gofmt -l internal fixtures experiments
+go vet ./...
+go build ./...
+go test ./internal/... -count=1     # Docker required
+go test ./fixtures/... -count=1     # Docker required
+go test ./experiments/... -count=1  # Docker required
+```
+
+## Determinism and evidence rules
+
+- A test that claims something about engine behavior must produce the same
+  result on repeated runs. Rule out probabilistic reproduction with
+  `-count=N`, not a single lucky pass.
+- Tests emit fixed-phrase markers that the smoke workflow checks with
+  `grep -F`. If you change a marker string, update the workflow in the same
+  pull request.
+- Do not make a check pass by weakening it — widening a wait, deleting an
+  assertion, or loosening a tolerance to hide a failure is not an acceptable
+  fix.
+
+## Commits and branches
+
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+  and end with the issue number, for example
+  `feat(scenario): persist discovered schedules #28`.
+- Branch names follow `feat<issue>/<slug>`, `fix<issue>/<slug>`, or
+  `docs<issue>/<slug>`.
+- Keep history readable. Avoid squashing a branch's work into a single commit
+  once it has already been reviewed in pieces.
+
+## Pull requests
+
+Keep the pull request template's section order as it is. In the `Validation`
+section, record only the checks you actually ran, marked `PASS`, `FAIL`, or
+`SKIP` with a reason. Do not mark a check you did not run as passing.
+
+## Documentation is part of the change
+
+If a pull request changes a user-visible contract — a diagnostic code, a
+report or trace format, or a public interface — the documentation update for
+that contract ships in the same pull request. Diagnostic codes and their
+reference pages are one-to-one: a diagnostic code without a reference page
+does not merge. The pull request template's `Docs` section is the checkpoint
+for this rule.
+
+## Contributing a fixture
+
+A fixture is data, not engine code. If adding a fixture seems to require an
+engine change, that is not a fixture problem — it is an extension-point gap,
+and it should be discussed in an issue before writing code.
+
+The layout below reflects what exists today in `fixtures/matching-slice/`,
+which you can use as a reference implementation:
+
+| Path | Role |
+| --- | --- |
+| `fixtures/<name>/README.md` | The domain and the invariant it verifies |
+| `fixtures/<name>/db/migration/*.sql` | Synthetic schema |
+| `fixtures/<name>/db/seed.sql` | Seed data |
+| `fixtures/<name>/schedules/*.json` | Saved coordination schedules (content-addressed) |
+| `fixtures/<name>/sut/` | A Go-native system-under-test, with both the vulnerable and the fixed code path |
+| `fixtures/<name>/*_test.go` | Fixture lifecycle test — schema, seed, and reset behavior |
+| `fixtures/<name>/sut/*_test.go` | The oracle declaration and the reproduction evidence |
+
+Rules:
+
+- Schema and data must be synthetic. Do not add a real service's schema or
+  real data.
+- See [`fixtures/matching-slice/README.md`](fixtures/matching-slice/README.md)
+  for a worked example of the domain and invariant description this layout
+  expects.
+
+## License
+
+By contributing, you agree that your contributions are licensed under the
+same [Apache-2.0 license](LICENSE) that covers the rest of the project.
+
+## Code of conduct
+
+Participation in this project is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Repository working conventions
+
+For the design invariants, package boundaries, and other rules that apply to
+any change to this repository, see `AGENTS.md` at the repository root.
