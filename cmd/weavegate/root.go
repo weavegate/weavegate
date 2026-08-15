@@ -76,6 +76,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.SetVersionTemplate("{{.Version}}\n")
 
 	root.AddCommand(newRunCommand(stdout, stderr))
+	root.AddCommand(newReportCommand(stdout, stderr))
 
 	return root
 }
