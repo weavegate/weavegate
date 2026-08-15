@@ -2,7 +2,9 @@
 
 This experiment records repeat evidence for the matching-slice fixture on
 MySQL 8.4. It replays one saved schedule against both application variants and
-compares a normalized database-state fingerprint after every reset and run.
+compares a normalized run fingerprint after every reset and run. The
+fingerprint combines the complete Oracle evaluation, normalized worker
+terminals, and ordered control trace.
 
 ## Saved control schedule
 
@@ -38,18 +40,23 @@ lock detector.
 The fixture provisions one MySQL 8.4 container and resets the same schema and
 seed before each replay. Each variant was repeated 20 times:
 
-| Variant | Runs | State fingerprint | Blocked runs | Result |
-| --- | ---: | --- | ---: | --- |
-| Vulnerable | 20/20 | `sessions=2;assignments=2;active=2;duplicate=true` | 0/20 | Duplicate reproduced |
-| Fixed | 20/20 | `sessions=1;assignments=1;active=1;duplicate=false` | 20/20 | Invariant preserved |
+| Variant | Runs | Active-assignment Oracle | Workflow-count Oracle | Blocked runs |
+| --- | ---: | --- | --- | ---: |
+| Vulnerable | 20/20 | Violation with request `42`, count `2` | PASS with exact `2/2/2` counts | 0/20 |
+| Fixed | 20/20 | Evaluated PASS | PASS with exact `1/1/1` counts | 20/20 |
 
-Each variant produced exactly one fingerprint across its 20 runs, so the
-reported replay result is `flaky=false`. The fixed replay also observed an
-InnoDB row-lock wait in 20/20 runs. Both variants completed with zero worker
-errors and zero observed MySQL deadlock terminals.
+Each variant produced exactly one normalized run fingerprint across its 20
+runs, so the reported replay result is `flaky=false`. Both PASS results and
+violations remain in the Oracle evaluation that is fingerprinted. The exact
+workflow-count Oracle is evaluated before every reset, so a count deviation in
+any run becomes a violation rather than being hidden by the final snapshot.
+The fixed replay also observed an InnoDB row-lock wait in 20/20 runs. Both
+variants completed with zero worker errors and zero observed MySQL deadlock
+terminals.
 
-The fingerprint intentionally contains stable row counts and the duplicate
-predicate. It excludes generated row IDs.
+The fingerprint excludes generated row IDs, raw worker errors, durations, and
+wall-clock values. Stable database evidence enters it through the normalized
+Oracle results rather than a separate state-fingerprint string.
 
 ## Timing and reproduction
 
@@ -79,4 +86,7 @@ InnoDB status check supplies the lock-wait evidence for this fixture.
 The trace used here is an ordered, in-memory draft of control events. It does
 not define a public `trace.json` schema. The MySQL `1213` category is covered by
 unit-level failure-classifier evidence, but this fixture did not observe an
-actual deadlock. A reusable SQL Oracle and rule `RG001` remain pending.
+actual deadlock. The reusable SQL assertions now provide the invariant and
+exact-count verdicts for this saved schedule. Clean-run differential evidence,
+schema-constraint evidence, a public report schema, and rule `RG001` remain
+pending.
