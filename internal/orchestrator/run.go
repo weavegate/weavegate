@@ -4,27 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
+	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/scenario"
 	"github.com/weavegate/weavegate/internal/sut"
 	"github.com/weavegate/weavegate/internal/syncpoint"
+	"github.com/weavegate/weavegate/internal/trace"
 )
 
-// RunResult contains the stable single-run outcome needed by an observer and
-// the later replay layer.
+// RunResult contains the stable single-run evidence, Oracle evaluation, and
+// normalized fingerprint needed by the replay layer.
 type RunResult struct {
-	ScheduleID       string
-	Steps            int
-	Workers          []sut.WorkerResult
-	Terminals        []WorkerTerminal
-	Trace            []Event
-	Timeouts         int
-	PendingResolved  int
-	StateFingerprint string
-	Fingerprint      string
-	Elapsed          time.Duration
+	ScheduleID      string
+	Steps           int
+	Workers         []sut.WorkerResult
+	Terminals       trace.Terminals
+	Trace           trace.Trace
+	Evaluation      oracle.Evaluation
+	Timeouts        int
+	PendingResolved int
+	Fingerprint     string
+	Elapsed         time.Duration
 }
 
 type collectedResult struct {
@@ -63,13 +66,13 @@ type runCoordinator struct {
 }
 
 // Run resets the fixture and executes one saved control schedule. Worker
-// failures remain terminal run data; orchestration, protocol, observer, and
+// failures remain terminal run data; orchestration, Oracle, protocol, and
 // cleanup failures are returned as errors.
 func (o *Orchestrator) Run(
 	ctx context.Context,
 	value scenario.Scenario,
 	schedule scenario.Schedule,
-	observer Observer,
+	evaluator oracle.Evaluator,
 ) (result RunResult, returnErr error) {
 	startedAt := time.Now()
 	result = RunResult{
@@ -83,6 +86,9 @@ func (o *Orchestrator) Run(
 	if ctx == nil {
 		return result, errors.New("run schedule: context is required")
 	}
+	if isNilEvaluator(evaluator) {
+		return result, errors.New("run schedule: Oracle evaluator is required")
+	}
 	select {
 	case <-ctx.Done():
 		return result, fmt.Errorf("run schedule %q: wait for active run: %w", schedule.ID, ctx.Err())
@@ -91,9 +97,6 @@ func (o *Orchestrator) Run(
 	defer func() {
 		o.runGate <- struct{}{}
 	}()
-	if observer == nil {
-		return result, errors.New("run schedule: observer is required")
-	}
 	if err := scenario.Validate(value, schedule); err != nil {
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
 	}
@@ -175,13 +178,37 @@ func (o *Orchestrator) Run(
 	}
 
 	result.Trace = trace.clone()
-	observed, err := observer(runCtx, o.config.DB, result.clone())
+	evaluated, err := evaluator.Evaluate(runCtx, o.config.DB.SQL, oracle.RunContext{
+		Trace:     result.Trace.Clone(),
+		Terminals: result.Terminals.Clone(),
+	})
 	if err != nil {
-		return result, fmt.Errorf("run schedule %q: observe state: %w", schedule.ID, err)
+		return result, fmt.Errorf("run schedule %q: evaluate oracles: %w", schedule.ID, err)
 	}
-	result.StateFingerprint = observed
-	result.Fingerprint = observed
+	validated, err := oracle.ValidateEvaluation(evaluated)
+	if err != nil {
+		return result, fmt.Errorf("run schedule %q: invalid Oracle evaluation: %w", schedule.ID, err)
+	}
+	result.Evaluation = validated
+	result.Fingerprint, err = normalizedFingerprint(result)
+	if err != nil {
+		return result, fmt.Errorf("run schedule %q: fingerprint: %w", schedule.ID, err)
+	}
 	return result, nil
+}
+
+func isNilEvaluator(evaluator oracle.Evaluator) bool {
+	if evaluator == nil {
+		return true
+	}
+	value := reflect.ValueOf(evaluator)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map,
+		reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 func (r *runCoordinator) execute() error {
@@ -240,7 +267,7 @@ func (r *runCoordinator) execute() error {
 	}
 
 	workers := make([]sut.WorkerResult, 0, len(r.value.Workers))
-	terminals := make([]WorkerTerminal, 0, len(r.value.Workers))
+	terminals := make(trace.Terminals, 0, len(r.value.Workers))
 	for _, worker := range r.value.Workers {
 		execution := r.executions[worker.ID]
 		if !execution.collected {
@@ -644,12 +671,4 @@ func (r *runCoordinator) configuredBlockTimeout() time.Duration {
 
 func (r *runCoordinator) configuredStepTimeout() time.Duration {
 	return r.stepTimeout
-}
-
-func (r RunResult) clone() RunResult {
-	clone := r
-	clone.Workers = append([]sut.WorkerResult(nil), r.Workers...)
-	clone.Terminals = append([]WorkerTerminal(nil), r.Terminals...)
-	clone.Trace = append([]Event(nil), r.Trace...)
-	return clone
 }

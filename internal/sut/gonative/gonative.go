@@ -236,6 +236,8 @@ func (a *adapter) runWorker(
 	startedAt := time.Now()
 	commandErr := command(ctx, worker.workerID, conn)
 	closeErr := closeWorkerConnection(worker.workerID, worker.command, conn)
+	// Publish terminal state only after the command transaction has completed and
+	// the worker-owned connection has been returned to the pool.
 	result := sut.WorkerResult{
 		WorkerID: worker.workerID,
 		Err:      errors.Join(commandErr, closeErr),

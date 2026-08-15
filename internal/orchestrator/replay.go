@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/scenario"
+	"github.com/weavegate/weavegate/internal/trace"
 )
 
 // ReplayResult summarizes repeated executions of one saved schedule.
@@ -23,20 +25,20 @@ type ReplayResult struct {
 }
 
 type normalizedRun struct {
-	State     string           `json:"state"`
-	Terminals []WorkerTerminal `json:"terminals"`
-	Trace     []Event          `json:"trace"`
+	Oracle    string          `json:"oracle"`
+	Terminals trace.Terminals `json:"terminals"`
+	Trace     trace.Trace     `json:"trace"`
 }
 
 // Replay executes the same validated schedule repeat times. A logical
-// fingerprint mismatch is returned as Flaky=true; run and observer failures
+// fingerprint mismatch is returned as Flaky=true; run and Oracle failures
 // remain errors and are never converted into flakiness.
 func (o *Orchestrator) Replay(
 	ctx context.Context,
 	value scenario.Scenario,
 	schedule scenario.Schedule,
 	repeat int,
-	observer Observer,
+	evaluator oracle.Evaluator,
 ) (result ReplayResult, returnErr error) {
 	startedAt := time.Now()
 	result = ReplayResult{
@@ -51,10 +53,13 @@ func (o *Orchestrator) Replay(
 	if repeat < 1 {
 		return result, fmt.Errorf("replay schedule %q: repeat must be positive, got %d", schedule.ID, repeat)
 	}
+	if isNilEvaluator(evaluator) {
+		return result, fmt.Errorf("replay schedule %q: Oracle evaluator is required", schedule.ID)
+	}
 
 	baseline := ""
 	for index := 0; index < repeat; index++ {
-		run, err := o.Run(ctx, value, schedule, observer)
+		run, err := o.Run(ctx, value, schedule, evaluator)
 		if err != nil {
 			result.Flaky = false
 			return result, fmt.Errorf(
@@ -77,6 +82,26 @@ func (o *Orchestrator) Replay(
 				err,
 			)
 		}
+		if run.Fingerprint == "" {
+			result.Flaky = false
+			return result, fmt.Errorf(
+				"replay schedule %q run %d/%d: run fingerprint is empty",
+				schedule.ID,
+				index+1,
+				repeat,
+			)
+		}
+		if run.Fingerprint != fingerprint {
+			result.Flaky = false
+			return result, fmt.Errorf(
+				"replay schedule %q run %d/%d: fingerprint mismatch: run=%q recomputed=%q",
+				schedule.ID,
+				index+1,
+				repeat,
+				run.Fingerprint,
+				fingerprint,
+			)
+		}
 		run.Fingerprint = fingerprint
 		result.Runs = append(result.Runs, run)
 		result.Fingerprints[fingerprint]++
@@ -92,14 +117,14 @@ func (o *Orchestrator) Replay(
 }
 
 func normalizedFingerprint(run RunResult) (string, error) {
-	state := run.StateFingerprint
-	if state == "" {
-		state = run.Fingerprint
+	evaluation, err := oracle.ValidateEvaluation(run.Evaluation)
+	if err != nil {
+		return "", fmt.Errorf("validate Oracle evaluation: %w", err)
 	}
 	canonical, err := json.Marshal(normalizedRun{
-		State:     state,
-		Terminals: append([]WorkerTerminal(nil), run.Terminals...),
-		Trace:     append([]Event(nil), run.Trace...),
+		Oracle:    evaluation.Fingerprint,
+		Terminals: run.Terminals.Clone(),
+		Trace:     run.Trace.Clone(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal normalized run: %w", err)

@@ -44,7 +44,8 @@ jobs:
 
       - name: Run database fixture tests
         run: >-
-          go test ./internal/fixture/... ./internal/scenario/... ./internal/orchestrator/...
+          go test ./internal/trace/... ./internal/oracle/...
+          ./internal/fixture/... ./internal/scenario/... ./internal/orchestrator/...
           ./internal/syncpoint/... ./internal/sut/...
           ./fixtures/matching-slice/...
           -v -count=1 | tee fixture.log
@@ -74,10 +75,20 @@ jobs:
           grep -F 'SCHEDULE_REPLAY_RESULT id=sch_ba00582f9632 steps=4 workers=2 per_worker_order=valid roundtrip=stable tamper=error' fixture.log
           grep -F 'ORCHESTRATOR_RUN_RESULT schedule=sch_ba00582f9632 workers=2 steps=4 timeouts=1 pending_resolved=1 terminal_done=2 cleanup=ok' fixture.log
           grep -F 'ORCHESTRATOR_REPLAY_CORE_RESULT schedule=sch_ba00582f9632 repeat=20 fingerprints=1 resets=20 flaky=false' fixture.log
+          grep -F 'ORCHESTRATOR_ORACLE_RESULT schedule=sch_ba00582f9632 evaluations=20 oracles_per_evaluation=1 terminal_before_evaluation=true fingerprints=1 cleanup=ok flaky=false' fixture.log
           grep -F 'ORCHESTRATOR_CLASSIFY_RESULT timeout=timeout_inferred deadlock=mysql_deadlock_1213 distinct=true wrapped=true' fixture.log
+
+      - name: Assert the SQL Oracle invariants
+        run: |
+          grep -F 'TRACE_MODEL_RESULT events=3 terminals=2 json=stable orchestrator_aliases=compatible' fixture.log
+          grep -F 'ORACLE_SET_RESULT oracles=2 results=2 pass_results=1 violations=2 declaration_order=preserved fingerprint_order=canonical missing_oracle=changes_fingerprint invalid_result=error' fixture.log
+          grep -F 'SQL_ASSERT_ORACLE_RESULT id=active-assignment-is-unique expect_rows=0 observed_rows=1 violations=1 evidence_json={"active_assignment_count":2,"project_request_id":42} invalid_utf8=error scan_error=error' fixture.log
+          grep -F 'SQL_ASSERT_MYSQL_READONLY_RESULT write=error state_unchanged=true' fixture.log
 
       - name: Assert the matching assignment invariants
         run: |
+          grep -F 'MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=vulnerable oracle=active-assignment-is-unique count_oracle=matching-workflow-counts oracles_evaluated=2 repeat=20 violation_runs=20 violations=20 evidence_rows=20 evidence_json={"active_assignment_count":2,"project_request_id":42} flaky=false' fixture.log
+          grep -F 'MATCHING_ORACLE_RESULT schedule=sch_ba00582f9632 variant=fixed oracle=active-assignment-is-unique count_oracle=matching-workflow-counts oracles_evaluated=2 repeat=20 pass_runs=20 violations=0 evidence_rows=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=vulnerable repeat=20 duplicate_runs=20 blocked_runs=0 sessions=2 assignments=2 active_assignments=2 worker_errors=0 deadlocks=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=fixed repeat=20 pass_runs=20 blocked_runs=20 lock_wait_runs=20 sessions=1 assignments=1 active_assignments=1 worker_errors=0 deadlocks=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_TIMING schedule=sch_ba00582f9632 runs=40 elapsed=' fixture.log

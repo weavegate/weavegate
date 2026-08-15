@@ -8,7 +8,7 @@ repository contains an executable test and observable result for that stage.
 
 | Fixture | Anomaly | Fixture state | Controlled execution | Oracle | Fix evidence |
 | --- | --- | --- | --- | --- | --- |
-| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Saved schedule replay (20/20) | Pending | Locking replay 20/20 |
+| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Saved schedule replay (20/20) | SQL assertion (20/20) | Locking replay 20/20 |
 
 ## Matching slice
 
@@ -57,25 +57,33 @@ another session or assignment.
   results from the test's result collector.
 - Schedule `sch_ba00582f9632` drives four named worker-and-point control steps
   independently of the integration test implementation.
-- The vulnerable replay produced two sessions and two active assignments in
-  20/20 runs after both workers reached `before_insert_assignment`.
+- The `active-assignment-is-unique` SQL assertion returned one violation in
+  20/20 vulnerable runs. Every run contained the canonical request `42`, count
+  `2` evidence row.
+- The vulnerable replay also produced two sessions and two active assignments
+  in 20/20 runs after both workers reached `before_insert_assignment`. A
+  second SQL assertion evaluated the exact `2/2/2` workflow counts in every run.
 - The `FOR UPDATE` path paired the runtime's timeout inference with a separate
   InnoDB row-lock wait observation, then resumed the second worker.
-- The locking replay produced one session and one active assignment in 20/20
-  runs; both workers completed without a command error, and the second worker
-  did not visit `before_insert_assignment`.
-- Each variant produced one normalized state fingerprint with `flaky=false`.
+- The locking replay produced one evaluated PASS result for the same SQL
+  assertion in 20/20 runs. The exact-count assertion also evaluated PASS for
+  `1/1/1` in every run. Both workers completed without a command error, and
+  the second worker did not visit `before_insert_assignment`.
+- A MySQL 8.4 integration test rejected a mutating assertion in a read-only
+  transaction and verified that the seed row count and value were unchanged.
+- Each variant produced one normalized run fingerprint with `flaky=false`.
 - The smoke workflow checks the observed vulnerable and fixed replay markers.
 
 ### Pending evidence
 
 The following evidence remains pending:
 
-- a reusable SQL Oracle that evaluates the active-assignment invariant;
-- exploration beyond the recorded schedule; and
-- rule `RG001`, which depends on the reusable Oracle.
+- differential Oracle evidence remains pending;
+- schema constraint evidence remains pending;
+- exploration beyond the recorded schedule remains pending; and
+- rule `RG001` remains pending.
 
-The coverage table keeps the Oracle pending until the repository contains that
-executable invariant check. Saved schedule replay supplies repeat evidence for
-the recorded vulnerable and locking paths, but it does not replace broader
-schedule exploration or an invariant-based verdict.
+The executable SQL assertion supplies an invariant-based verdict for the
+recorded vulnerable and locking paths. It does not provide a clean-run
+differential, prove a schema constraint, or replace broader schedule
+exploration.

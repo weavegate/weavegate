@@ -3,7 +3,6 @@
 package orchestrator
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -18,9 +17,6 @@ type RuntimeFactory func() syncpoint.Runtime
 
 // AdapterFactory creates a fresh adapter bound to one run's runtime client.
 type AdapterFactory func(syncpoint.Client) sut.Adapter
-
-// Observer reads the completed database state before adapter cleanup.
-type Observer func(context.Context, *fixture.DB, RunResult) (string, error)
 
 // Config supplies the already-provisioned fixture and bounded run dependencies.
 type Config struct {
