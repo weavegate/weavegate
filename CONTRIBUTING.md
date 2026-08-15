@@ -20,21 +20,22 @@ run the checks, and structure commits and pull requests.
 
 The Go version this project builds with is pinned in `go.mod`.
 
-Running the fixture and engine tests requires Docker, because they start a
-real MySQL 8.4 container through Testcontainers. Without Docker you can still
-format, vet, and build the code; you cannot run `go test` against
-`internal/...` or `fixtures/...`.
+Running the fixture, engine, and experiment tests requires Docker, because
+they start a real MySQL 8.4 container through Testcontainers. Without Docker
+you can still format, vet, and build the code; you cannot run `go test`
+against `internal/...`, `fixtures/...`, or `experiments/...`.
 
 ## Running checks
 
 Only run commands that exist in this repository:
 
 ```bash
-gofmt -l internal fixtures
+gofmt -l internal fixtures experiments
 go vet ./...
 go build ./...
 go test ./internal/... -count=1     # Docker required
 go test ./fixtures/... -count=1     # Docker required
+go test ./experiments/... -count=1  # Docker required
 ```
 
 ## Determinism and evidence rules

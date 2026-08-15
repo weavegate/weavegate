@@ -66,11 +66,12 @@ explicitly as planned rather than writing about it as if it already ran.
 Run what applies to the change:
 
 ```bash
-gofmt -l internal fixtures
+gofmt -l internal fixtures experiments
 go vet ./...
 go build ./...
 go test ./internal/... -count=1     # Docker required
 go test ./fixtures/... -count=1     # Docker required
+go test ./experiments/... -count=1  # Docker required
 ```
 
 State plainly in the pull request which of these you ran and which you
