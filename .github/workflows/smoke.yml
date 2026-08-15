@@ -98,6 +98,12 @@ jobs:
           grep -F 'MATCHING_REPLAY_RESULT schedule=sch_ba00582f9632 variant=fixed repeat=20 pass_runs=20 blocked_runs=20 lock_wait_runs=20 sessions=1 assignments=1 active_assignments=1 worker_errors=0 deadlocks=0 flaky=false' fixture.log
           grep -F 'MATCHING_REPLAY_TIMING schedule=sch_ba00582f9632 runs=40 elapsed=' fixture.log
 
+      - name: Assert the matching exploration invariants
+        run: |
+          grep -E 'MATCHING_EXPLORE_RESULT variant=vulnerable candidates=6 repeats=20 evaluated=[1-9][0-9]* distinct_schedules=1 distinct_indices=1 distinct_fingerprints=1 violating_index=[1-6] schedule=sch_[0-9a-f]{12} saved=reloaded replay_repeat=20 violation_runs=20 fingerprint_match=true worker_errors=0 deadlocks=0 flaky=false' fixture.log
+          grep -E 'MATCHING_EXPLORE_CENSUS variant=vulnerable candidates=6 repeats=3 evaluated=18 violating_candidates=[0-6] stable=true' fixture.log
+          grep -E 'MATCHING_EXPLORE_RESULT variant=fixed candidates=6 repeats=5 evaluated=30 violating=none exhausted=true pending_resolved_runs=[0-9]+ terminal_skipped_runs=[0-9]+ worker_errors=0 deadlocks=0' fixture.log
+
       - name: Run the lost-update experiment
         run: go test ./experiments/lost-update/... -v -count=1 | tee lostupdate.log
 
