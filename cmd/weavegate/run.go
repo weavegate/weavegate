@@ -62,7 +62,7 @@ func runScenario(
 	flags runFlags,
 	newFixture func() fixture.Fixture,
 ) (finalErr error) {
-	startedAt := time.Now()
+	startedAt := time.Now().UTC()
 
 	cfg, err := config.Load(flags.config)
 	if err != nil {
