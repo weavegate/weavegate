@@ -22,7 +22,7 @@ assignees: "jaeunda"
 
 ## Validation
 
-- Describe the command used to reproduce the fixture's behavior and the evidence it produces.
+- If implemented, describe the command used to reproduce the fixture's behavior and the evidence it produces. If this is a proposal, describe the command and evidence you plan to provide instead.
 
 ## Notes
 
