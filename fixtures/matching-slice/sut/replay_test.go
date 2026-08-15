@@ -158,9 +158,9 @@ ORDER BY project_request_id;
 `
 
 func newMatchingOracleSet(selected string) (*oracle.Set, error) {
-	assertion, err := sqlassert.NewZeroRow(matchingOracleID, matchingAssertionQuery)
+	assertion, err := newMatchingInvariantOracle()
 	if err != nil {
-		return nil, fmt.Errorf("create matching SQL assertion: %w", err)
+		return nil, err
 	}
 
 	wantCounts := workflowCounts{sessions: 2, assignments: 2, activeAssignments: 2}
@@ -188,6 +188,27 @@ HAVING matching_session_count <> %d
 		return nil, fmt.Errorf("create matching Oracle set: %w", err)
 	}
 	return set, nil
+}
+
+func newMatchingInvariantOracleSet() (*oracle.Set, error) {
+	assertion, err := newMatchingInvariantOracle()
+	if err != nil {
+		return nil, err
+	}
+
+	set, err := oracle.NewSet(assertion)
+	if err != nil {
+		return nil, fmt.Errorf("create matching invariant Oracle set: %w", err)
+	}
+	return set, nil
+}
+
+func newMatchingInvariantOracle() (oracle.Oracle, error) {
+	assertion, err := sqlassert.NewZeroRow(matchingOracleID, matchingAssertionQuery)
+	if err != nil {
+		return nil, fmt.Errorf("create matching SQL assertion: %w", err)
+	}
+	return assertion, nil
 }
 
 func replayMatchingVariant(
