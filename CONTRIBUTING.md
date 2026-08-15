@@ -13,8 +13,10 @@ run the checks, and structure commits and pull requests.
 - **Add a fixture (recommended)** — open a fixture contribution issue. See
   [Contributing a fixture](#contributing-a-fixture) below; this is the
   entry point that needs the least context about the rest of the codebase.
-- **Improve documentation** — open a general issue, or send a pull request
-  directly for small, self-contained fixes.
+- **Improve documentation** — open a general issue first, same as a feature
+  proposal. Every pull request in this repository, including a small
+  documentation fix, needs an issue number for its branch name and commit
+  message (see [Commits and branches](#commits-and-branches)).
 
 ## Development environment
 
