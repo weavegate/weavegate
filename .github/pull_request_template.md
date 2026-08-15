@@ -11,6 +11,11 @@ Closes #
 
 - Highlight the concrete decisions, invariants, failure modes, tradeoffs, or risks that deserve review in this change.
 
+## Docs
+
+- [ ] Docs updated in this pull request.
+- [ ] Not applicable — this change does not alter a user-visible contract.
+
 ## Notes
 
 - Record follow-up work, limitations, migrations, or tradeoffs. Replace this line with `- None.` when there is nothing material.
