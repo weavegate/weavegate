@@ -187,16 +187,72 @@ snapshot check remains as a fixture regression check.
 The full measurement, realized release behavior, and evidence limits are in
 [Matching-slice replay determinism](../../docs/experiments/determinism.md).
 
+## Schedule exploration
+
+The scenario has two workers and two ordered sync-points. Preserving each
+worker's point order yields six valid saved coordination schedules. The
+exhaustive strategy counts that space before any fixture reset, enumerates it in
+canonical worker-declaration order, and the orchestrator stops at the first
+invariant violation.
+
+Exploration uses only the `active-assignment-is-unique` assertion. The
+variant-specific workflow-count assertion remains part of the existing saved
+replay test, where it verifies the expected complete state for that particular
+replay. Keeping it out of discovery prevents a variant-specific expected count
+from defining which candidate is considered violating.
+
+Across 20 vulnerable exploration repeats, candidate 1 was always the first
+violation. Its content-addressed ID is `sch_7dcb74b1e506`. The test wrote that
+schedule to a temporary artifact, loaded it through the ordinary schedule
+loader, and replayed it 20 times. Every replay violated the invariant and the
+single replay fingerprint equaled the fingerprint measured during discovery.
+
+The discovered candidate differs from the committed
+[`concurrent-assign.json`](schedules/concurrent-assign.json) regression fixture,
+which is candidate 2. The committed file remains unchanged. A separate census
+ran all six candidates three times without early stopping and observed the same
+six violating candidate indexes in each repeat.
+
+The `FOR UPDATE` variant exhausted the same six candidates five times. All 30
+runs evaluated PASS with zero worker errors and zero deadlocks. Every run also
+recorded a pending point that was later released and a terminal-skipped intent.
+Those observations demonstrate that a saved coordination schedule records
+release intent, while database locking can change the release order realized by
+the engine.
+
+Run the exploration with Docker available:
+
+```bash
+go test ./fixtures/matching-slice/sut \
+  -run '^TestExploreConcurrentAssign$' -v -count=1
+```
+
+It emits these measured markers:
+
+```text
+MATCHING_EXPLORE_RESULT variant=vulnerable candidates=6 repeats=20 evaluated=20 distinct_schedules=1 distinct_indices=1 distinct_fingerprints=1 violating_index=1 schedule=sch_7dcb74b1e506 saved=reloaded replay_repeat=20 violation_runs=20 fingerprint_match=true worker_errors=0 deadlocks=0 flaky=false
+MATCHING_EXPLORE_CENSUS variant=vulnerable candidates=6 repeats=3 evaluated=18 violating_candidates=6 stable=true
+MATCHING_EXPLORE_RESULT variant=fixed candidates=6 repeats=5 evaluated=30 violating=none exhausted=true pending_resolved_runs=30 terminal_skipped_runs=30 worker_errors=0 deadlocks=0
+```
+
+The complete method, discovered schedule JSON, and evidence limits are in
+[Matching-slice schedule exploration](../../docs/experiments/exploration.md).
+
 ## Current boundary
 
 This fixture verifies the schema, seed and reset behavior, an application
-assignment workflow, and orchestrator-controlled saved schedule replay for
-plain and locking reads. Reusable SQL assertions evaluate both the active
-assignment invariant and exact workflow counts after each run. The lock-wait
-observation remains a separate assertion inside the integration test. The 20/20 evidence
-applies only to the recorded schedule, fixture state, MySQL image, and
-application variant. It is not schedule-space exploration or proof of all
-possible races.
+assignment workflow, orchestrator-controlled saved replay, and exhaustive
+execution of the six valid saved coordination schedules for this scenario.
+Reusable SQL assertions evaluate the active-assignment invariant during
+exploration and both that invariant and exact workflow counts during the older
+replay. The lock-wait observation remains a separate assertion inside the
+replay integration test.
+
+This evidence applies to the declared two-worker, two-point scenario, fixture
+state, MySQL image, and application variants. It does not establish complete
+coverage of database-level concurrency behavior. Saved intent can differ from
+realized release order under locks, candidate counts grow combinatorially, and
+the discovered schedule is not minimized.
 
 The evidence status is tracked in
 [Why the fix works](../../docs/why-the-fix-works.md).

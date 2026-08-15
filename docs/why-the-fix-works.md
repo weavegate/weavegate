@@ -8,7 +8,7 @@ repository contains an executable test and observable result for that stage.
 
 | Fixture | Anomaly | Fixture state | Controlled execution | Oracle | Fix evidence |
 | --- | --- | --- | --- | --- | --- |
-| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Saved schedule replay (20/20) | SQL assertion (20/20) | Locking replay 20/20 |
+| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Six saved schedules explored | SQL assertion (20/20) | Six candidates x 5 PASS |
 
 ## Matching slice
 
@@ -72,7 +72,22 @@ another session or assignment.
 - A MySQL 8.4 integration test rejected a mutating assertion in a read-only
   transaction and verified that the seed row count and value were unchanged.
 - Each variant produced one normalized run fingerprint with `flaky=false`.
-- The smoke workflow checks the observed vulnerable and fixed replay markers.
+- The scenario's six valid saved coordination schedules were enumerated in a
+  stable order and passed schedule validation.
+- Vulnerable exploration found candidate 1, `sch_7dcb74b1e506`, in 20/20
+  repeats with one schedule ID, candidate index, and normalized fingerprint.
+- The discovered schedule was saved, loaded through the ordinary loader, and
+  replayed 20/20 times with a violation and the same fingerprint measured
+  during discovery.
+- A non-stopping census ran all six vulnerable candidates three times and
+  observed the same six violating candidates in each repeat.
+- The `FOR UPDATE` path exhausted all six candidates five times. All 30 runs
+  evaluated PASS with zero worker errors and zero deadlocks.
+- The fixed runs show the exploration boundary in practice: saved coordination
+  intent is stable, while database locking controls the release order realized
+  by the engine.
+- The smoke workflow checks the observed vulnerable, fixed replay, and
+  exploration markers.
 
 ### Pending evidence
 
@@ -80,10 +95,10 @@ The following evidence remains pending:
 
 - differential Oracle evidence remains pending;
 - schema constraint evidence remains pending;
-- exploration beyond the recorded schedule remains pending; and
 - rule `RG001` remains pending.
 
 The executable SQL assertion supplies an invariant-based verdict for the
-recorded vulnerable and locking paths. It does not provide a clean-run
-differential, prove a schema constraint, or replace broader schedule
-exploration.
+recorded vulnerable and locking paths and for the six candidates in this
+scenario. It does not provide a clean-run differential, prove a schema
+constraint, minimize a discovered schedule, or establish complete coverage of
+database-level concurrency behavior.
