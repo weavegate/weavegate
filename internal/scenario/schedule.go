@@ -108,44 +108,9 @@ func LoadScheduleFile(path string) (Schedule, error) {
 // Validate verifies the scenario value and that schedule contains every
 // worker-point pair exactly once while preserving each worker's point order.
 func Validate(scenario Scenario, schedule Schedule) error {
-	if strings.TrimSpace(scenario.Name) == "" {
-		return errors.New("validate scenario: name is required")
-	}
-	if len(scenario.Workers) == 0 {
-		return fmt.Errorf("validate scenario %q: at least one worker is required", scenario.Name)
-	}
-	if len(scenario.SyncPoints) == 0 {
-		return fmt.Errorf("validate scenario %q: at least one sync-point is required", scenario.Name)
-	}
-
-	workers := make(map[string]struct{}, len(scenario.Workers))
-	for index, worker := range scenario.Workers {
-		if strings.TrimSpace(worker.ID) == "" {
-			return fmt.Errorf("validate scenario %q worker[%d]: ID is required", scenario.Name, index)
-		}
-		if strings.TrimSpace(worker.Command) == "" {
-			return fmt.Errorf(
-				"validate scenario %q worker[%d] %q: command is required",
-				scenario.Name,
-				index,
-				worker.ID,
-			)
-		}
-		if _, exists := workers[worker.ID]; exists {
-			return fmt.Errorf("validate scenario %q worker[%d]: duplicate worker %q", scenario.Name, index, worker.ID)
-		}
-		workers[worker.ID] = struct{}{}
-	}
-
-	points := make(map[string]int, len(scenario.SyncPoints))
-	for index, point := range scenario.SyncPoints {
-		if strings.TrimSpace(point) == "" {
-			return fmt.Errorf("validate scenario %q sync-point[%d]: name is required", scenario.Name, index)
-		}
-		if _, exists := points[point]; exists {
-			return fmt.Errorf("validate scenario %q sync-point[%d]: duplicate point %q", scenario.Name, index, point)
-		}
-		points[point] = index
+	scenarioIndex, err := validateScenario(scenario)
+	if err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(schedule.ID) == "" {
@@ -176,7 +141,7 @@ func Validate(scenario Scenario, schedule Schedule) error {
 				index,
 			)
 		}
-		if _, exists := workers[step.Worker]; !exists {
+		if _, exists := scenarioIndex.workers[step.Worker]; !exists {
 			return fmt.Errorf(
 				"validate scenario %q schedule %q step[%d]: unknown worker %q",
 				scenario.Name,
@@ -194,7 +159,7 @@ func Validate(scenario Scenario, schedule Schedule) error {
 				step.Worker,
 			)
 		}
-		pointIndex, exists := points[step.Point]
+		pointIndex, exists := scenarioIndex.points[step.Point]
 		if !exists {
 			return fmt.Errorf(
 				"validate scenario %q schedule %q step[%d] worker %q: unknown point %q",
