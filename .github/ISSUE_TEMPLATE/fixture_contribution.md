@@ -17,7 +17,8 @@ assignees: "jaeunda"
 - [ ] `fixtures/<name>/db/seed.sql` — seed data
 - [ ] `fixtures/<name>/schedules/*.json` — saved coordination schedules
 - [ ] `fixtures/<name>/sut/` — the Go-native system under test, vulnerable and fixed paths
-- [ ] `fixtures/<name>/*_test.go` — the oracle declaration and reproduction evidence
+- [ ] `fixtures/<name>/*_test.go` — fixture lifecycle test (schema, seed, reset)
+- [ ] `fixtures/<name>/sut/*_test.go` — the oracle declaration and reproduction evidence
 
 ## Validation
 

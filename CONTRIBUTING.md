@@ -90,7 +90,8 @@ which you can use as a reference implementation:
 | `fixtures/<name>/db/seed.sql` | Seed data |
 | `fixtures/<name>/schedules/*.json` | Saved coordination schedules (content-addressed) |
 | `fixtures/<name>/sut/` | A Go-native system-under-test, with both the vulnerable and the fixed code path |
-| `fixtures/<name>/*_test.go` | The oracle declaration and the reproduction evidence |
+| `fixtures/<name>/*_test.go` | Fixture lifecycle test — schema, seed, and reset behavior |
+| `fixtures/<name>/sut/*_test.go` | The oracle declaration and the reproduction evidence |
 
 Rules:
 
