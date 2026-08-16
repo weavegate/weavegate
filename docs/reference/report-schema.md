@@ -30,15 +30,19 @@ deterministic or stripping timestamps everywhere.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `run_id` | string | `run_<YYYYMMDDTHHMMSS.mmmZ>_<8 hex>`. The fixed-width millisecond field means lexicographic order equals time order — `weavegate report` with no run ID relies on exactly this to pick "most recent" unambiguously, including two runs started in the same second. |
+| `run_id` | string | Opaque identity: `run_<YYYYMMDDTHHMMSS.nnnnnnnnnZ>_<32 lowercase hex>`. The timestamp is readable context and the suffix is 128 random bits; ordering comes from `started_at`, with run ID used only to break identical-time ties. |
 | `started_at` | string (RFC3339, UTC) | |
 | `weavegate_version` | string | `0.0.0-dev` unless built with `-ldflags "-X main.version=..."`. |
-| `schema_version` | string | First 12 hex characters of the sha256 of every migration file's `"<basename>\n"+content`, concatenated in sorted filename order. Content-derived, not invented. |
-| `seed_data` | string | First 12 hex characters of the sha256 of the seed file's content. |
+| `schema_version` | string | Full `sha256:<64 lowercase hex>` of the prepared migration snapshot. Each sorted file is framed as decimal byte length of name + LF, name bytes, decimal byte length of content + LF, content bytes. |
+| `seed_data` | string | Full `sha256:<64 lowercase hex>` of the prepared seed bytes. |
 | `isolation_level` | string | The literal result of `SELECT @@global.transaction_isolation`, read from the fixture's managing connection immediately after provisioning — the **global** value, not the session value a worker connection might override. If the SUT changes its session isolation level, this field will not reflect that. |
 | `engine` | string | Distinct storage engines actually in use by the provisioned schema's tables, read from `information_schema.tables` immediately after provisioning and joined with `,` when more than one engine is present. Not assumed from the config or migrations. |
 | `adapter`, `variant`, `image` | string | The resolved adapter, SUT variant, and database image for this run. |
 | `cleanup_failed` | bool | `true` when fixture teardown failed after this run completed (see [exit-codes.md](exit-codes.md#cleanup-failures-never-mask-a-verdict) for how this can raise a passing run's exit code to 4). It never changes `report.md`'s headline or `scenario.json`/`observation.json`'s content — those describe the scenario's own, deterministic outcome — but it records, on the run this actually happened to, why the process exit code can be higher than the headline alone would suggest. `false` on every ordinary run. |
+
+Both digests come from the same immutable prepared source that `Provision` and
+every `Reset` apply. The CLI does not re-read migration or seed paths while
+building the manifest.
 
 ## `scenario.json`
 

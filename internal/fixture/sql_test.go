@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,53 @@ func TestSQLLoader(t *testing.T) {
 	}
 
 	t.Log("FIXTURE_LOADER_RESULT migrations=2 seed=1 order=lexicographic")
+}
+
+func TestPreparedFixtureDigestsUseFullFramedSHA256(t *testing.T) {
+	t.Parallel()
+
+	seedPath := filepath.Join(t.TempDir(), "seed.sql")
+	if err := os.WriteFile(seedPath, []byte("SELECT 1;"), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+	writeMigrations := func(files map[string]string) string {
+		dir := t.TempDir()
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatalf("write migration %q: %v", name, err)
+			}
+		}
+		return dir
+	}
+
+	// The previous unframed stream collides:
+	// "a.sql\n" + "b.sql\nX" == "a.sql\n" + "" + "b.sql\n" + "X".
+	oneFile := writeMigrations(map[string]string{"a.sql": "b.sql\nX"})
+	twoFiles := writeMigrations(map[string]string{"a.sql": "", "b.sql": "X"})
+	first, err := Prepare(FixtureSpec{Image: "mysql:8.4", Migrations: oneFile, Seed: seedPath})
+	if err != nil {
+		t.Fatalf("prepare one-file fixture: %v", err)
+	}
+	second, err := Prepare(FixtureSpec{Image: "mysql:8.4", Migrations: twoFiles, Seed: seedPath})
+	if err != nil {
+		t.Fatalf("prepare two-file fixture: %v", err)
+	}
+
+	fullDigest := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	for name, digest := range map[string]string{
+		"first migration":  first.MigrationDigest(),
+		"second migration": second.MigrationDigest(),
+		"seed":             first.SeedDigest(),
+	} {
+		if !fullDigest.MatchString(digest) {
+			t.Fatalf("%s digest = %q, want sha256:<64 lowercase hex>", name, digest)
+		}
+	}
+	if first.MigrationDigest() == second.MigrationDigest() {
+		t.Fatalf("framed migration digests collided: %s", first.MigrationDigest())
+	}
+
+	t.Log("FIXTURE_DIGEST_RESULT migration=sha256_full seed=sha256_full framing=byte_length collision=distinct")
 }
 
 func TestSQLLoaderErrorContext(t *testing.T) {

@@ -56,25 +56,33 @@ func Prepare(spec FixtureSpec) (Prepared, error) {
 	}
 
 	prepared := Prepared{image: spec.Image, valid: true}
-	migrationHasher := sha256.New()
 	for _, source := range migrations {
 		item, err := prepareSQLSource(source)
 		if err != nil {
 			return Prepared{}, fmt.Errorf("prepare fixture: %w", err)
 		}
 		prepared.migrations = append(prepared.migrations, item)
-		fmt.Fprintf(migrationHasher, "%s\n", item.name)
-		_, _ = migrationHasher.Write(item.contents)
 	}
-	prepared.migrationDigest = hex.EncodeToString(migrationHasher.Sum(nil))[:12]
+	prepared.migrationDigest = hashMigrations(prepared.migrations)
 
 	prepared.seed, err = prepareSQLSource(seed)
 	if err != nil {
 		return Prepared{}, fmt.Errorf("prepare fixture: %w", err)
 	}
 	seedSum := sha256.Sum256(prepared.seed.contents)
-	prepared.seedDigest = hex.EncodeToString(seedSum[:])[:12]
+	prepared.seedDigest = "sha256:" + hex.EncodeToString(seedSum[:])
 	return prepared.clone(), nil
+}
+
+func hashMigrations(migrations []preparedSQLSource) string {
+	hasher := sha256.New()
+	for _, migration := range migrations {
+		fmt.Fprintf(hasher, "%d\n", len(migration.name))
+		_, _ = hasher.Write([]byte(migration.name))
+		fmt.Fprintf(hasher, "%d\n", len(migration.contents))
+		_, _ = hasher.Write(migration.contents)
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
 // applyFixtureSQL applies prepared migrations in lexical filename order,
