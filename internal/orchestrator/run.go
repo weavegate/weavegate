@@ -108,7 +108,7 @@ func (o *Orchestrator) Run(
 	runCtx, cancelRun := context.WithTimeout(ctx, o.config.RunTimeout)
 	defer cancelRun()
 	if err := o.config.Fixture.Reset(runCtx); err != nil {
-		return result, fmt.Errorf("run schedule %q: reset fixture: %w", schedule.ID, err)
+		return result, fmt.Errorf("run schedule %q: reset fixture: %w", schedule.ID, NewFixtureError(err))
 	}
 	if err := trace.emit(Event{Kind: EventFixtureReset, Step: -1}); err != nil {
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)

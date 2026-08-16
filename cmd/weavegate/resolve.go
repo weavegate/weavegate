@@ -1,0 +1,137 @@
+package main
+
+import (
+	"fmt"
+	"slices"
+	"time"
+
+	"github.com/weavegate/weavegate/internal/ci"
+	"github.com/weavegate/weavegate/internal/config"
+	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/oracle"
+	"github.com/weavegate/weavegate/internal/oracle/sqlassert"
+	"github.com/weavegate/weavegate/internal/orchestrator"
+	"github.com/weavegate/weavegate/internal/scenario"
+	internalsut "github.com/weavegate/weavegate/internal/sut"
+	"github.com/weavegate/weavegate/internal/syncpoint"
+)
+
+// Timeouts holds the four orchestrator timeouts derived from the
+// configured arrive timeout (A-13).
+type Timeouts struct {
+	BlockInference time.Duration
+	Step           time.Duration
+	Run            time.Duration
+	Stop           time.Duration
+}
+
+// Resolved is a configured scenario translated into the values the engine
+// needs, without starting a container: a fixture spec, a validated
+// scenario, an Oracle set, and orchestrator timeouts. It does not access a
+// database or a fixture.
+type Resolved struct {
+	Fixture      fixture.FixtureSpec
+	Scenario     scenario.Scenario
+	Oracle       *oracle.Set
+	NewRuntime   orchestrator.RuntimeFactory
+	NewAdapter   orchestrator.AdapterFactory
+	Timeouts     Timeouts
+	SchedulesDir string
+}
+
+// Resolve translates cfg's named scenario into engine dependencies. variant,
+// when non-empty, overrides target.sut.variant. No container starts here:
+// an error here is always a configuration problem (exit 5), never a fixture
+// failure.
+func Resolve(cfg config.Config, scenarioName, variant string) (Resolved, error) {
+	configuredScenario, ok := cfg.Scenarios[scenarioName]
+	if !ok {
+		return Resolved{}, ci.InputError(fmt.Errorf(
+			"resolve scenario %q: not declared in config; known scenarios: %v",
+			scenarioName,
+			scenarioNames(cfg),
+		))
+	}
+
+	selectedVariant := variant
+	if selectedVariant == "" {
+		selectedVariant = cfg.Target.SUT.Variant
+	}
+
+	entry, ok := builtinEntrypoints[cfg.Target.SUT.Entrypoint]
+	if !ok {
+		return Resolved{}, ci.InputError(fmt.Errorf(
+			"resolve entrypoint %q: not a known built-in ID; known IDs: %v",
+			cfg.Target.SUT.Entrypoint,
+			knownEntrypointIDs(),
+		))
+	}
+	if !slices.Contains(entry.Variants, selectedVariant) {
+		return Resolved{}, ci.InputError(fmt.Errorf(
+			"resolve variant %q for entrypoint %q: not supported; supported variants: %v",
+			selectedVariant,
+			cfg.Target.SUT.Entrypoint,
+			entry.Variants,
+		))
+	}
+
+	workers := make([]scenario.Worker, 0, len(configuredScenario.Workers))
+	var params map[string]string
+	for _, worker := range configuredScenario.Workers {
+		workers = append(workers, scenario.Worker{ID: worker.ID, Command: worker.Command})
+		params = worker.Args
+	}
+
+	resolvedScenario := scenario.Scenario{
+		Name:       scenarioName,
+		Workers:    workers,
+		SyncPoints: append([]string(nil), configuredScenario.SyncPoints...),
+		SUTConfig: internalsut.SUTConfig{
+			Variant: selectedVariant,
+			Params:  params,
+		},
+	}
+
+	oracles := make([]oracle.Oracle, 0, len(cfg.Oracle.Assertions))
+	for _, assertion := range cfg.Oracle.Assertions {
+		zeroRow, err := sqlassert.NewZeroRow(assertion.ID, assertion.SQL)
+		if err != nil {
+			return Resolved{}, ci.InputError(fmt.Errorf("resolve oracle %q: %w", assertion.ID, err))
+		}
+		oracles = append(oracles, zeroRow)
+	}
+	oracleSet, err := oracle.NewSet(oracles...)
+	if err != nil {
+		return Resolved{}, ci.InputError(fmt.Errorf("resolve oracle set: %w", err))
+	}
+
+	arrive := time.Duration(cfg.Run.ArriveTimeoutMS) * time.Millisecond
+
+	return Resolved{
+		Fixture: fixture.FixtureSpec{
+			Image:      cfg.Target.DB,
+			Migrations: cfg.Target.Schema.Migrations,
+			Seed:       cfg.Target.Schema.Seed,
+		},
+		Scenario:   resolvedScenario,
+		Oracle:     oracleSet,
+		NewRuntime: syncpoint.New,
+		NewAdapter: entry.NewAdapter,
+		Timeouts: Timeouts{
+			BlockInference: arrive,
+			Step:           20 * arrive,
+			Run:            60 * arrive,
+			Stop:           20 * arrive,
+		},
+		SchedulesDir: entry.SchedulesDir,
+	}, nil
+}
+
+func scenarioNames(cfg config.Config) []string {
+	names := make([]string, 0, len(cfg.Scenarios))
+	for name := range cfg.Scenarios {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
