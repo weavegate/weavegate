@@ -172,6 +172,9 @@ func normalizeRun(run Run) Run {
 	if run.Observation.AssertionViolations == nil {
 		run.Observation.AssertionViolations = []string{}
 	}
+	if run.Observation.Oracles == nil {
+		run.Observation.Oracles = []OracleDeclaration{}
+	}
 	if run.Trace.Events == nil {
 		run.Trace.Events = run.Trace.Events.Clone()
 	}

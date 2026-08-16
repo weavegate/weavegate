@@ -42,16 +42,27 @@ type Scenario struct {
 	ViolatingSchedule *scenario.Schedule `json:"violating_schedule,omitempty"`
 }
 
+// OracleDeclaration is one assertion's effective declaration (config's
+// oracle.assertions entry), persisted alongside the run's evidence so a
+// saved verdict can still be audited against the query that produced it
+// even if the referenced config is later edited or deleted.
+type OracleDeclaration struct {
+	ID         string `json:"id"`
+	SQL        string `json:"sql"`
+	ExpectRows int    `json:"expect_rows"`
+}
+
 // Observation holds only the fields this run can actually compute (A-8).
 // Fields belonging to unimplemented oracles are omitted rather than
 // zero-filled, so "not measured" is never presented as "measured zero".
 type Observation struct {
-	SchedulesExplored   int      `json:"schedules_explored"`
-	ExplorePasses       int      `json:"explore_passes"`
-	AssertionViolations []string `json:"assertion_violations"`
-	Repeat              int      `json:"repeat"`
-	ViolationRuns       int      `json:"violation_runs"`
-	Flaky               bool     `json:"flaky"`
+	SchedulesExplored   int                 `json:"schedules_explored"`
+	ExplorePasses       int                 `json:"explore_passes"`
+	AssertionViolations []string            `json:"assertion_violations"`
+	Oracles             []OracleDeclaration `json:"oracles"`
+	Repeat              int                 `json:"repeat"`
+	ViolationRuns       int                 `json:"violation_runs"`
+	Flaky               bool                `json:"flaky"`
 }
 
 // Trace is the run directory's trace.json shape.

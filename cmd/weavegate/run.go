@@ -157,6 +157,7 @@ func runScenario(
 			SchedulesExplored:   outcome.SchedulesExplored,
 			ExplorePasses:       outcome.PassesExecuted,
 			AssertionViolations: violatedAssertionIDs(violationEvidenceRuns(outcome)),
+			Oracles:             oracleDeclarations(cfg.Oracle.Assertions),
 			Repeat:              repeat,
 			ViolationRuns:       outcome.Verdict.ViolationRuns,
 			Flaky:               outcome.Verdict.Flaky,
@@ -258,6 +259,21 @@ func violatedAssertionIDs(runs []orchestrator.RunResult) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// oracleDeclarations converts the configured assertions to the shape saved
+// with the run's evidence, so a saved verdict stays auditable against the
+// query that produced it even after the referenced config changes.
+func oracleDeclarations(assertions []config.Assertion) []report.OracleDeclaration {
+	declarations := make([]report.OracleDeclaration, 0, len(assertions))
+	for _, assertion := range assertions {
+		declarations = append(declarations, report.OracleDeclaration{
+			ID:         assertion.ID,
+			SQL:        assertion.SQL,
+			ExpectRows: assertion.ExpectRows,
+		})
+	}
+	return declarations
 }
 
 // buildReplayCommand renders the self-sufficient replay line (A-5). --out is
