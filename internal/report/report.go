@@ -115,6 +115,22 @@ type AssertionViolation struct {
 	Rows     []Row  `json:"rows"`
 }
 
+// Timeouts is the effective execution timeout configuration used for this
+// run: the configured arrive timeout and the four orchestrator deadlines
+// derived from it (A-13). These deadlines affect terminal timing
+// classifications, normalized fingerprints, and therefore potentially the
+// flaky verdict, so they are snapshotted here alongside the other effective
+// run inputs (repeat, oracles, params) — a saved verdict stays auditable
+// against the timing policy that produced it even if the referenced config
+// is later edited or deleted.
+type Timeouts struct {
+	ArriveMS         int64 `json:"arrive_timeout_ms"`
+	BlockInferenceMS int64 `json:"block_inference_timeout_ms"`
+	StepMS           int64 `json:"step_timeout_ms"`
+	RunMS            int64 `json:"run_timeout_ms"`
+	StopMS           int64 `json:"stop_timeout_ms"`
+}
+
 // Observation holds only the fields this run can actually compute (A-8).
 // Fields belonging to unimplemented oracles are omitted rather than
 // zero-filled, so "not measured" is never presented as "measured zero".
@@ -124,6 +140,7 @@ type Observation struct {
 	AssertionViolations []AssertionViolation `json:"assertion_violations"`
 	Oracles             []OracleDeclaration  `json:"oracles"`
 	Repeat              int                  `json:"repeat"`
+	Timeouts            Timeouts             `json:"timeouts"`
 	ViolationRuns       int                  `json:"violation_runs"`
 	Flaky               bool                 `json:"flaky"`
 

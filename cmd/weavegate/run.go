@@ -165,6 +165,7 @@ func runScenario(
 			AssertionViolations: assertionViolations(violationEvidenceRuns(outcome)),
 			Oracles:             oracleDeclarations(cfg.Oracle.Assertions),
 			Repeat:              repeat,
+			Timeouts:            effectiveTimeouts(cfg, resolved),
 			ViolationRuns:       outcome.Verdict.ViolationRuns,
 			Flaky:               outcome.Verdict.Flaky,
 			Fingerprints:        outcome.Replay.Fingerprints,
@@ -340,6 +341,23 @@ func oracleDeclarations(assertions []config.Assertion) []report.OracleDeclaratio
 		})
 	}
 	return declarations
+}
+
+// effectiveTimeouts converts this run's effective arrive timeout and its
+// four derived orchestrator deadlines (resolved.Timeouts; see resolve.go's
+// Resolve) to the shape saved with the run's evidence. These deadlines
+// affect terminal timing classifications and normalized fingerprints, and
+// therefore potentially the flaky verdict, so a saved run stays auditable
+// against the timing policy that produced it even after the referenced
+// config changes.
+func effectiveTimeouts(cfg config.Config, resolved Resolved) report.Timeouts {
+	return report.Timeouts{
+		ArriveMS:         int64(cfg.Run.ArriveTimeoutMS),
+		BlockInferenceMS: resolved.Timeouts.BlockInference.Milliseconds(),
+		StepMS:           resolved.Timeouts.Step.Milliseconds(),
+		RunMS:            resolved.Timeouts.Run.Milliseconds(),
+		StopMS:           resolved.Timeouts.Stop.Milliseconds(),
+	}
 }
 
 // buildReplayCommand renders the self-sufficient replay line (A-5). --out is

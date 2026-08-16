@@ -56,7 +56,14 @@ func sampleRun(t *testing.T, runID string) Run {
 			AssertionViolations: []AssertionViolation{
 				{OracleID: "active-assignment-is-unique", Rows: []Row{{"active_count": int64(2)}}},
 			},
-			Repeat:        20,
+			Repeat: 20,
+			Timeouts: Timeouts{
+				ArriveMS:         3000,
+				BlockInferenceMS: 3000,
+				StepMS:           60000,
+				RunMS:            180000,
+				StopMS:           60000,
+			},
 			ViolationRuns: 20,
 			Flaky:         false,
 		},
