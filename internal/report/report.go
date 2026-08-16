@@ -12,10 +12,14 @@ import (
 	"github.com/weavegate/weavegate/internal/trace"
 )
 
+// ArtifactVersion is the current on-disk JSON contract written by weavegate.
+const ArtifactVersion = 2
+
 // Manifest is volatile per-run metadata: identifiers, timestamps, and
 // environment facts collected immediately after fixture provisioning
 // (A-7). This package never queries the database itself.
 type Manifest struct {
+	ArtifactVersion  int       `json:"artifact_version"`
 	RunID            string    `json:"run_id"`
 	StartedAt        time.Time `json:"started_at"`
 	WeavegateVersion string    `json:"weavegate_version"`
@@ -93,11 +97,12 @@ func NewSchedule(schedule *scenario.Schedule) *Schedule {
 // so the evidence records which parameters produced this verdict even if
 // the referenced config is later edited or deleted.
 type Scenario struct {
-	Name              string            `json:"name"`
-	Workers           []Worker          `json:"workers"`
-	SyncPoints        []string          `json:"sync_points"`
-	Params            map[string]string `json:"params"`
-	ViolatingSchedule *Schedule         `json:"violating_schedule,omitempty"`
+	ArtifactVersion int               `json:"artifact_version"`
+	Name            string            `json:"name"`
+	Workers         []Worker          `json:"workers"`
+	SyncPoints      []string          `json:"sync_points"`
+	Params          map[string]string `json:"params"`
+	Schedule        *Schedule         `json:"schedule,omitempty"`
 }
 
 // OracleDeclaration is one assertion's effective declaration (config's
@@ -145,6 +150,8 @@ type Timeouts struct {
 // Fields belonging to unimplemented oracles are omitted rather than
 // zero-filled, so "not measured" is never presented as "measured zero".
 type Observation struct {
+	ArtifactVersion     int                  `json:"artifact_version"`
+	Mode                string               `json:"mode"`
 	SchedulesExplored   int                  `json:"schedules_explored"`
 	ExplorePasses       int                  `json:"explore_passes"`
 	AssertionViolations []AssertionViolation `json:"assertion_violations"`
@@ -160,6 +167,10 @@ type Observation struct {
 	// classification) with zero assertion violations anywhere, so this is
 	// the only evidence of *why* such a run is flaky.
 	Fingerprints map[string]int `json:"fingerprints"`
+
+	// DiscoveryFingerprint is present only when exploration produced a
+	// discovery run. Direct replay never emits it.
+	DiscoveryFingerprint string `json:"discovery_fingerprint,omitempty"`
 }
 
 // Event is one ordered, wall-clock-free trace observation, mirroring
@@ -185,9 +196,10 @@ type WorkerTerminal struct {
 
 // Trace is the run directory's trace.json shape.
 type Trace struct {
-	ScheduleRef string           `json:"schedule_ref"`
-	Events      []Event          `json:"events"`
-	Terminals   []WorkerTerminal `json:"terminals"`
+	ArtifactVersion int              `json:"artifact_version"`
+	ScheduleRef     string           `json:"schedule_ref"`
+	Events          []Event          `json:"events"`
+	Terminals       []WorkerTerminal `json:"terminals"`
 }
 
 // NewTrace converts an engine trace into this package's own JSON shape.
@@ -219,9 +231,10 @@ func NewTrace(scheduleRef string, events trace.Trace, terminals trace.Terminals)
 // one file. It inherits manifest's volatile fields, so it is not part of
 // the deterministic file set.
 type Merged struct {
-	Manifest    Manifest    `json:"manifest"`
-	Scenario    Scenario    `json:"scenario"`
-	Observation Observation `json:"observation"`
+	ArtifactVersion int         `json:"artifact_version"`
+	Manifest        Manifest    `json:"manifest"`
+	Scenario        Scenario    `json:"scenario"`
+	Observation     Observation `json:"observation"`
 }
 
 // Run is everything needed to write one run directory.

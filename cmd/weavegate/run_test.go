@@ -197,8 +197,11 @@ func TestRun(t *testing.T) {
 			t.Fatalf("vulnerable observation = %+v, want repeat=20 violation_runs=20 flaky=false", obs)
 		}
 		doc := readScenario(t, dir)
-		if doc.ViolatingSchedule == nil || !strings.HasPrefix(doc.ViolatingSchedule.ID, "sch_") {
+		if doc.Schedule == nil || !strings.HasPrefix(doc.Schedule.ID, "sch_") {
 			t.Fatalf("vulnerable scenario.json violating schedule missing/invalid: %+v", doc)
+		}
+		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint == "" {
+			t.Fatalf("vulnerable observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
 		if !strings.Contains(stdout, "## weavegate: FAIL") {
 			t.Fatalf("vulnerable stdout = %q, want the report.md headline", stdout)
@@ -208,7 +211,7 @@ func TestRun(t *testing.T) {
 
 		t.Logf(
 			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
-			obs.ExplorePasses, obs.SchedulesExplored, doc.ViolatingSchedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
+			obs.ExplorePasses, obs.SchedulesExplored, doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
 
@@ -234,8 +237,11 @@ func TestRun(t *testing.T) {
 			t.Fatalf("fixed observation = %+v, want evaluated=18 passes=3 flaky=false violation_runs=0", obs)
 		}
 		doc := readScenario(t, dir)
-		if doc.ViolatingSchedule != nil {
-			t.Fatalf("fixed scenario.json has a violating schedule, want none: %+v", doc.ViolatingSchedule)
+		if doc.Schedule != nil {
+			t.Fatalf("fixed scenario.json has a schedule, want none: %+v", doc.Schedule)
+		}
+		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint != "" {
+			t.Fatalf("fixed observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
 
 		observed["artifacts_written_on_pass"] = "true"
@@ -268,13 +274,16 @@ func TestRun(t *testing.T) {
 		entries := listRunFiles(t, dir)
 		obs := readObservation(t, dir)
 		doc := readScenario(t, dir)
-		if doc.ViolatingSchedule == nil || doc.ViolatingSchedule.ID != "sch_ba00582f9632" {
-			t.Fatalf("replay schedule = %+v, want sch_ba00582f9632", doc.ViolatingSchedule)
+		if doc.Schedule == nil || doc.Schedule.ID != "sch_ba00582f9632" {
+			t.Fatalf("replay schedule = %+v, want sch_ba00582f9632", doc.Schedule)
+		}
+		if obs.Mode != string(ModeReplay) || obs.DiscoveryFingerprint != "" {
+			t.Fatalf("replay observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
 
 		t.Logf(
 			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
-			doc.ViolatingSchedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
+			doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
 

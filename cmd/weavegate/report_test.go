@@ -23,12 +23,13 @@ func sampleReportRunAt(t *testing.T, runID string, startedAt time.Time) report.R
 			WeavegateVersion: "0.0.0-dev",
 		},
 		Scenario: report.Scenario{
-			Name:              "concurrent-assign",
-			Workers:           []report.Worker{{ID: "w1", Command: "assign"}},
-			SyncPoints:        []string{"p1"},
-			ViolatingSchedule: &schedule,
+			Name:       "concurrent-assign",
+			Workers:    []report.Worker{{ID: "w1", Command: "assign"}},
+			SyncPoints: []string{"p1"},
+			Schedule:   &schedule,
 		},
 		Observation: report.Observation{
+			Mode: "replay",
 			AssertionViolations: []report.AssertionViolation{
 				{OracleID: "active-assignment-is-unique", Rows: []report.Row{{"active_count": int64(2)}}},
 			},

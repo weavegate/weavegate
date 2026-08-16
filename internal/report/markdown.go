@@ -20,16 +20,21 @@ func renderMarkdown(run Run) string {
 	}
 	fmt.Fprintf(&b, "## weavegate: %s\n", headline)
 
-	violating := "none"
-	if run.Scenario.ViolatingSchedule != nil {
-		violating = run.Scenario.ViolatingSchedule.ID
+	scheduleLabel := "violating"
+	scheduleID := "none"
+	if run.Scenario.Schedule != nil {
+		scheduleID = run.Scenario.Schedule.ID
+		if run.Observation.Mode == "replay" && run.Observation.ViolationRuns == 0 {
+			scheduleLabel = "replayed"
+		}
 	}
 	fmt.Fprintf(
 		&b,
-		"scenario: %s | schedules explored: %s | violating: %s\n",
+		"scenario: %s | schedules explored: %s | %s: %s\n",
 		run.Scenario.Name,
 		explorationSummary(run),
-		violating,
+		scheduleLabel,
+		scheduleID,
 	)
 
 	if ids := violatedAssertionIDs(run.Observation.AssertionViolations); len(ids) > 0 {
@@ -47,7 +52,7 @@ func renderMarkdown(run Run) string {
 
 func explorationSummary(run Run) string {
 	summary := strconv.Itoa(run.Observation.SchedulesExplored)
-	if run.Pass && run.Scenario.ViolatingSchedule == nil {
+	if run.Pass && run.Scenario.Schedule == nil {
 		summary += " (exhausted)"
 	}
 	return summary

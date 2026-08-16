@@ -165,22 +165,24 @@ func runScenario(
 	run := report.Run{
 		Manifest: manifest,
 		Scenario: report.Scenario{
-			Name:              plan.Resolved.Scenario.Name,
-			Workers:           report.NewWorkers(plan.Resolved.Scenario.Workers),
-			SyncPoints:        plan.Resolved.Scenario.SyncPoints,
-			Params:            plan.Resolved.Scenario.SUTConfig.Params,
-			ViolatingSchedule: report.NewSchedule(outcome.ViolatingSchedule),
+			Name:       plan.Resolved.Scenario.Name,
+			Workers:    report.NewWorkers(plan.Resolved.Scenario.Workers),
+			SyncPoints: plan.Resolved.Scenario.SyncPoints,
+			Params:     plan.Resolved.Scenario.SUTConfig.Params,
+			Schedule:   report.NewSchedule(outcome.ViolatingSchedule),
 		},
 		Observation: report.Observation{
-			SchedulesExplored:   outcome.SchedulesExplored,
-			ExplorePasses:       outcome.PassesExecuted,
-			AssertionViolations: assertionViolations(violationEvidenceRuns(outcome)),
-			Oracles:             oracleDeclarations(plan.Config.Oracle.Assertions),
-			Repeat:              plan.Repeat,
-			Timeouts:            effectiveTimeouts(plan.Config, plan.Resolved),
-			ViolationRuns:       outcome.Verdict.ViolationRuns,
-			Flaky:               outcome.Verdict.Flaky,
-			Fingerprints:        outcome.Replay.Fingerprints,
+			Mode:                 string(outcome.Mode),
+			SchedulesExplored:    outcome.SchedulesExplored,
+			ExplorePasses:        outcome.PassesExecuted,
+			AssertionViolations:  assertionViolations(violationEvidenceRuns(outcome)),
+			Oracles:              oracleDeclarations(plan.Config.Oracle.Assertions),
+			Repeat:               plan.Repeat,
+			Timeouts:             effectiveTimeouts(plan.Config, plan.Resolved),
+			ViolationRuns:        outcome.Verdict.ViolationRuns,
+			Flaky:                outcome.Verdict.Flaky,
+			Fingerprints:         outcome.Replay.Fingerprints,
+			DiscoveryFingerprint: discoveryFingerprint(outcome),
 		},
 		Trace:         runTrace(outcome),
 		Pass:          outcome.Verdict.ExitCode == ci.ExitOK,
@@ -205,6 +207,13 @@ func runScenario(
 	}
 
 	return &exitError{code: exitCode}
+}
+
+func discoveryFingerprint(outcome runOutcome) string {
+	if outcome.Mode != ModeExplore || outcome.DiscoveryRun == nil {
+		return ""
+	}
+	return outcome.DiscoveryRun.Fingerprint
 }
 
 // runTrace selects the run whose trace.json should be saved, in priority

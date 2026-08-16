@@ -13,6 +13,10 @@ Every `weavegate run` — pass or violation — writes six files to
 └── report.md           (deterministic)
 ```
 
+Every JSON document written by the current CLI carries
+`"artifact_version": 2`. The database schema identity remains the separate
+`manifest.schema_version` field.
+
 ## Volatile vs. deterministic
 
 Two files carry per-run identity and are expected to differ between two runs
@@ -30,6 +34,7 @@ deterministic or stripping timestamps everywhere.
 
 | Field | Type | Notes |
 | --- | --- | --- |
+| `artifact_version` | int | Always `2` for newly written artifacts. |
 | `run_id` | string | Opaque identity: `run_<YYYYMMDDTHHMMSS.nnnnnnnnnZ>_<32 lowercase hex>`. The timestamp is readable context and the suffix is 128 random bits; ordering comes from `started_at`, with run ID used only to break identical-time ties. |
 | `started_at` | string (RFC3339, UTC) | |
 | `weavegate_version` | string | `0.0.0-dev` unless built with `-ldflags "-X main.version=..."`. |
@@ -46,10 +51,11 @@ building the manifest.
 
 ## `scenario.json`
 
-The configured scenario (`name`, `workers`, `sync_points`, `params`) plus
-`violating_schedule` — the schedule this run reports on: the schedule
-exploration discovered, or the schedule a replay was given. `null` (the key
-is omitted) when the run passed with nothing to report.
+The configured scenario (`name`, `workers`, `sync_points`, `params`) plus the
+neutral `schedule` that actually ran: the schedule exploration discovered and
+replayed, or the schedule a direct replay was given. The field makes no claim
+that the schedule violated an oracle; `observation.json` contains the verdict
+facts. The key is omitted when an exhausted exploration has no schedule.
 
 `params` is the effective worker `args` from the config (every worker in a
 scenario must declare the same `args`, so one map covers all of them; `{}`
@@ -65,11 +71,12 @@ field names or casing:
 
 ```json
 {
+  "artifact_version": 2,
   "name": "concurrent-assign",
   "workers": [{"id": "w1", "command": "assign"}, {"id": "w2", "command": "assign"}],
   "sync_points": ["after_read_request", "before_insert_assignment"],
   "params": {"request_id": "42"},
-  "violating_schedule": {
+  "schedule": {
     "id": "sch_7dcb74b1e506",
     "steps": [{"worker": "w1", "point": "after_read_request"}, "..."]
   }
@@ -80,6 +87,8 @@ field names or casing:
 
 | Field | Type | Notes |
 | --- | --- | --- |
+| `artifact_version` | int | Always `2` for newly written artifacts. |
+| `mode` | string | `explore` or `replay`, describing how the schedule was selected. |
 | `schedules_explored` | int | The number of candidates **actually evaluated**, not the total size of the candidate space. Explore mode stops at the first violation, so this is often smaller than the full candidate count. |
 | `explore_passes` | int | How many full sweeps ran before stopping — 1 if a violation was found on the first pass, up to `run.explore_passes` if every pass exhausted its candidates. `0` in replay mode, where no exploration happens. |
 | `assertion_violations` | array of objects | One entry per distinct violation found across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). Each entry is `{"oracle_id": "...", "rows": [...]}` — `oracle_id` names the assertion, and `rows` is that oracle's own evidence rows, so a saved verdict shows *which* rows violated it, not only that it did. Each row is a plain object keyed by the query's column names, restricted to deterministic, JSON-safe scalar values (no `NaN`/`Inf`, no non-UTF-8 strings). Two violations sharing an `oracle_id` are only collapsed into one entry when their rows are also identical; a later run reproducing the same assertion with different rows is kept as a separate entry so each stays individually auditable. `[]` when nothing violated. |
@@ -89,6 +98,7 @@ field names or casing:
 | `violation_runs` | int | How many of the `repeat` replay runs had at least one violation. |
 | `flaky` | bool | See [exit-codes.md](exit-codes.md#the-flaky-determination). |
 | `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky purely from this divergence (differing terminal states or timing classification) with zero assertion violations anywhere, so this is the only evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
+| `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
 
 ```json
 "assertion_violations": [
@@ -110,7 +120,7 @@ never ran.
 ## `trace.json`
 
 ```json
-{"schedule_ref": "...", "events": [...], "terminals": [...]}
+{"artifact_version": 2, "schedule_ref": "...", "events": [...], "terminals": [...]}
 ```
 
 Like `scenario.json`, this is `internal/report`'s own `Event`/`WorkerTerminal`
@@ -132,7 +142,7 @@ above found anything to show.
 
 ## `report.json`
 
-`{"manifest": ..., "scenario": ..., "observation": ...}` — the three files
+`{"artifact_version": 2, "manifest": ..., "scenario": ..., "observation": ...}` — the three files
 above merged into one, for a reader who wants everything in a single fetch.
 Because it inherits `manifest`'s volatile fields, it is not part of the
 deterministic set even though `scenario` and `observation` alone would be.
@@ -150,13 +160,23 @@ replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --
 The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three
 verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). It does not
 include a diagnostic code yet; that is a future `RG`-code renderer, not part
-of this schema. `PASS` output has no `replay:` line, since there is no
-schedule to reproduce:
+of this schema. An exhausted exploration has no `replay:` line because there
+is no schedule to reproduce:
 
 ```text
 ## weavegate: PASS
 scenario: concurrent-assign | schedules explored: 18 (exhausted) | violating: none
 flaky: false (repeat=20)
+```
+
+A passing direct replay retains its neutral schedule and labels it
+`replayed:`, never `violating:`. It also includes the runnable replay line:
+
+```text
+## weavegate: PASS
+scenario: concurrent-assign | schedules explored: 0 | replayed: sch_7dcb74b1e506
+flaky: false (repeat=20)
+replay: weavegate run ...
 ```
 
 The `replay:` line, when present, is a complete command — every value it
