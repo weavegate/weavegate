@@ -80,11 +80,14 @@ func runScenario(
 	}
 
 	fx := newFixture()
-	db, err := fx.Provision(ctx, resolved.Fixture)
-	if err != nil {
-		return reportRunFailure(stderr, ci.FixtureError(fmt.Errorf("run: provision fixture: %w", err)))
-	}
 
+	// The teardown defer is registered before checking Provision's error so
+	// that a failed provision still gets a Teardown call: when Provision
+	// itself starts a container but a later setup step fails, and the
+	// fixture's own cleanup-on-failure attempt also fails, it deliberately
+	// retains the container for a subsequent Teardown (see
+	// internal/fixture/mysql.go's cleanupFailedProvision) rather than losing
+	// track of it. Teardown is a no-op when there is nothing to clean up.
 	defer func() {
 		cleanupErr := fx.Teardown(context.WithoutCancel(ctx))
 		if cleanupErr == nil {
@@ -100,6 +103,11 @@ func runScenario(
 			finalErr = &exitError{code: ci.ExitFixture, err: exit.err}
 		}
 	}()
+
+	db, err := fx.Provision(ctx, resolved.Fixture)
+	if err != nil {
+		return reportRunFailure(stderr, ci.FixtureError(fmt.Errorf("run: provision fixture: %w", err)))
+	}
 
 	runID, err := newRunID(startedAt)
 	if err != nil {
