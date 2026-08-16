@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/weavegate/weavegate/internal/ci"
-	"github.com/weavegate/weavegate/internal/scenario"
 )
 
 const (
@@ -161,7 +160,7 @@ func canonicalJSON(value any) ([]byte, error) {
 // encodes them as [] rather than null.
 func normalizeRun(run Run) Run {
 	if run.Scenario.Workers == nil {
-		run.Scenario.Workers = []scenario.Worker{}
+		run.Scenario.Workers = []Worker{}
 	}
 	if run.Scenario.SyncPoints == nil {
 		run.Scenario.SyncPoints = []string{}
@@ -179,10 +178,10 @@ func normalizeRun(run Run) Run {
 		run.Observation.Fingerprints = map[string]int{}
 	}
 	if run.Trace.Events == nil {
-		run.Trace.Events = run.Trace.Events.Clone()
+		run.Trace.Events = []Event{}
 	}
 	if run.Trace.Terminals == nil {
-		run.Trace.Terminals = run.Trace.Terminals.Clone()
+		run.Trace.Terminals = []WorkerTerminal{}
 	}
 	return run
 }

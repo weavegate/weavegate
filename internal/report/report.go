@@ -28,6 +28,54 @@ type Manifest struct {
 	Image            string    `json:"image"`
 }
 
+// Worker binds a stable worker ID to an adapter command. It is this
+// package's own serialization shape for scenario.Worker: the engine type
+// carries no JSON tags of its own, so encoding it directly would leak
+// exported Go field names (ID/Command) instead of this package's
+// lowercase snake_case contract.
+type Worker struct {
+	ID      string `json:"id"`
+	Command string `json:"command"`
+}
+
+// NewWorkers converts scenario workers into this package's own JSON shape.
+func NewWorkers(workers []scenario.Worker) []Worker {
+	converted := make([]Worker, 0, len(workers))
+	for _, worker := range workers {
+		converted = append(converted, Worker{ID: worker.ID, Command: worker.Command})
+	}
+	return converted
+}
+
+// CoordinationStep identifies one worker arrival that a replay intends to
+// release, mirroring scenario.CoordinationStep as this package's own
+// serialization shape.
+type CoordinationStep struct {
+	Worker string `json:"worker"`
+	Point  string `json:"point"`
+}
+
+// Schedule is a content-addressed total order of coordination intents,
+// mirroring scenario.Schedule as this package's own serialization shape.
+type Schedule struct {
+	ID    string             `json:"id"`
+	Steps []CoordinationStep `json:"steps"`
+}
+
+// NewSchedule converts a scenario schedule into this package's own JSON
+// shape, or returns nil when schedule is nil (a passing run with nothing to
+// report).
+func NewSchedule(schedule *scenario.Schedule) *Schedule {
+	if schedule == nil {
+		return nil
+	}
+	steps := make([]CoordinationStep, 0, len(schedule.Steps))
+	for _, step := range schedule.Steps {
+		steps = append(steps, CoordinationStep{Worker: step.Worker, Point: step.Point})
+	}
+	return &Schedule{ID: schedule.ID, Steps: steps}
+}
+
 // Scenario is the configured scenario together with the schedule this run
 // reports on — the schedule discovered during exploration, or the schedule
 // a replay was given. Params is the effective worker Args shared by every
@@ -35,11 +83,11 @@ type Manifest struct {
 // so the evidence records which parameters produced this verdict even if
 // the referenced config is later edited or deleted.
 type Scenario struct {
-	Name              string             `json:"name"`
-	Workers           []scenario.Worker  `json:"workers"`
-	SyncPoints        []string           `json:"sync_points"`
-	Params            map[string]string  `json:"params"`
-	ViolatingSchedule *scenario.Schedule `json:"violating_schedule,omitempty"`
+	Name              string            `json:"name"`
+	Workers           []Worker          `json:"workers"`
+	SyncPoints        []string          `json:"sync_points"`
+	Params            map[string]string `json:"params"`
+	ViolatingSchedule *Schedule         `json:"violating_schedule,omitempty"`
 }
 
 // OracleDeclaration is one assertion's effective declaration (config's
@@ -72,11 +120,57 @@ type Observation struct {
 	Fingerprints map[string]int `json:"fingerprints"`
 }
 
+// Event is one ordered, wall-clock-free trace observation, mirroring
+// trace.Event as this package's own serialization shape.
+type Event struct {
+	Seq          int    `json:"seq"`
+	Kind         string `json:"kind"`
+	Step         int    `json:"step"`
+	Worker       string `json:"worker"`
+	Point        string `json:"point"`
+	Status       string `json:"status"`
+	FailureClass string `json:"failure_class"`
+}
+
+// WorkerTerminal is the normalized terminal data included in replay
+// fingerprints, mirroring trace.WorkerTerminal as this package's own
+// serialization shape.
+type WorkerTerminal struct {
+	Worker       string `json:"worker"`
+	State        string `json:"state"`
+	FailureClass string `json:"failure_class"`
+}
+
 // Trace is the run directory's trace.json shape.
 type Trace struct {
-	ScheduleRef string          `json:"schedule_ref"`
-	Events      trace.Trace     `json:"events"`
-	Terminals   trace.Terminals `json:"terminals"`
+	ScheduleRef string           `json:"schedule_ref"`
+	Events      []Event          `json:"events"`
+	Terminals   []WorkerTerminal `json:"terminals"`
+}
+
+// NewTrace converts an engine trace into this package's own JSON shape.
+func NewTrace(scheduleRef string, events trace.Trace, terminals trace.Terminals) Trace {
+	convertedEvents := make([]Event, 0, len(events))
+	for _, event := range events {
+		convertedEvents = append(convertedEvents, Event{
+			Seq:          event.Seq,
+			Kind:         string(event.Kind),
+			Step:         event.Step,
+			Worker:       event.Worker,
+			Point:        event.Point,
+			Status:       string(event.Status),
+			FailureClass: string(event.FailureClass),
+		})
+	}
+	convertedTerminals := make([]WorkerTerminal, 0, len(terminals))
+	for _, terminal := range terminals {
+		convertedTerminals = append(convertedTerminals, WorkerTerminal{
+			Worker:       terminal.Worker,
+			State:        string(terminal.State),
+			FailureClass: string(terminal.FailureClass),
+		})
+	}
+	return Trace{ScheduleRef: scheduleRef, Events: convertedEvents, Terminals: convertedTerminals}
 }
 
 // Merged is the report.json shape: manifest, scenario, and observation in

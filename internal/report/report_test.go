@@ -10,21 +10,18 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/ci"
-	"github.com/weavegate/weavegate/internal/scenario"
-	"github.com/weavegate/weavegate/internal/trace"
 )
 
-func sampleSchedule(t *testing.T) scenario.Schedule {
+func sampleSchedule(t *testing.T) Schedule {
 	t.Helper()
 
-	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
-		{Worker: "w1", Point: "after_read_request"},
-		{Worker: "w2", Point: "after_read_request"},
-	})
-	if err != nil {
-		t.Fatalf("build sample schedule: %v", err)
+	return Schedule{
+		ID: "sch_sample00000",
+		Steps: []CoordinationStep{
+			{Worker: "w1", Point: "after_read_request"},
+			{Worker: "w2", Point: "after_read_request"},
+		},
 	}
-	return schedule
 }
 
 func sampleRun(t *testing.T, runID string) Run {
@@ -46,7 +43,7 @@ func sampleRun(t *testing.T, runID string) Run {
 		},
 		Scenario: Scenario{
 			Name: "concurrent-assign",
-			Workers: []scenario.Worker{
+			Workers: []Worker{
 				{ID: "w1", Command: "assign"},
 				{ID: "w2", Command: "assign"},
 			},
@@ -63,11 +60,11 @@ func sampleRun(t *testing.T, runID string) Run {
 		},
 		Trace: Trace{
 			ScheduleRef: schedule.ID,
-			Events: trace.Trace{
-				{Seq: 1, Kind: trace.EventFixtureReset, Step: -1, Status: trace.ControlStatusNone, FailureClass: trace.WorkerFailureNone},
+			Events: []Event{
+				{Seq: 1, Kind: "fixture_reset", Step: -1, Status: "none", FailureClass: "none"},
 			},
-			Terminals: trace.Terminals{
-				{Worker: "w1", State: trace.TerminalStateDone, FailureClass: trace.WorkerFailureNone},
+			Terminals: []WorkerTerminal{
+				{Worker: "w1", State: "done", FailureClass: "none"},
 			},
 		},
 		Pass:          false,

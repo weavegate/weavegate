@@ -9,16 +9,12 @@ import (
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/report"
-	"github.com/weavegate/weavegate/internal/scenario"
 )
 
 func sampleReportRun(t *testing.T, runID string) report.Run {
 	t.Helper()
 
-	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w1", Point: "p1"}})
-	if err != nil {
-		t.Fatalf("build sample schedule: %v", err)
-	}
+	schedule := report.Schedule{ID: "sch_sample00000", Steps: []report.CoordinationStep{{Worker: "w1", Point: "p1"}}}
 	return report.Run{
 		Manifest: report.Manifest{
 			RunID:            runID,
@@ -27,7 +23,7 @@ func sampleReportRun(t *testing.T, runID string) report.Run {
 		},
 		Scenario: report.Scenario{
 			Name:              "concurrent-assign",
-			Workers:           []scenario.Worker{{ID: "w1", Command: "assign"}},
+			Workers:           []report.Worker{{ID: "w1", Command: "assign"}},
 			SyncPoints:        []string{"p1"},
 			ViolatingSchedule: &schedule,
 		},

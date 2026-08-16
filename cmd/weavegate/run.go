@@ -148,10 +148,10 @@ func runScenario(
 		Manifest: manifest,
 		Scenario: report.Scenario{
 			Name:              resolved.Scenario.Name,
-			Workers:           resolved.Scenario.Workers,
+			Workers:           report.NewWorkers(resolved.Scenario.Workers),
 			SyncPoints:        resolved.Scenario.SyncPoints,
 			Params:            resolved.Scenario.SUTConfig.Params,
-			ViolatingSchedule: outcome.ViolatingSchedule,
+			ViolatingSchedule: report.NewSchedule(outcome.ViolatingSchedule),
 		},
 		Observation: report.Observation{
 			SchedulesExplored:   outcome.SchedulesExplored,
@@ -205,11 +205,7 @@ func runTrace(outcome runOutcome) report.Trace {
 	if !ok {
 		return report.Trace{}
 	}
-	return report.Trace{
-		ScheduleRef: selected.ScheduleID,
-		Events:      selected.Trace,
-		Terminals:   selected.Terminals,
-	}
+	return report.NewTrace(selected.ScheduleID, selected.Trace, selected.Terminals)
 }
 
 func selectTraceRun(outcome runOutcome) (orchestrator.RunResult, bool) {
