@@ -56,13 +56,25 @@ narrows this gap; it cannot close it.
 
 ## Cleanup failures never mask a verdict
 
-A teardown (container/fixture cleanup) failure is reported after the verdict
-and evidence are already final, and it follows one rule: **it never lowers
-an already-decided code, and it only raises a passing run.** Concretely:
+A teardown (container/fixture cleanup) failure follows one rule: **it never
+lowers an already-decided code, and it only raises a passing run.**
+Concretely:
 
 - Verdict was 2, 3, or already 4/5: the code is unchanged; the cleanup
   failure is a warning on stderr only.
 - Verdict was 0 (PASS): the code becomes 4.
+
+The scenario's own outcome — the verdict itself, and everything in
+`scenario.json`/`observation.json`/`trace.json`/`report.md` — is decided
+before teardown runs and is never changed by a cleanup failure: whether
+teardown happens to succeed is a fact about this run's environment, not
+about the scenario, and those four files stay byte-identical for identical
+config regardless of it (see
+[report-schema.md](report-schema.md#volatile-vs-deterministic)). Teardown
+itself runs, and the exit code above is decided, before the report is
+written and printed — not only in a deferred cleanup step afterward — so
+`cleanup_failed` in the saved `manifest.json` and the process's actual exit
+code are never one run's snapshot mismatched against the other's.
 
 This keeps a leaked container from being silently reported as PASS, while
 never letting a teardown problem hide a real violation.

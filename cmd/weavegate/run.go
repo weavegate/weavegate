@@ -148,6 +148,27 @@ func runScenario(
 		return reportRunFailure(stderr, err)
 	}
 
+	// Tear down before writing and printing the report, not only in the
+	// deferred cleanup above: otherwise a leaked container is discovered
+	// only after the saved manifest and the printed report have already
+	// gone out reporting success. The deferred call above still runs
+	// afterward and is a no-op unless this attempt itself failed, in
+	// which case mysql.go's Teardown retries rather than losing track of
+	// the container, giving cleanup a second chance.
+	exitCode := outcome.Verdict.ExitCode
+	if cleanupErr := fx.Teardown(context.WithoutCancel(ctx)); cleanupErr != nil {
+		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
+		manifest.CleanupFailed = true
+
+		// A-18: cleanup failure never lowers an already decided code; it
+		// only raises an otherwise passing run to 4, so a leaked container
+		// is never reported as PASS and a real violation is never hidden
+		// by teardown.
+		if exitCode == ci.ExitOK {
+			exitCode = ci.ExitFixture
+		}
+	}
+
 	replayCommand := buildReplayCommand(flags, resolved.Scenario.SUTConfig.Variant, repeat, outcome.ViolatingSchedule)
 
 	run := report.Run{
@@ -192,7 +213,7 @@ func runScenario(
 		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: write run directory to stdout: %w", err)))
 	}
 
-	return &exitError{code: outcome.Verdict.ExitCode}
+	return &exitError{code: exitCode}
 }
 
 // runTrace selects the run whose trace.json should be saved, in priority

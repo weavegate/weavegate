@@ -38,6 +38,7 @@ deterministic or stripping timestamps everywhere.
 | `isolation_level` | string | The literal result of `SELECT @@global.transaction_isolation`, read from the fixture's managing connection immediately after provisioning — the **global** value, not the session value a worker connection might override. If the SUT changes its session isolation level, this field will not reflect that. |
 | `engine` | string | Distinct storage engines actually in use by the provisioned schema's tables, read from `information_schema.tables` immediately after provisioning and joined with `,` when more than one engine is present. Not assumed from the config or migrations. |
 | `adapter`, `variant`, `image` | string | The resolved adapter, SUT variant, and database image for this run. |
+| `cleanup_failed` | bool | `true` when fixture teardown failed after this run completed (see [exit-codes.md](exit-codes.md#cleanup-failures-never-mask-a-verdict) for how this can raise a passing run's exit code to 4). It never changes `report.md`'s headline or `scenario.json`/`observation.json`'s content — those describe the scenario's own, deterministic outcome — but it records, on the run this actually happened to, why the process exit code can be higher than the headline alone would suggest. `false` on every ordinary run. |
 
 ## `scenario.json`
 

@@ -26,6 +26,16 @@ type Manifest struct {
 	Adapter          string    `json:"adapter"`
 	Variant          string    `json:"variant"`
 	Image            string    `json:"image"`
+
+	// CleanupFailed is true when fixture teardown failed after this run
+	// completed (A-18): a leaked container or database. It belongs here,
+	// not in a deterministic file, because whether teardown happens to
+	// succeed is a volatile fact about this specific run's environment,
+	// independent of the scenario's own (deterministic) outcome — see
+	// Pass on Run. It never changes what Pass or the rendered headline
+	// say; it only explains, for this saved run, why the process exit
+	// code may be higher than the headline alone would suggest.
+	CleanupFailed bool `json:"cleanup_failed"`
 }
 
 // Worker binds a stable worker ID to an adapter command. It is this

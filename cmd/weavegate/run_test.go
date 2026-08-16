@@ -87,6 +87,19 @@ func readObservation(t *testing.T, dir string) report.Observation {
 	return observation
 }
 
+func readManifest(t *testing.T, dir string) report.Manifest {
+	t.Helper()
+	var manifest report.Manifest
+	content, err := os.ReadFile(filepath.Join(dir, report.ManifestFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", report.ManifestFile, err)
+	}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		t.Fatalf("parse %s: %v", report.ManifestFile, err)
+	}
+	return manifest
+}
+
 func readScenario(t *testing.T, dir string) report.Scenario {
 	t.Helper()
 	var doc report.Scenario
@@ -397,11 +410,12 @@ func TestRun(t *testing.T) {
 
 	t.Run("cleanup_failure_on_pass", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
+		outDir := t.TempDir()
 		flags := runFlags{
 			config:   configPath,
 			scenario: "concurrent-assign",
 			variant:  "fixed",
-			out:      t.TempDir(),
+			out:      outDir,
 		}
 		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
 			return teardownFailingFixture{Fixture: fixture.NewMySQLFixture()}
@@ -412,6 +426,13 @@ func TestRun(t *testing.T) {
 		}
 		if !strings.Contains(stderr.String(), "cleanup failed") {
 			t.Fatalf("cleanup failure stderr = %q, want a cleanup warning", stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "## weavegate: PASS") {
+			t.Fatalf("cleanup failure stdout = %q, want the scenario's own PASS headline unaffected by cleanup", stdout.String())
+		}
+		manifest := readManifest(t, latestRunDir(t, outDir))
+		if !manifest.CleanupFailed {
+			t.Fatalf("saved manifest.json cleanup_failed = false, want true so the run directory itself records the leaked container")
 		}
 		observed["cleanup_failure_on_pass"] = "4"
 	})
