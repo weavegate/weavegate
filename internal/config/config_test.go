@@ -156,6 +156,19 @@ func TestConfigLoad(t *testing.T) {
 		observed["bad_expect_rows"] = "error"
 	})
 
+	// Omitting expect_rows must be rejected on its own, distinct from an
+	// explicit "expect_rows: 0" (the one value this oracle actually
+	// accepts) — the two decode to the same Go zero value otherwise, so a
+	// missing key or indentation mistake would silently become a valid
+	// zero-row assertion.
+	t.Run("missing_expect_rows", func(t *testing.T) {
+		content := mutate(t, base, "      expect_rows: 0\n", "")
+		if _, err := Load(writeConfig(t, content)); err == nil {
+			t.Fatal("load config with omitted expect_rows: want error, got nil")
+		}
+		observed["missing_expect_rows"] = "error"
+	})
+
 	t.Run("bad_assertion_id", func(t *testing.T) {
 		content := mutate(t, base, "id: active-assignment-is-unique", "id: Active_Assignment!")
 		if _, err := Load(writeConfig(t, content)); err == nil {
@@ -235,7 +248,7 @@ func TestConfigLoad(t *testing.T) {
 		"repeat", "arrive_timeout_ms", "explore_passes",
 		"defaults", "relative_paths",
 		"unknown_key", "report_section", "missing_required",
-		"non_mysql_db", "path_entrypoint", "bad_expect_rows",
+		"non_mysql_db", "path_entrypoint", "bad_expect_rows", "missing_expect_rows",
 		"bad_assertion_id", "duplicate_worker", "duplicate_sync_point",
 		"nonpositive_run_value", "explicit_zero_run_value", "worker_args_mismatch", "unsupported_adapter",
 	}

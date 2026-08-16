@@ -15,7 +15,7 @@ import (
 type rawConfig struct {
 	Target    Target              `yaml:"target"`
 	Scenarios map[string]Scenario `yaml:"scenarios"`
-	Oracle    Oracle              `yaml:"oracle"`
+	Oracle    rawOracle           `yaml:"oracle"`
 	Run       rawRun              `yaml:"run"`
 }
 
@@ -25,16 +25,30 @@ type rawRun struct {
 	ExplorePasses   *int `yaml:"explore_passes"`
 }
 
+type rawOracle struct {
+	Assertions []rawAssertion `yaml:"assertions"`
+}
+
+// rawAssertion's ExpectRows is a pointer for the same reason rawRun's
+// fields are: expect_rows has no valid default (every assertion must
+// declare it), so an omitted key has to surface as its own error rather
+// than decoding to the same 0 as an explicit "expect_rows: 0" — the one
+// value this oracle actually accepts.
+type rawAssertion struct {
+	ID         string `yaml:"id"`
+	SQL        string `yaml:"sql"`
+	ExpectRows *int   `yaml:"expect_rows"`
+}
+
 // toConfig applies defaults only to fields that were actually omitted
 // (nil); an explicit value — including an explicit zero — is carried
 // through verbatim so Config.Validate's positive-value constraint still
 // gets a chance to reject it, instead of a default silently standing in
 // for it before validation ever sees the value the user wrote.
-func (raw rawConfig) toConfig() Config {
+func (raw rawConfig) toConfig() (Config, error) {
 	cfg := Config{
 		Target:    raw.Target,
 		Scenarios: raw.Scenarios,
-		Oracle:    raw.Oracle,
 	}
 
 	cfg.Run.Repeat = DefaultRepeat
@@ -50,7 +64,19 @@ func (raw rawConfig) toConfig() Config {
 		cfg.Run.ExplorePasses = *raw.Run.ExplorePasses
 	}
 
-	return cfg
+	cfg.Oracle.Assertions = make([]Assertion, 0, len(raw.Oracle.Assertions))
+	for index, assertion := range raw.Oracle.Assertions {
+		if assertion.ExpectRows == nil {
+			return Config{}, fmt.Errorf("oracle.assertions[%d] %q: expect_rows is required", index, assertion.ID)
+		}
+		cfg.Oracle.Assertions = append(cfg.Oracle.Assertions, Assertion{
+			ID:         assertion.ID,
+			SQL:        assertion.SQL,
+			ExpectRows: *assertion.ExpectRows,
+		})
+	}
+
+	return cfg, nil
 }
 
 // Load decodes and validates the run configuration at path. Relative schema
@@ -70,7 +96,10 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("load config %q: %w (see docs/reference/config.md)", path, err)
 	}
 
-	cfg := raw.toConfig()
+	cfg, err := raw.toConfig()
+	if err != nil {
+		return Config{}, fmt.Errorf("load config %q: %w", path, err)
+	}
 	cfg.resolveRelativePaths(filepath.Dir(path))
 
 	if err := cfg.Validate(); err != nil {
