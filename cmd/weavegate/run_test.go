@@ -124,6 +124,17 @@ func (f teardownFailingFixture) Teardown(ctx context.Context) error {
 	return errors.New("simulated cleanup failure")
 }
 
+// resetFailingFixture simulates a database container dying (or Reset
+// otherwise failing) partway through exploration or replay: Provision and
+// Teardown behave normally, but every Reset call fails.
+type resetFailingFixture struct {
+	fixture.Fixture
+}
+
+func (f resetFailingFixture) Reset(context.Context) error {
+	return errors.New("simulated fixture reset failure")
+}
+
 func TestRun(t *testing.T) {
 	requireDocker(t)
 
@@ -397,10 +408,28 @@ func TestRun(t *testing.T) {
 		observed["cleanup_failure_on_pass"] = "4"
 	})
 
+	t.Run("fixture_failure_during_replay", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		flags := runFlags{
+			config:   configPath,
+			scenario: "concurrent-assign",
+			variant:  "vulnerable",
+			out:      t.TempDir(),
+		}
+		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
+			return resetFailingFixture{Fixture: fixture.NewMySQLFixture()}
+		})
+		exit := exitCodeFromError(err)
+		if exit != ci.ExitFixture {
+			t.Fatalf("fixture failure during replay exit = %d, want %d; stderr=%s", exit, ci.ExitFixture, stderr.String())
+		}
+		observed["fixture_failure_during_replay"] = "4"
+	})
+
 	order := []string{
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
 		"ambiguous_schedule", "unwritable_out", "unreachable_docker",
-		"artifacts_written_on_pass", "cleanup_failure_on_pass",
+		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {

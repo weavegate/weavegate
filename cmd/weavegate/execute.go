@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/weavegate/weavegate/internal/ci"
@@ -67,7 +68,7 @@ func executeReplay(
 
 	replay, err := executor.Replay(ctx, resolved.Scenario, schedule, repeat, resolved.Oracle)
 	if err != nil {
-		return runOutcome{}, ci.InputError(fmt.Errorf("run: replay schedule %q: %w", schedule.ID, err))
+		return runOutcome{}, classifyExecutionError(fmt.Errorf("run: replay schedule %q: %w", schedule.ID, err))
 	}
 
 	verdict := ComputeVerdict(VerdictInput{Mode: ModeReplay, Replay: replay})
@@ -94,7 +95,7 @@ func executeExplore(
 	for pass := 1; pass <= explorePasses; pass++ {
 		result, err := executor.Explore(ctx, resolved.Scenario, scenario.Exhaustive{}, resolved.Oracle)
 		if err != nil {
-			return runOutcome{}, ci.InputError(fmt.Errorf("run: explore pass %d/%d: %w", pass, explorePasses, err))
+			return runOutcome{}, classifyExecutionError(fmt.Errorf("run: explore pass %d/%d: %w", pass, explorePasses, err))
 		}
 		schedulesExplored += result.Evaluated
 
@@ -105,7 +106,7 @@ func executeExplore(
 		schedule := result.Violating.Clone()
 		replay, err := executor.Replay(ctx, resolved.Scenario, schedule, repeat, resolved.Oracle)
 		if err != nil {
-			return runOutcome{}, ci.InputError(fmt.Errorf("run: replay discovered schedule %q: %w", schedule.ID, err))
+			return runOutcome{}, classifyExecutionError(fmt.Errorf("run: replay discovered schedule %q: %w", schedule.ID, err))
 		}
 
 		verdict := ComputeVerdict(VerdictInput{
@@ -133,4 +134,18 @@ func executeExplore(
 		PassesExecuted:    explorePasses,
 		Verdict:           verdict,
 	}, nil
+}
+
+// classifyExecutionError preserves the orchestrator's own classification of
+// an Explore/Replay failure instead of collapsing every one of them to
+// ci.InputError: a database container dying or Fixture.Reset otherwise
+// failing mid-run is an infrastructure problem (exit 4), not a
+// configuration one (exit 5), and CI needs to be able to tell the two
+// apart.
+func classifyExecutionError(err error) error {
+	var fixtureErr *orchestrator.FixtureError
+	if errors.As(err, &fixtureErr) {
+		return ci.FixtureError(err)
+	}
+	return ci.InputError(err)
 }

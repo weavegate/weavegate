@@ -168,6 +168,10 @@ func TestExploreReturnsPartialProgressForRunAndOracleErrors(t *testing.T) {
 	if !strings.Contains(err.Error(), "candidate 3/6") {
 		t.Fatalf("run error lacks candidate position: %v", err)
 	}
+	var fixtureErr *FixtureError
+	if !errors.As(err, &fixtureErr) {
+		t.Fatalf("run error = %v, want errors.As(_, *FixtureError) so callers can tell this apart from a scenario/adapter/oracle failure", err)
+	}
 	if runResult.Evaluated != 3 || len(runResult.Summaries) != 2 || failingFixture.resetCalls != 3 {
 		t.Fatalf(
 			"run-error progress evaluated/summaries/resets = %d/%d/%d, want 3/2/3",
@@ -196,6 +200,10 @@ func TestExploreReturnsPartialProgressForRunAndOracleErrors(t *testing.T) {
 	)
 	if !errors.Is(err, oracleRoot) {
 		t.Fatalf("Oracle error = %v, want errors.Is(_, oracleRoot)", err)
+	}
+	var oracleFixtureErr *FixtureError
+	if errors.As(err, &oracleFixtureErr) {
+		t.Fatalf("Oracle error = %v, want errors.As(_, *FixtureError) to fail: this is not a fixture failure", err)
 	}
 	if oracleResult.Evaluated != 3 || len(oracleResult.Summaries) != 2 || oracleFixture.resetCalls != 3 {
 		t.Fatalf(
