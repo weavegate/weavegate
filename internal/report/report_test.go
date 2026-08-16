@@ -51,12 +51,14 @@ func sampleRun(t *testing.T, runID string) Run {
 			ViolatingSchedule: &schedule,
 		},
 		Observation: Observation{
-			SchedulesExplored:   2,
-			ExplorePasses:       1,
-			AssertionViolations: []string{"active-assignment-is-unique"},
-			Repeat:              20,
-			ViolationRuns:       20,
-			Flaky:               false,
+			SchedulesExplored: 2,
+			ExplorePasses:     1,
+			AssertionViolations: []AssertionViolation{
+				{OracleID: "active-assignment-is-unique", Rows: []Row{{"active_count": int64(2)}}},
+			},
+			Repeat:        20,
+			ViolationRuns: 20,
+			Flaky:         false,
 		},
 		Trace: Trace{
 			ScheduleRef: schedule.ID,

@@ -100,17 +100,32 @@ type OracleDeclaration struct {
 	ExpectRows int    `json:"expect_rows"`
 }
 
+// Row is deterministic, JSON-safe evidence keyed by a stable column name.
+// It mirrors oracle.Row's shape as this package's own type, rather than
+// exposing the oracle package's type in the report contract.
+type Row map[string]any
+
+// AssertionViolation is one Oracle's violation evidence: the rows that
+// caused an assertion to fail, mirroring oracle.Violation.Rows. Distinct
+// violations of the same OracleID (for example, the discovery run and a
+// replay run reproducing it with different rows) are kept as separate
+// entries rather than merged, so each is individually auditable.
+type AssertionViolation struct {
+	OracleID string `json:"oracle_id"`
+	Rows     []Row  `json:"rows"`
+}
+
 // Observation holds only the fields this run can actually compute (A-8).
 // Fields belonging to unimplemented oracles are omitted rather than
 // zero-filled, so "not measured" is never presented as "measured zero".
 type Observation struct {
-	SchedulesExplored   int                 `json:"schedules_explored"`
-	ExplorePasses       int                 `json:"explore_passes"`
-	AssertionViolations []string            `json:"assertion_violations"`
-	Oracles             []OracleDeclaration `json:"oracles"`
-	Repeat              int                 `json:"repeat"`
-	ViolationRuns       int                 `json:"violation_runs"`
-	Flaky               bool                `json:"flaky"`
+	SchedulesExplored   int                  `json:"schedules_explored"`
+	ExplorePasses       int                  `json:"explore_passes"`
+	AssertionViolations []AssertionViolation `json:"assertion_violations"`
+	Oracles             []OracleDeclaration  `json:"oracles"`
+	Repeat              int                  `json:"repeat"`
+	ViolationRuns       int                  `json:"violation_runs"`
+	Flaky               bool                 `json:"flaky"`
 
 	// Fingerprints counts, per distinct normalized execution fingerprint,
 	// how many of the repeat replay runs produced it. A run can be flaky

@@ -431,7 +431,7 @@ func writeConfigWithBadMigrations(t *testing.T, configPath string) string {
 
 // TestRunEvidenceSelection covers the 0/repeat flaky case (A-18-adjacent):
 // exploration finds a violation, but every replay run passes. Without a
-// discovery-run fallback, runTrace and violatedAssertionIDs would report
+// discovery-run fallback, runTrace and assertionViolations would report
 // nothing to substantiate the resulting FLAKY verdict. No Docker needed:
 // runOutcome is built directly, the same way verdict_test.go builds
 // VerdictInput.
@@ -459,9 +459,12 @@ func TestRunEvidenceSelection(t *testing.T) {
 			t.Fatalf("trace.schedule_ref = %q, want discovery run %q", trace.ScheduleRef, discoveryRun.ScheduleID)
 		}
 
-		ids := violatedAssertionIDs(violationEvidenceRuns(outcome))
-		if len(ids) != 1 || ids[0] != "active-assignment-is-unique" {
-			t.Fatalf("assertion_violations = %v, want [active-assignment-is-unique] from the discovery run", ids)
+		violations := assertionViolations(violationEvidenceRuns(outcome))
+		if len(violations) != 1 || violations[0].OracleID != "active-assignment-is-unique" {
+			t.Fatalf("assertion_violations = %+v, want [active-assignment-is-unique] from the discovery run", violations)
+		}
+		if len(violations[0].Rows) == 0 {
+			t.Fatalf("assertion_violations[0].Rows is empty, want the discovery run's evidence rows")
 		}
 	})
 
@@ -518,7 +521,7 @@ func TestRunEvidenceSelection(t *testing.T) {
 		if trace.ScheduleRef == discoveryRun.ScheduleID {
 			t.Fatalf("trace.schedule_ref = %q, want a replay run (no discovery run set)", trace.ScheduleRef)
 		}
-		if len(violatedAssertionIDs(violationEvidenceRuns(outcome))) != 0 {
+		if len(assertionViolations(violationEvidenceRuns(outcome))) != 0 {
 			t.Fatalf("assertion_violations should be empty when nothing violated")
 		}
 	})

@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,6 +15,7 @@ import (
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/orchestrator"
 	"github.com/weavegate/weavegate/internal/report"
 	"github.com/weavegate/weavegate/internal/scenario"
@@ -156,7 +157,7 @@ func runScenario(
 		Observation: report.Observation{
 			SchedulesExplored:   outcome.SchedulesExplored,
 			ExplorePasses:       outcome.PassesExecuted,
-			AssertionViolations: violatedAssertionIDs(violationEvidenceRuns(outcome)),
+			AssertionViolations: assertionViolations(violationEvidenceRuns(outcome)),
 			Oracles:             oracleDeclarations(cfg.Oracle.Assertions),
 			Repeat:              repeat,
 			ViolationRuns:       outcome.Verdict.ViolationRuns,
@@ -263,23 +264,57 @@ func violationEvidenceRuns(outcome runOutcome) []orchestrator.RunResult {
 	return runs
 }
 
-func violatedAssertionIDs(runs []orchestrator.RunResult) []string {
+// assertionViolations collects every distinct assertion violation across
+// runs, preserving each violation's evidence rows (oracle.Violation.Rows) so
+// a saved verdict can be audited against the rows that produced it. Runs are
+// scanned in violationEvidenceRuns' order (replay runs, then the discovery
+// run), and within a run in oracle declaration order, so the result order is
+// deterministic for identical inputs. Two violations sharing an OracleID are
+// only collapsed into one entry when their evidence rows are also identical
+// — a later run reproducing the same assertion with different rows is kept
+// as a separate, individually auditable entry.
+func assertionViolations(runs []orchestrator.RunResult) []report.AssertionViolation {
 	seen := make(map[string]struct{})
-	var ids []string
+	var violations []report.AssertionViolation
 	for _, run := range runs {
 		for _, result := range run.Evaluation.Results {
-			if len(result.Violations) == 0 {
-				continue
+			for _, violation := range result.Violations {
+				rows := convertRows(violation.Rows)
+				key, err := violationKey(result.OracleID, rows)
+				if err != nil {
+					continue
+				}
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				violations = append(violations, report.AssertionViolation{
+					OracleID: result.OracleID,
+					Rows:     rows,
+				})
 			}
-			if _, exists := seen[result.OracleID]; exists {
-				continue
-			}
-			seen[result.OracleID] = struct{}{}
-			ids = append(ids, result.OracleID)
 		}
 	}
-	sort.Strings(ids)
-	return ids
+	return violations
+}
+
+func convertRows(rows []oracle.Row) []report.Row {
+	converted := make([]report.Row, 0, len(rows))
+	for _, row := range rows {
+		converted = append(converted, report.Row(row))
+	}
+	return converted
+}
+
+func violationKey(oracleID string, rows []report.Row) (string, error) {
+	encoded, err := json.Marshal(struct {
+		OracleID string       `json:"oracle_id"`
+		Rows     []report.Row `json:"rows"`
+	}{OracleID: oracleID, Rows: rows})
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 // oracleDeclarations converts the configured assertions to the shape saved

@@ -28,9 +28,11 @@ func sampleReportRun(t *testing.T, runID string) report.Run {
 			ViolatingSchedule: &schedule,
 		},
 		Observation: report.Observation{
-			AssertionViolations: []string{"active-assignment-is-unique"},
-			Repeat:              20,
-			ViolationRuns:       20,
+			AssertionViolations: []report.AssertionViolation{
+				{OracleID: "active-assignment-is-unique", Rows: []report.Row{{"active_count": int64(2)}}},
+			},
+			Repeat:        20,
+			ViolationRuns: 20,
 		},
 		Pass: false,
 		ReplayCommand: "weavegate run --config config.yaml --scenario concurrent-assign " +

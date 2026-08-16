@@ -32,8 +32,8 @@ func renderMarkdown(run Run) string {
 		violating,
 	)
 
-	if len(run.Observation.AssertionViolations) > 0 {
-		fmt.Fprintf(&b, "assertion: %s\n", strings.Join(run.Observation.AssertionViolations, ", "))
+	if ids := violatedAssertionIDs(run.Observation.AssertionViolations); len(ids) > 0 {
+		fmt.Fprintf(&b, "assertion: %s\n", strings.Join(ids, ", "))
 	}
 
 	fmt.Fprintf(&b, "flaky: %t (repeat=%d)\n", run.Flaky, run.Observation.Repeat)
@@ -51,4 +51,21 @@ func explorationSummary(run Run) string {
 		summary += " (exhausted)"
 	}
 	return summary
+}
+
+// violatedAssertionIDs collects the distinct oracle IDs behind violations,
+// in first-seen order. A single ID can carry more than one AssertionViolation
+// entry (distinct evidence rows from different runs), but the headline lists
+// each violated assertion once.
+func violatedAssertionIDs(violations []AssertionViolation) []string {
+	seen := make(map[string]struct{}, len(violations))
+	ids := make([]string, 0, len(violations))
+	for _, violation := range violations {
+		if _, exists := seen[violation.OracleID]; exists {
+			continue
+		}
+		seen[violation.OracleID] = struct{}{}
+		ids = append(ids, violation.OracleID)
+	}
+	return ids
 }

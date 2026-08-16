@@ -169,7 +169,7 @@ func normalizeRun(run Run) Run {
 		run.Scenario.Params = map[string]string{}
 	}
 	if run.Observation.AssertionViolations == nil {
-		run.Observation.AssertionViolations = []string{}
+		run.Observation.AssertionViolations = []AssertionViolation{}
 	}
 	if run.Observation.Oracles == nil {
 		run.Observation.Oracles = []OracleDeclaration{}
