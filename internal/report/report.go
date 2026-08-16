@@ -30,11 +30,15 @@ type Manifest struct {
 
 // Scenario is the configured scenario together with the schedule this run
 // reports on — the schedule discovered during exploration, or the schedule
-// a replay was given.
+// a replay was given. Params is the effective worker Args shared by every
+// worker in the scenario (config validation requires them to be identical),
+// so the evidence records which parameters produced this verdict even if
+// the referenced config is later edited or deleted.
 type Scenario struct {
 	Name              string             `json:"name"`
 	Workers           []scenario.Worker  `json:"workers"`
 	SyncPoints        []string           `json:"sync_points"`
+	Params            map[string]string  `json:"params"`
 	ViolatingSchedule *scenario.Schedule `json:"violating_schedule,omitempty"`
 }
 

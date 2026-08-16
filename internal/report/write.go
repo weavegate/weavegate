@@ -166,6 +166,9 @@ func normalizeRun(run Run) Run {
 	if run.Scenario.SyncPoints == nil {
 		run.Scenario.SyncPoints = []string{}
 	}
+	if run.Scenario.Params == nil {
+		run.Scenario.Params = map[string]string{}
+	}
 	if run.Observation.AssertionViolations == nil {
 		run.Observation.AssertionViolations = []string{}
 	}

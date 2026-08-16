@@ -150,6 +150,7 @@ func runScenario(
 			Name:              resolved.Scenario.Name,
 			Workers:           resolved.Scenario.Workers,
 			SyncPoints:        resolved.Scenario.SyncPoints,
+			Params:            resolved.Scenario.SUTConfig.Params,
 			ViolatingSchedule: outcome.ViolatingSchedule,
 		},
 		Observation: report.Observation{

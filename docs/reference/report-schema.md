@@ -41,10 +41,16 @@ deterministic or stripping timestamps everywhere.
 
 ## `scenario.json`
 
-The configured scenario (`name`, `workers`, `sync_points`) plus
+The configured scenario (`name`, `workers`, `sync_points`, `params`) plus
 `violating_schedule` — the schedule this run reports on: the schedule
 exploration discovered, or the schedule a replay was given. `null` (the key
 is omitted) when the run passed with nothing to report.
+
+`params` is the effective worker `args` from the config (every worker in a
+scenario must declare the same `args`, so one map covers all of them; `{}`
+when none are set). It is recorded here, not only in the config, so the
+evidence still shows which parameters produced this verdict even if the
+referenced config is later edited or deleted.
 
 ## `observation.json`
 
