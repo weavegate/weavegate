@@ -26,19 +26,19 @@ type mysqlFixture struct {
 	container          *mysqlcontainer.MySQLContainer
 	admin              *sql.DB
 	db                 *DB
-	spec               FixtureSpec
+	prepared           Prepared
 	provisioned        bool
 	terminateContainer func(context.Context, *mysqlcontainer.MySQLContainer) error
 }
 
 // NewMySQLFixture returns a fixture backed by a Testcontainers MySQL instance.
-func NewMySQLFixture() Fixture {
+func NewMySQLFixture() Provisioner {
 	return &mysqlFixture{terminateContainer: terminateContainer}
 }
 
 func (f *mysqlFixture) Provision(
 	ctx context.Context,
-	spec FixtureSpec,
+	prepared Prepared,
 ) (_ *DB, returnErr error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -49,19 +49,13 @@ func (f *mysqlFixture) Provision(
 	if f.container != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: cleanup pending; call Teardown before provisioning again")
 	}
-	if strings.TrimSpace(spec.Image) == "" {
-		return nil, fmt.Errorf("provision MySQL fixture: image is required")
-	}
-	if _, err := migrationSources(spec.Migrations); err != nil {
-		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
-	}
-	if _, err := seedSource(spec.Seed); err != nil {
-		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
+	if !prepared.valid || strings.TrimSpace(prepared.image) == "" {
+		return nil, fmt.Errorf("provision MySQL fixture: prepared fixture is required")
 	}
 
 	container, err := mysqlcontainer.Run(
 		ctx,
-		spec.Image,
+		prepared.image,
 		mysqlcontainer.WithDatabase(fixtureDatabase),
 		mysqlcontainer.WithUsername(fixtureUsername),
 		mysqlcontainer.WithPassword(fixturePassword),
@@ -98,7 +92,7 @@ func (f *mysqlFixture) Provision(
 	if err != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
 	}
-	if err := applyFixtureSQL(ctx, app, spec); err != nil {
+	if err := applyFixtureSQL(ctx, app, prepared); err != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: apply SQL: %w", err)
 	}
 
@@ -106,7 +100,7 @@ func (f *mysqlFixture) Provision(
 	f.container = container
 	f.admin = admin
 	f.db = handle
-	f.spec = spec
+	f.prepared = prepared.clone()
 	f.provisioned = true
 
 	return handle, nil
@@ -170,7 +164,7 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
-	if err := applyFixtureSQL(ctx, app, f.spec); err != nil {
+	if err := applyFixtureSQL(ctx, app, f.prepared); err != nil {
 		return errors.Join(
 			fmt.Errorf("reset MySQL fixture: apply SQL: %w", err),
 			closeDatabase("application database", app),
@@ -207,7 +201,7 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 	f.container = nil
 	f.admin = nil
 	f.db = nil
-	f.spec = FixtureSpec{}
+	f.prepared = Prepared{}
 	f.provisioned = false
 
 	return err

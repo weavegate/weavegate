@@ -45,11 +45,15 @@ func TestReplayConcurrentAssign(t *testing.T) {
 			t.Errorf("cleanup matching replay fixture: %v", err)
 		}
 	})
-	db, err := runner.Provision(ctx, fixture.FixtureSpec{
+	prepared, err := fixture.Prepare(fixture.FixtureSpec{
 		Image:      "mysql:8.4",
 		Migrations: filepath.Join("..", "db", "migration"),
 		Seed:       filepath.Join("..", "db", "seed.sql"),
 	})
+	if err != nil {
+		t.Fatalf("prepare matching replay fixture: %v", err)
+	}
+	db, err := runner.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision matching replay fixture: %v", err)
 	}
@@ -512,11 +516,15 @@ func TestMatchingCountOracleDetectsDrift(t *testing.T) {
 			t.Errorf("cleanup matching count Oracle fixture: %v", err)
 		}
 	})
-	db, err := runner.Provision(ctx, fixture.FixtureSpec{
+	prepared, err := fixture.Prepare(fixture.FixtureSpec{
 		Image:      "mysql:8.4",
 		Migrations: filepath.Join("..", "db", "migration"),
 		Seed:       filepath.Join("..", "db", "seed.sql"),
 	})
+	if err != nil {
+		t.Fatalf("prepare matching count Oracle fixture: %v", err)
+	}
+	db, err := runner.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision matching count Oracle fixture: %v", err)
 	}

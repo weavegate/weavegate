@@ -3,12 +3,8 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -32,19 +28,10 @@ func newRunID(now time.Time) (string, error) {
 func collectManifest(
 	ctx context.Context,
 	db *fixture.DB,
-	spec fixture.FixtureSpec,
+	prepared fixture.Prepared,
 	adapter, variant, runID string,
 	startedAt time.Time,
 ) (report.Manifest, error) {
-	schemaVersion, err := hashMigrations(spec.Migrations)
-	if err != nil {
-		return report.Manifest{}, fmt.Errorf("compute schema version: %w", err)
-	}
-	seedVersion, err := hashFile(spec.Seed)
-	if err != nil {
-		return report.Manifest{}, fmt.Errorf("compute seed data version: %w", err)
-	}
-
 	var isolationLevel string
 	if err := db.SQL.QueryRowContext(ctx, "SELECT @@global.transaction_isolation").Scan(&isolationLevel); err != nil {
 		return report.Manifest{}, fmt.Errorf("read global transaction isolation: %w", err)
@@ -59,13 +46,13 @@ func collectManifest(
 		RunID:            runID,
 		StartedAt:        startedAt,
 		WeavegateVersion: version,
-		SchemaVersion:    schemaVersion,
-		SeedData:         seedVersion,
+		SchemaVersion:    prepared.MigrationDigest(),
+		SeedData:         prepared.SeedDigest(),
 		IsolationLevel:   isolationLevel,
 		Engine:           engine,
 		Adapter:          adapter,
 		Variant:          variant,
-		Image:            spec.Image,
+		Image:            prepared.Image(),
 	}, nil
 }
 
@@ -101,43 +88,4 @@ func readEngines(ctx context.Context, db *fixture.DB) (string, error) {
 		return "", fmt.Errorf("read storage engines: no tables found in the provisioned schema")
 	}
 	return strings.Join(engines, ","), nil
-}
-
-// hashMigrations hashes "<basename>\n"+content for every *.sql file in
-// directory, sorted by filename, so the boundary between files is
-// unambiguous. It returns the first 12 hex characters of the sha256 sum.
-func hashMigrations(directory string) (string, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return "", fmt.Errorf("read migration directory %q: %w", directory, err)
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
-			continue
-		}
-		names = append(names, entry.Name())
-	}
-	sort.Strings(names)
-
-	hasher := sha256.New()
-	for _, name := range names {
-		content, err := os.ReadFile(filepath.Join(directory, name))
-		if err != nil {
-			return "", fmt.Errorf("read migration file %q: %w", name, err)
-		}
-		fmt.Fprintf(hasher, "%s\n", name)
-		hasher.Write(content)
-	}
-	return hex.EncodeToString(hasher.Sum(nil))[:12], nil
-}
-
-func hashFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read file %q: %w", path, err)
-	}
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:])[:12], nil
 }

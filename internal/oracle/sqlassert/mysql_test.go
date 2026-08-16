@@ -23,11 +23,15 @@ func TestMySQLReadOnlyAssertion(t *testing.T) {
 			t.Errorf("cleanup SQL assertion MySQL fixture: %v", err)
 		}
 	})
-	db, err := runner.Provision(ctx, fixture.FixtureSpec{
+	prepared, err := fixture.Prepare(fixture.FixtureSpec{
 		Image:      "mysql:8.4",
 		Migrations: filepath.Join("..", "..", "fixture", "testdata", "mysql", "migration"),
 		Seed:       filepath.Join("..", "..", "fixture", "testdata", "mysql", "seed.sql"),
 	})
+	if err != nil {
+		t.Fatalf("prepare SQL assertion MySQL fixture: %v", err)
+	}
+	db, err := runner.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision SQL assertion MySQL fixture: %v", err)
 	}

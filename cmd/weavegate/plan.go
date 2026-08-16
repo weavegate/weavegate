@@ -6,6 +6,7 @@ import (
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
+	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
 
@@ -16,6 +17,7 @@ import (
 type runPlan struct {
 	Config         config.Config
 	Resolved       Resolved
+	Fixture        fixture.Prepared
 	Mode           Mode
 	ReplaySchedule *scenario.Schedule
 	CandidatePlan  *scenario.SchedulePlan
@@ -52,6 +54,10 @@ func buildRunPlan(flags runFlags) (runPlan, error) {
 	if err != nil {
 		return runPlan{}, err
 	}
+	prepared, err := fixture.Prepare(resolved.Fixture)
+	if err != nil {
+		return runPlan{}, ci.InputError(fmt.Errorf("run: %w", err))
+	}
 
 	repeat := cfg.Run.Repeat
 	if flags.repeatSet {
@@ -61,6 +67,7 @@ func buildRunPlan(flags runFlags) (runPlan, error) {
 	plan := runPlan{
 		Config:   cfg,
 		Resolved: resolved,
+		Fixture:  prepared,
 		Repeat:   repeat,
 		Out:      flags.out,
 	}

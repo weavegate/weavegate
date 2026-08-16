@@ -67,7 +67,7 @@ func runScenario(
 	ctx context.Context,
 	stdout, stderr io.Writer,
 	flags runFlags,
-	newFixture func() fixture.Fixture,
+	newFixture func() fixture.Provisioner,
 ) (finalErr error) {
 	startedAt := time.Now().UTC()
 
@@ -101,7 +101,7 @@ func runScenario(
 		}
 	}()
 
-	db, err := fx.Provision(ctx, plan.Resolved.Fixture)
+	db, err := fx.Provision(ctx, plan.Fixture)
 	if err != nil {
 		return reportRunFailure(stderr, ci.FixtureError(fmt.Errorf("run: provision fixture: %w", err)))
 	}
@@ -112,7 +112,7 @@ func runScenario(
 	}
 
 	manifest, err := collectManifest(
-		ctx, db, plan.Resolved.Fixture,
+		ctx, db, plan.Fixture,
 		plan.Config.Target.SUT.Adapter, plan.Resolved.Scenario.SUTConfig.Variant,
 		runID, startedAt,
 	)

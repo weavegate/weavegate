@@ -38,6 +38,8 @@ func TestRunPlanRejectsInputBeforeFixtureFactory(t *testing.T) {
 	}
 
 	oversizedPath := writeOversizedConfig(t, configPath)
+	missingSourcePath := writeConfigWithBadMigrations(t, configPath)
+	malformedSourcePath := writeMalformedFixtureConfig(t, configPath)
 	tests := map[string]runFlags{
 		"empty replay": {
 			config: configPath, scenario: "concurrent-assign", replaySet: true, out: outDir,
@@ -54,13 +56,19 @@ func TestRunPlanRejectsInputBeforeFixtureFactory(t *testing.T) {
 		"empty variant override": {
 			config: configPath, scenario: "concurrent-assign", variantSet: true, out: outDir,
 		},
+		"missing fixture source": {
+			config: missingSourcePath, scenario: "concurrent-assign", out: outDir,
+		},
+		"malformed fixture source": {
+			config: malformedSourcePath, scenario: "concurrent-assign", out: outDir,
+		},
 	}
 
 	for name, flags := range tests {
 		t.Run(name, func(t *testing.T) {
 			factoryCalls := 0
 			var stderr bytes.Buffer
-			err := runScenario(context.Background(), &bytes.Buffer{}, &stderr, flags, func() fixture.Fixture {
+			err := runScenario(context.Background(), &bytes.Buffer{}, &stderr, flags, func() fixture.Provisioner {
 				factoryCalls++
 				return nil
 			})
@@ -73,7 +81,7 @@ func TestRunPlanRejectsInputBeforeFixtureFactory(t *testing.T) {
 		})
 	}
 
-	t.Log("CLI_PLAN_RESULT empty_replay=5 missing_replay=5 incompatible_replay=5 oversized_candidates=5 empty_override=5 fixture_factory_calls=0 docker=false")
+	t.Log("CLI_PLAN_RESULT empty_replay=5 missing_replay=5 incompatible_replay=5 oversized_candidates=5 empty_override=5 missing_fixture=5 malformed_fixture=5 fixture_factory_calls=0 docker=false")
 }
 
 func writeOversizedConfig(t *testing.T, sourcePath string) string {
@@ -101,6 +109,28 @@ func writeOversizedConfig(t *testing.T, sourcePath string) string {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("write oversized config: %v", err)
+	}
+	return path
+}
+
+func writeMalformedFixtureConfig(t *testing.T, sourcePath string) string {
+	t.Helper()
+	cfg, err := config.Load(sourcePath)
+	if err != nil {
+		t.Fatalf("load source config: %v", err)
+	}
+	seedPath := filepath.Join(t.TempDir(), "seed.sql")
+	if err := os.WriteFile(seedPath, []byte("INSERT INTO broken VALUES ('unterminated);"), 0o644); err != nil {
+		t.Fatalf("write malformed seed: %v", err)
+	}
+	cfg.Target.Schema.Seed = seedPath
+	content, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal malformed fixture config: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("write malformed fixture config: %v", err)
 	}
 	return path
 }

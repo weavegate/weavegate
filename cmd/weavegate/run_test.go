@@ -129,11 +129,11 @@ func extractReplayLine(t *testing.T, dir string) string {
 }
 
 type teardownFailingFixture struct {
-	fixture.Fixture
+	fixture.Provisioner
 }
 
 func (f teardownFailingFixture) Teardown(ctx context.Context) error {
-	_ = f.Fixture.Teardown(ctx)
+	_ = f.Provisioner.Teardown(ctx)
 	return errors.New("simulated cleanup failure")
 }
 
@@ -141,7 +141,7 @@ func (f teardownFailingFixture) Teardown(ctx context.Context) error {
 // otherwise failing) partway through exploration or replay: Provision and
 // Teardown behave normally, but every Reset call fails.
 type resetFailingFixture struct {
-	fixture.Fixture
+	fixture.Provisioner
 }
 
 func (f resetFailingFixture) Reset(context.Context) error {
@@ -384,13 +384,13 @@ func TestRun(t *testing.T) {
 		observed["ambiguous_schedule"] = "5"
 	})
 
-	t.Run("unreachable_docker", func(t *testing.T) {
+	t.Run("missing_fixture_source", func(t *testing.T) {
 		badConfig := writeConfigWithBadMigrations(t, configPath)
 		_, _, exit := run("run", "--config", badConfig, "--scenario", "concurrent-assign", "--out", t.TempDir())
-		if exit != ci.ExitFixture {
-			t.Fatalf("unreachable fixture exit = %d, want %d", exit, ci.ExitFixture)
+		if exit != ci.ExitInput {
+			t.Fatalf("missing fixture source exit = %d, want %d", exit, ci.ExitInput)
 		}
-		observed["unreachable_docker"] = "4"
+		observed["missing_fixture_source"] = "5"
 	})
 
 	t.Run("unwritable_out", func(t *testing.T) {
@@ -417,8 +417,8 @@ func TestRun(t *testing.T) {
 			variant:  "fixed",
 			out:      outDir,
 		}
-		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
-			return teardownFailingFixture{Fixture: fixture.NewMySQLFixture()}
+		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Provisioner {
+			return teardownFailingFixture{Provisioner: fixture.NewMySQLFixture()}
 		})
 		exit := exitCodeFromError(err)
 		if exit != ci.ExitFixture {
@@ -445,8 +445,8 @@ func TestRun(t *testing.T) {
 			variant:  "vulnerable",
 			out:      t.TempDir(),
 		}
-		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
-			return resetFailingFixture{Fixture: fixture.NewMySQLFixture()}
+		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Provisioner {
+			return resetFailingFixture{Provisioner: fixture.NewMySQLFixture()}
 		})
 		exit := exitCodeFromError(err)
 		if exit != ci.ExitFixture {
@@ -473,7 +473,7 @@ func TestRun(t *testing.T) {
 
 	order := []string{
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
-		"ambiguous_schedule", "unwritable_out", "unreachable_docker",
+		"ambiguous_schedule", "unwritable_out", "missing_fixture_source",
 		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay", "stdout_write_failure",
 	}
 	parts := make([]string, 0, len(order))
