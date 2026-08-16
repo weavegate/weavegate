@@ -484,6 +484,28 @@ func TestRunEvidenceSelection(t *testing.T) {
 		}
 	})
 
+	t.Run("mismatch_run_preferred_when_no_violation_anywhere", func(t *testing.T) {
+		// Direct --replay can be flaky purely from fingerprint divergence
+		// (differing terminal states or timing classification) with zero
+		// assertion violations anywhere -- no discovery run exists in this
+		// mode, so the mismatching run is the only informative choice.
+		baseline := orchestrator.RunResult{ScheduleID: "sch_baseline0001", Evaluation: passing, Fingerprint: "fp-a"}
+		mismatch := orchestrator.RunResult{ScheduleID: "sch_mismatch0001", Evaluation: passing, Fingerprint: "fp-b"}
+		outcome := runOutcome{
+			Mode: ModeReplay,
+			Replay: orchestrator.ReplayResult{
+				Fingerprints: map[string]int{"fp-a": 1, "fp-b": 1},
+				MismatchRuns: []int{2},
+				Runs:         []orchestrator.RunResult{baseline, mismatch},
+			},
+		}
+
+		trace := runTrace(outcome)
+		if trace.ScheduleRef != mismatch.ScheduleID {
+			t.Fatalf("trace.schedule_ref = %q, want the mismatching run %q, not the baseline", trace.ScheduleRef, mismatch.ScheduleID)
+		}
+	})
+
 	t.Run("no_discovery_falls_back_to_first_replay_run", func(t *testing.T) {
 		outcome := runOutcome{
 			Mode: ModeExplore,

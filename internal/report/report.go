@@ -63,6 +63,13 @@ type Observation struct {
 	Repeat              int                 `json:"repeat"`
 	ViolationRuns       int                 `json:"violation_runs"`
 	Flaky               bool                `json:"flaky"`
+
+	// Fingerprints counts, per distinct normalized execution fingerprint,
+	// how many of the repeat replay runs produced it. A run can be flaky
+	// purely from this divergence (differing terminal states or timing
+	// classification) with zero assertion violations anywhere, so this is
+	// the only evidence of *why* such a run is flaky.
+	Fingerprints map[string]int `json:"fingerprints"`
 }
 
 // Trace is the run directory's trace.json shape.

@@ -63,6 +63,7 @@ referenced config is later edited or deleted.
 | `repeat` | int | The effective repeat count used (config default or `--repeat` override). |
 | `violation_runs` | int | How many of the `repeat` replay runs had at least one violation. |
 | `flaky` | bool | See [exit-codes.md](exit-codes.md#the-flaky-determination). |
+| `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky purely from this divergence (differing terminal states or timing classification) with zero assertion violations anywhere, so this is the only evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
 
 **Fields not emitted yet:** `duplicate_rows`, `missing_rows`, `stale_rows`,
 `constraint_violations`, `aborted_transactions`, `retries`, and
@@ -83,10 +84,13 @@ The underlying trace model is deliberately wall-clock-free — there is no
 `report --timeline` feature, not part of this schema.
 
 The saved run is whichever run best supports the reported observation: a
-replay run with an assertion violation when one exists, falling back to
+replay run with an assertion violation when one exists; failing that,
 exploration's own discovery run when replay never reproduced it (the
-0/repeat flaky case), and only falling back to the first replay run when
-neither found anything to show.
+0/repeat flaky case); failing that, a replay run whose fingerprint
+diverged from the others (a direct `--replay` can be flaky purely from
+execution-fingerprint divergence, with zero assertion violations anywhere —
+see `fingerprints` above); and only the first replay run when none of the
+above found anything to show.
 
 ## `report.json`
 

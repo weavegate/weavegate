@@ -175,6 +175,9 @@ func normalizeRun(run Run) Run {
 	if run.Observation.Oracles == nil {
 		run.Observation.Oracles = []OracleDeclaration{}
 	}
+	if run.Observation.Fingerprints == nil {
+		run.Observation.Fingerprints = map[string]int{}
+	}
 	if run.Trace.Events == nil {
 		run.Trace.Events = run.Trace.Events.Clone()
 	}

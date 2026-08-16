@@ -161,6 +161,7 @@ func runScenario(
 			Repeat:              repeat,
 			ViolationRuns:       outcome.Verdict.ViolationRuns,
 			Flaky:               outcome.Verdict.Flaky,
+			Fingerprints:        outcome.Replay.Fingerprints,
 		},
 		Trace:         runTrace(outcome),
 		Pass:          outcome.Verdict.ExitCode == ci.ExitOK,
@@ -182,16 +183,23 @@ func runScenario(
 	return &exitError{code: outcome.Verdict.ExitCode}
 }
 
-// runTrace selects the run whose trace.json should be saved. It prefers a
-// replay run with an assertion violation over the first replay run: a
-// flaky replay's first run can pass while a later run violates an
-// assertion, and observation.json reports that assertion regardless of
-// which run found it, so the saved trace must be able to support the
-// reported observation rather than always coming from a passing run. When
-// no replay run reproduces a violation at all (the 0/repeat flaky case —
-// exploration found one, but every replay run passed), it falls back to
-// the exploration's own discovery run rather than a trace with nothing to
-// show for a FLAKY verdict.
+// runTrace selects the run whose trace.json should be saved, in priority
+// order:
+//
+//  1. A replay run with an assertion violation: a flaky replay's first run
+//     can pass while a later run violates, and observation.json reports
+//     that assertion regardless of which run found it, so the saved trace
+//     must be able to support the reported observation rather than always
+//     coming from a passing run.
+//  2. Exploration's own discovery run (the 0/repeat flaky case: exploration
+//     found a violation, but every replay run passed) — otherwise a FLAKY
+//     verdict would have nothing to show for it at all.
+//  3. A replay run whose fingerprint diverged from the others (direct
+//     --replay can be flaky purely from execution-fingerprint divergence —
+//     differing terminal states or timing classification — with zero
+//     assertion violations anywhere; an arbitrary run shows nothing of
+//     that divergence, but a mismatching one does).
+//  4. The first replay run, when nothing above found anything to prefer.
 func runTrace(outcome runOutcome) report.Trace {
 	selected, ok := selectTraceRun(outcome)
 	if !ok {
@@ -213,10 +221,27 @@ func selectTraceRun(outcome runOutcome) (orchestrator.RunResult, bool) {
 	if outcome.DiscoveryRun != nil {
 		return *outcome.DiscoveryRun, true
 	}
+	if run, ok := firstMismatchRun(outcome.Replay); ok {
+		return run, true
+	}
 	if len(outcome.Replay.Runs) > 0 {
 		return outcome.Replay.Runs[0], true
 	}
 	return orchestrator.RunResult{}, false
+}
+
+// firstMismatchRun returns the first replay run whose fingerprint diverged
+// from the replay's baseline (its first run), using orchestrator.Replay's
+// own 1-based MismatchRuns indices into Runs.
+func firstMismatchRun(replay orchestrator.ReplayResult) (orchestrator.RunResult, bool) {
+	if len(replay.MismatchRuns) == 0 {
+		return orchestrator.RunResult{}, false
+	}
+	index := replay.MismatchRuns[0] - 1
+	if index < 0 || index >= len(replay.Runs) {
+		return orchestrator.RunResult{}, false
+	}
+	return replay.Runs[index], true
 }
 
 func runHasViolation(run orchestrator.RunResult) bool {
