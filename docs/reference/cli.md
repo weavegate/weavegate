@@ -63,8 +63,13 @@ $ echo $?
 ```
 
 The last stdout line before the exit is always the run directory path. The
-`replay:` line is a complete, self-sufficient command — paste it verbatim to
-reproduce the same verdict (see [report-schema.md](report-schema.md)).
+`replay:` line is a complete command — pasting it verbatim from the same
+working directory reproduces the same verdict. `--out` is deliberately
+absent from it (see [`--replay` resolution order](#--replay-resolution-order)
+above): replaying from a different `--out` than the one shown here falls
+back to stage ②, which only resolves schedules the entrypoint has
+registered. See [report-schema.md](report-schema.md) for the full
+field-by-field contract.
 
 ## `weavegate report`
 
