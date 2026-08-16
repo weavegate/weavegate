@@ -89,7 +89,7 @@ deterministic set even though `scenario` and `observation` alone would be.
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
-replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --out /tmp/wg-doc --replay sch_7dcb74b1e506 --repeat 20
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 ```
 
 The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three
@@ -104,13 +104,23 @@ scenario: concurrent-assign | schedules explored: 18 (exhausted) | violating: no
 flaky: false (repeat=20)
 ```
 
-The `replay:` line, when present, is a complete, self-sufficient command —
-every value it needs (`--config` exactly as the user passed it, `--out`,
-`--variant`, `--replay`, `--repeat`) is spelled out, so pasting it verbatim
-reproduces the same verdict without reconstructing any argument by hand. The
-`--config` value is never normalized to an absolute path, so this file stays
-byte-identical between two runs regardless of where in the filesystem they
-happened to execute.
+The `replay:` line, when present, is a complete command — every value it
+needs (`--config` exactly as the user passed it, `--scenario`, `--variant`,
+`--replay`, `--repeat`) is spelled out, so pasting it verbatim from the same
+working directory reproduces the same verdict without reconstructing any
+argument by hand. `--config` is never normalized to an absolute path, so
+this file stays byte-identical between two runs regardless of where in the
+filesystem they happened to execute.
+
+`--out` is deliberately absent from this line: it is not part of the
+deterministic contract (two runs with different `--out` values must still
+produce byte-identical `report.md`), so pasting the replay line uses `--out`'s
+default (or whatever `--out` the paste is run with) rather than the value the
+original run happened to use. A reader replaying from the same directory as
+the original run — the common case — still finds the schedule through stage
+① of `--replay` resolution (see [cli.md](cli.md#--replay-resolution-order));
+replaying from a different `--out` falls back to stage ②, which only
+resolves schedules the entrypoint has registered.
 
 ## File and directory modes
 

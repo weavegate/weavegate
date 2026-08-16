@@ -56,7 +56,7 @@ $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
-replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --out /tmp/wg-doc --replay sch_7dcb74b1e506 --repeat 20
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 /tmp/wg-doc/runs/run_20260815T172917.706Z_bc391ac5
 $ echo $?
 2
@@ -93,7 +93,7 @@ $ weavegate report --out /tmp/wg-doc --format md
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
-replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --out /tmp/wg-doc --replay sch_7dcb74b1e506 --repeat 20
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 ```
 
 ## Global behavior
