@@ -12,15 +12,15 @@ import (
 	"github.com/weavegate/weavegate/internal/report"
 )
 
-// newRunID builds a run ID in fixed-width-millisecond form (A-6):
-// run_<YYYYMMDDTHHMMSS.mmmZ>_<8 hex>. The fixed millisecond width means
-// lexicographic order is time order, so "most recent run" needs no tie-break.
+// newRunID builds a readable opaque identity with nanosecond timestamp context
+// and a 128-bit random suffix. Ordering is defined by manifest.started_at,
+// never by this identifier.
 func newRunID(now time.Time) (string, error) {
-	suffix := make([]byte, 4)
+	suffix := make([]byte, 16)
 	if _, err := rand.Read(suffix); err != nil {
 		return "", fmt.Errorf("generate run ID suffix: %w", err)
 	}
-	return fmt.Sprintf("run_%s_%s", now.UTC().Format("20060102T150405.000Z"), hex.EncodeToString(suffix)), nil
+	return fmt.Sprintf("run_%s_%s", now.UTC().Format("20060102T150405.000000000Z"), hex.EncodeToString(suffix)), nil
 }
 
 // collectManifest gathers run metadata immediately after fixture
