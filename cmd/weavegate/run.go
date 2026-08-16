@@ -181,16 +181,37 @@ func runScenario(
 	return &exitError{code: outcome.Verdict.ExitCode}
 }
 
+// runTrace selects the run whose trace.json should be saved. It prefers the
+// first run with an assertion violation over the first run overall: a flaky
+// replay's first run can pass while a later run violates an assertion, and
+// observation.json reports that assertion regardless of which run found it,
+// so the saved trace must be able to support the reported observation
+// rather than always coming from a passing run.
 func runTrace(outcome runOutcome) report.Trace {
 	if len(outcome.Replay.Runs) == 0 {
 		return report.Trace{}
 	}
-	first := outcome.Replay.Runs[0]
-	return report.Trace{
-		ScheduleRef: first.ScheduleID,
-		Events:      first.Trace,
-		Terminals:   first.Terminals,
+	selected := outcome.Replay.Runs[0]
+	for _, run := range outcome.Replay.Runs {
+		if runHasViolation(run) {
+			selected = run
+			break
+		}
 	}
+	return report.Trace{
+		ScheduleRef: selected.ScheduleID,
+		Events:      selected.Trace,
+		Terminals:   selected.Terminals,
+	}
+}
+
+func runHasViolation(run orchestrator.RunResult) bool {
+	for _, result := range run.Evaluation.Results {
+		if len(result.Violations) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func violatedAssertionIDs(runs []orchestrator.RunResult) []string {
