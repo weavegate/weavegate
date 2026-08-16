@@ -82,18 +82,6 @@ type Run struct {
 	ExplorePasses   int `yaml:"explore_passes"`
 }
 
-func (c *Config) applyDefaults() {
-	if c.Run.Repeat == 0 {
-		c.Run.Repeat = DefaultRepeat
-	}
-	if c.Run.ArriveTimeoutMS == 0 {
-		c.Run.ArriveTimeoutMS = DefaultArriveTimeoutMS
-	}
-	if c.Run.ExplorePasses == 0 {
-		c.Run.ExplorePasses = DefaultExplorePasses
-	}
-}
-
 // Validate rejects an incomplete or ambiguous configuration before any
 // container starts.
 func (c Config) Validate() error {

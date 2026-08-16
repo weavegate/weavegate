@@ -188,6 +188,27 @@ func TestConfigLoad(t *testing.T) {
 		observed["nonpositive_run_value"] = "error"
 	})
 
+	// An explicit 0 must be rejected the same as any other nonpositive
+	// value, not silently overwritten by the default the way an omitted
+	// key is (the two are otherwise indistinguishable after YAML decoding
+	// into a plain int).
+	t.Run("explicit_zero_run_value", func(t *testing.T) {
+		cases := map[string]struct{ old, new string }{
+			"repeat":            {"run:\n  arrive_timeout_ms: 250\n", "run:\n  arrive_timeout_ms: 250\n  repeat: 0\n"},
+			"arrive_timeout_ms": {"arrive_timeout_ms: 250", "arrive_timeout_ms: 0"},
+			"explore_passes":    {"run:\n  arrive_timeout_ms: 250\n", "run:\n  arrive_timeout_ms: 250\n  explore_passes: 0\n"},
+		}
+		for name, mutation := range cases {
+			t.Run(name, func(t *testing.T) {
+				content := mutate(t, base, mutation.old, mutation.new)
+				if _, err := Load(writeConfig(t, content)); err == nil {
+					t.Fatalf("load config with explicit run.%s: 0: want error, got nil", name)
+				}
+			})
+		}
+		observed["explicit_zero_run_value"] = "error"
+	})
+
 	t.Run("worker_args_mismatch", func(t *testing.T) {
 		content := mutate(
 			t,
@@ -216,7 +237,7 @@ func TestConfigLoad(t *testing.T) {
 		"unknown_key", "report_section", "missing_required",
 		"non_mysql_db", "path_entrypoint", "bad_expect_rows",
 		"bad_assertion_id", "duplicate_worker", "duplicate_sync_point",
-		"nonpositive_run_value", "worker_args_mismatch", "unsupported_adapter",
+		"nonpositive_run_value", "explicit_zero_run_value", "worker_args_mismatch", "unsupported_adapter",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {

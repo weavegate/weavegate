@@ -8,6 +8,51 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// rawConfig mirrors Config for decoding. run's three fields use pointers so
+// an omitted key can be told apart from an explicit zero: applying a
+// default to a *nil* field is correct, but applying it to an explicit 0
+// would silently swallow the value Config.Validate is supposed to reject.
+type rawConfig struct {
+	Target    Target              `yaml:"target"`
+	Scenarios map[string]Scenario `yaml:"scenarios"`
+	Oracle    Oracle              `yaml:"oracle"`
+	Run       rawRun              `yaml:"run"`
+}
+
+type rawRun struct {
+	Repeat          *int `yaml:"repeat"`
+	ArriveTimeoutMS *int `yaml:"arrive_timeout_ms"`
+	ExplorePasses   *int `yaml:"explore_passes"`
+}
+
+// toConfig applies defaults only to fields that were actually omitted
+// (nil); an explicit value — including an explicit zero — is carried
+// through verbatim so Config.Validate's positive-value constraint still
+// gets a chance to reject it, instead of a default silently standing in
+// for it before validation ever sees the value the user wrote.
+func (raw rawConfig) toConfig() Config {
+	cfg := Config{
+		Target:    raw.Target,
+		Scenarios: raw.Scenarios,
+		Oracle:    raw.Oracle,
+	}
+
+	cfg.Run.Repeat = DefaultRepeat
+	if raw.Run.Repeat != nil {
+		cfg.Run.Repeat = *raw.Run.Repeat
+	}
+	cfg.Run.ArriveTimeoutMS = DefaultArriveTimeoutMS
+	if raw.Run.ArriveTimeoutMS != nil {
+		cfg.Run.ArriveTimeoutMS = *raw.Run.ArriveTimeoutMS
+	}
+	cfg.Run.ExplorePasses = DefaultExplorePasses
+	if raw.Run.ExplorePasses != nil {
+		cfg.Run.ExplorePasses = *raw.Run.ExplorePasses
+	}
+
+	return cfg
+}
+
 // Load decodes and validates the run configuration at path. Relative schema
 // paths are resolved against the directory containing path.
 func Load(path string) (Config, error) {
@@ -20,12 +65,12 @@ func Load(path string) (Config, error) {
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
 
-	var cfg Config
-	if err := decoder.Decode(&cfg); err != nil {
+	var raw rawConfig
+	if err := decoder.Decode(&raw); err != nil {
 		return Config{}, fmt.Errorf("load config %q: %w (see docs/reference/config.md)", path, err)
 	}
 
-	cfg.applyDefaults()
+	cfg := raw.toConfig()
 	cfg.resolveRelativePaths(filepath.Dir(path))
 
 	if err := cfg.Validate(); err != nil {
