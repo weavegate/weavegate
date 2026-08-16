@@ -156,6 +156,62 @@ func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("simulated write failure")
 }
 
+func TestReplayCommandPreservesShellArguments(t *testing.T) {
+	attackMarker := filepath.Join(t.TempDir(), "must-not-exist")
+	flags := runFlags{
+		config:   "config dir/it's $(touch " + attackMarker + ");*.yaml",
+		scenario: "scenario name;echo nope",
+		variant:  "fixed'$HOME",
+		out:      "ignored out;path",
+	}
+	scheduleValue := &scenario.Schedule{ID: "sch_ba00582f9632"}
+	line := buildReplayCommand(flags, flags.variant, 7, scheduleValue)
+	if strings.Contains(line, "--out") {
+		t.Fatalf("replay command contains --out: %q", line)
+	}
+	got := parseShellReplayArgs(t, line)
+	want := []string{
+		"weavegate", "run",
+		"--config", flags.config,
+		"--scenario", flags.scenario,
+		"--variant", flags.variant,
+		"--replay", scheduleValue.ID,
+		"--repeat", "7",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parsed replay argv = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("parsed replay argv[%d] = %q, want %q; argv=%#v", index, got[index], want[index], got)
+		}
+	}
+	if _, err := os.Stat(attackMarker); !os.IsNotExist(err) {
+		t.Fatalf("shell metacharacter executed unexpectedly: %v", err)
+	}
+
+	t.Log("CLI_REPLAY_QUOTE_RESULT argv=preserved whitespace=true single_quote=true metachar=true out=omitted")
+}
+
+func parseShellReplayArgs(t *testing.T, line string) []string {
+	t.Helper()
+	script := "weavegate() { printf '%s\\037' \"$@\"; }\n" + line
+	output, err := exec.Command("sh", "-c", script).Output()
+	if err != nil {
+		t.Fatalf("parse replay command with POSIX shell: %v", err)
+	}
+	parts := bytes.Split(output, []byte{0x1f})
+	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
+		parts = parts[:len(parts)-1]
+	}
+	args := make([]string, 0, len(parts)+1)
+	args = append(args, "weavegate")
+	for _, part := range parts {
+		args = append(args, string(part))
+	}
+	return args
+}
+
 func TestRun(t *testing.T) {
 	requireDocker(t)
 
@@ -253,10 +309,6 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("replay_known_schedule", func(t *testing.T) {
-		// The registry's schedules directory is a repo-relative path
-		// (A-3): run from the repo root so stage ② of A-5 resolves it.
-		chdir(t, root)
-
 		outDir := t.TempDir()
 		stdout, stderr, exit := run(
 			"run",
@@ -292,7 +344,7 @@ func TestRun(t *testing.T) {
 			t.Fatal("vulnerable run directory not captured; explore_vulnerable must run first")
 		}
 		replayLine := extractReplayLine(t, vulnerableDir)
-		fields := strings.Fields(replayLine)
+		fields := parseShellReplayArgs(t, replayLine)
 		if len(fields) < 2 || fields[0] != "weavegate" || fields[1] != "run" {
 			t.Fatalf("replay line = %q, does not start with \"weavegate run\"", replayLine)
 		}
@@ -302,7 +354,10 @@ func TestRun(t *testing.T) {
 			t.Fatalf("replay command roundtrip exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitViolation, stdout, stderr)
 		}
 
-		t.Logf("CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim resolved_from=run_directory verdict=identical exit=%d", exit)
+		if strings.Contains(replayLine, "--out") {
+			t.Fatalf("replay line unexpectedly contains --out: %q", replayLine)
+		}
+		t.Logf("CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim argv=preserved out=omitted resolved_from=run_directory verdict=identical exit=%d", exit)
 	})
 
 	t.Run("bad_config", func(t *testing.T) {

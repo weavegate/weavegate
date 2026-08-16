@@ -38,7 +38,7 @@ func sampleReportRunAt(t *testing.T, runID string, startedAt time.Time) report.R
 		},
 		Pass: false,
 		ReplayCommand: "weavegate run --config config.yaml --scenario concurrent-assign " +
-			"--variant vulnerable --out .weavegate --replay " + schedule.ID + " --repeat 20",
+			"--variant vulnerable --replay " + schedule.ID + " --repeat 20",
 	}
 }
 

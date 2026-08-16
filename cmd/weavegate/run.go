@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -390,12 +391,28 @@ func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *sc
 	}
 	return fmt.Sprintf(
 		"weavegate run --config %s --scenario %s --variant %s --replay %s --repeat %d",
-		flags.config,
-		flags.scenario,
-		variant,
-		schedule.ID,
+		shellQuote(flags.config),
+		shellQuote(flags.scenario),
+		shellQuote(variant),
+		shellQuote(schedule.ID),
 		repeat,
 	)
+}
+
+func shellQuote(value string) string {
+	if value != "" {
+		safe := true
+		for _, char := range value {
+			if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-", char) {
+				safe = false
+				break
+			}
+		}
+		if safe {
+			return value
+		}
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // reportRunFailure prints err to stderr and wraps it as the process's

@@ -24,7 +24,7 @@ func renderMarkdown(run Run) string {
 	scheduleID := "none"
 	if run.Scenario.Schedule != nil {
 		scheduleID = run.Scenario.Schedule.ID
-		if run.Observation.Mode == "replay" && run.Observation.ViolationRuns == 0 {
+		if run.Observation.Mode == "replay" && run.Pass && !run.Flaky {
 			scheduleLabel = "replayed"
 		}
 	}

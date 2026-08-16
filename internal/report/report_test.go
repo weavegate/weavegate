@@ -171,7 +171,7 @@ func TestWriteRunArtifacts(t *testing.T) {
 	}
 
 	replayLine := extractReplayLine(t, filepath.Join(dir, MarkdownFile))
-	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.Schedule.ID) {
+	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.Schedule.ID) || strings.Contains(replayLine, "--out") {
 		t.Fatalf("report.md replay line = %q, not self-sufficient", replayLine)
 	}
 
@@ -180,7 +180,7 @@ func TestWriteRunArtifacts(t *testing.T) {
 	t.Logf(
 		"RUN_ARTIFACT_RESULT files=%d dir_mode=0%o file_mode=0%o key_order=canonical "+
 			"empty_slice=json_array trailing_newline=true volatile_files=manifest+report_json "+
-			"deterministic_files=%d rerun_identical=%s replay_line=self_sufficient config_path=as_given "+
+			"deterministic_files=%d rerun_identical=%s replay_line=out_omitted shell_quote=posix config_path=as_given "+
 			"tmp_same_filesystem=true partial_write=cleaned write_failure=output_error",
 		len(entries),
 		dirMode,
@@ -212,6 +212,14 @@ func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {
 	observation := string(mustRead(t, filepath.Join(dir, ObservationFile)))
 	if strings.Contains(observation, "discovery_fingerprint") {
 		t.Fatalf("direct replay emitted discovery_fingerprint: %s", observation)
+	}
+	flaky := run
+	flaky.Pass = false
+	flaky.Flaky = true
+	flaky.Observation.Flaky = true
+	flakyMarkdown := renderMarkdown(flaky)
+	if !strings.Contains(flakyMarkdown, "| violating: "+run.Scenario.Schedule.ID) || strings.Contains(flakyMarkdown, "| replayed:") {
+		t.Fatalf("flaky replay lost violating label: %s", flakyMarkdown)
 	}
 
 	t.Log("ARTIFACT_V2_RESULT files=6 writer=v2 schedule=neutral mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
