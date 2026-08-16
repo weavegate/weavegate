@@ -400,14 +400,14 @@ func effectiveTimeouts(cfg config.Config, resolved Resolved) report.Timeouts {
 	}
 }
 
-// buildReplayCommand renders the self-sufficient replay line (A-5). --out is
+// buildReplayCommand renders the runnable replay line (A-5). --out is
 // deliberately omitted: it is not part of the deterministic file contract
 // (docs/adr/0005-volatile-run-metadata-boundary.md), so a config-as-given
 // value here would make report.md vary with where a run happened to write
-// its evidence rather than with what was actually run. A reader replaying
-// from the printed line uses the same --out (or its default) as the run
-// that discovered the schedule, so stage ① of --replay resolution still
-// finds it; see cli.md for the two-stage resolution order.
+// its evidence rather than with what was actually run. Pasting the line from
+// the same directory uses the default --out: stage ① finds evidence written
+// there, while a different or non-default output relies on the entrypoint's
+// embedded stage ② schedule; see cli.md for the two-stage resolution order.
 func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *scenario.Schedule) string {
 	if schedule == nil {
 		return ""

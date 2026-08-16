@@ -15,7 +15,9 @@ Every `weavegate run` — pass or violation — writes six files to
 
 Every JSON document written by the current CLI carries
 `"artifact_version": 2`. The database schema identity remains the separate
-`manifest.schema_version` field.
+`manifest.schema_version` field. Replay lookup reads both the v2 neutral
+`schedule` field and the legacy v1 `violating_schedule` field; newly written
+artifacts are always v2.
 
 ## Volatile vs. deterministic
 
@@ -183,7 +185,9 @@ The `replay:` line, when present, is a complete command — every value it
 needs (`--config` exactly as the user passed it, `--scenario`, `--variant`,
 `--replay`, `--repeat`) is spelled out, so pasting it verbatim from the same
 working directory reproduces the same verdict without reconstructing any
-argument by hand. `--config` is never normalized to an absolute path, so
+argument by hand. Every string value uses POSIX shell minimal quoting, which
+preserves whitespace, single quotes, and shell metacharacters as literal
+argument data. `--config` is never normalized to an absolute path, so
 this file stays byte-identical between two runs regardless of where in the
 filesystem they happened to execute.
 
