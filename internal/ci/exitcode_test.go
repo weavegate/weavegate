@@ -52,6 +52,13 @@ func TestExitCode(t *testing.T) {
 		observed["output"] = "5"
 	})
 
+	t.Run("interrupted", func(t *testing.T) {
+		if got := ExitCode(InterruptedError(plain), Verdict{}); got != ExitInterrupted {
+			t.Fatalf("ExitCode(InterruptedError, _) = %d, want %d", got, ExitInterrupted)
+		}
+		observed["interrupted"] = "130"
+	})
+
 	t.Run("unclassified", func(t *testing.T) {
 		if got := ExitCode(plain, Verdict{}); got != ExitInput {
 			t.Fatalf("ExitCode(plain error, _) = %d, want %d (unclassified must not silently pass)", got, ExitInput)
@@ -100,7 +107,7 @@ func TestExitCode(t *testing.T) {
 	})
 
 	order := []string{
-		"pass", "violation", "flaky", "fixture", "input", "output", "unclassified",
+		"pass", "violation", "flaky", "fixture", "input", "output", "interrupted", "unclassified",
 		"error_beats_verdict", "flaky_beats_violation",
 		"cleanup_on_pass", "cleanup_keeps_violation", "cleanup_never_masks",
 	}

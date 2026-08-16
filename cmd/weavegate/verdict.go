@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/orchestrator"
 )
@@ -32,7 +31,6 @@ type VerdictInput struct {
 type Verdict struct {
 	Flaky         bool
 	ViolationRuns int
-	ExitCode      int
 }
 
 // ComputeVerdict decides a run's verdict without touching a database. Flaky
@@ -41,7 +39,7 @@ type Verdict struct {
 // passes — is a determinism failure, not a clean PASS.
 func ComputeVerdict(input VerdictInput) Verdict {
 	if input.Mode == ModeExplore && input.Exhausted {
-		return Verdict{ExitCode: ci.ExitOK}
+		return Verdict{}
 	}
 
 	flaky := input.Replay.Flaky
@@ -58,16 +56,7 @@ func ComputeVerdict(input VerdictInput) Verdict {
 		}
 	}
 
-	verdict := Verdict{Flaky: flaky, ViolationRuns: violationRuns}
-	switch {
-	case flaky:
-		verdict.ExitCode = ci.ExitFlaky
-	case violationRuns > 0:
-		verdict.ExitCode = ci.ExitViolation
-	default:
-		verdict.ExitCode = ci.ExitOK
-	}
-	return verdict
+	return Verdict{Flaky: flaky, ViolationRuns: violationRuns}
 }
 
 // uniqueFingerprint returns the sole fingerprint key when exactly one

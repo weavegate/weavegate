@@ -7,12 +7,18 @@ import "errors"
 
 // Process exit codes. See docs/reference/exit-codes.md for the full contract.
 const (
-	ExitOK        = 0
-	ExitViolation = 2
-	ExitFlaky     = 3
-	ExitFixture   = 4
-	ExitInput     = 5
+	ExitOK          = 0
+	ExitViolation   = 2
+	ExitFlaky       = 3
+	ExitFixture     = 4
+	ExitInput       = 5
+	ExitInterrupted = 130
 )
+
+type interruptedError struct{ err error }
+
+func (e *interruptedError) Error() string { return e.err.Error() }
+func (e *interruptedError) Unwrap() error { return e.err }
 
 type fixtureError struct{ err error }
 
@@ -53,6 +59,14 @@ func OutputError(err error) error {
 	return &outputError{err: err}
 }
 
+// InterruptedError marks cancellation caused by SIGINT or SIGTERM (exit 130).
+func InterruptedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &interruptedError{err: err}
+}
+
 // Verdict is the run outcome once execution has completed without error.
 type Verdict struct {
 	Violations    int
@@ -67,6 +81,10 @@ type Verdict struct {
 // a teardown failure.
 func ExitCode(err error, verdict Verdict) int {
 	if err != nil {
+		var interrupted *interruptedError
+		if errors.As(err, &interrupted) {
+			return ExitInterrupted
+		}
 		var fixtureErr *fixtureError
 		if errors.As(err, &fixtureErr) {
 			return ExitFixture

@@ -56,8 +56,8 @@ func TestComputeVerdict(t *testing.T) {
 				Runs:         repeatRuns(violating, "fp-violation", 20),
 			},
 		})
-		if got.Flaky || got.ExitCode != ci.ExitViolation || got.ViolationRuns != 20 {
-			t.Fatalf("all-violation verdict = %+v, want exit=2 flaky=false violation_runs=20", got)
+		if got.Flaky || verdictExitCode(got) != ci.ExitViolation || got.ViolationRuns != 20 {
+			t.Fatalf("all-violation verdict = %+v, want mapped exit=2 flaky=false violation_runs=20", got)
 		}
 		observed["all_violation"] = "2"
 	})
@@ -75,7 +75,7 @@ func TestComputeVerdict(t *testing.T) {
 				Runs: append(repeatRuns(violating, "fp-violation", 19), repeatRuns(passing, "fp-pass", 1)...),
 			},
 		})
-		if !got.Flaky || got.ExitCode != ci.ExitFlaky {
+		if !got.Flaky || verdictExitCode(got) != ci.ExitFlaky {
 			t.Fatalf("partial-violation verdict = %+v, want exit=3 flaky=true", got)
 		}
 		observed["partial_violation"] = "3"
@@ -91,7 +91,7 @@ func TestComputeVerdict(t *testing.T) {
 				Runs:         repeatRuns(passing, "fp-pass", 20),
 			},
 		})
-		if !got.Flaky || got.ExitCode != ci.ExitFlaky {
+		if !got.Flaky || verdictExitCode(got) != ci.ExitFlaky {
 			t.Fatalf("0/20 after discovery verdict = %+v, want exit=3 flaky=true (must not leak to PASS)", got)
 		}
 		observed["all_pass_after_discovery"] = "3"
@@ -107,7 +107,7 @@ func TestComputeVerdict(t *testing.T) {
 				Runs:         repeatRuns(violating, "fp-violation-B", 20),
 			},
 		})
-		if !got.Flaky || got.ExitCode != ci.ExitFlaky {
+		if !got.Flaky || verdictExitCode(got) != ci.ExitFlaky {
 			t.Fatalf("fingerprint-mismatch verdict = %+v, want exit=3 flaky=true", got)
 		}
 		observed["fingerprint_mismatch"] = "3"
@@ -122,7 +122,7 @@ func TestComputeVerdict(t *testing.T) {
 				Runs:         append(repeatRuns(violating, "fp-a", 10), repeatRuns(passing, "fp-b", 10)...),
 			},
 		})
-		if !got.Flaky || got.ExitCode != ci.ExitFlaky {
+		if !got.Flaky || verdictExitCode(got) != ci.ExitFlaky {
 			t.Fatalf("replay-mode flaky verdict = %+v, want exit=3 flaky=true", got)
 		}
 		observed["replay_mode_flaky"] = "3"
@@ -130,7 +130,7 @@ func TestComputeVerdict(t *testing.T) {
 
 	t.Run("exhausted", func(t *testing.T) {
 		got := ComputeVerdict(VerdictInput{Mode: ModeExplore, Exhausted: true})
-		if got.Flaky || got.ExitCode != ci.ExitOK {
+		if got.Flaky || verdictExitCode(got) != ci.ExitOK {
 			t.Fatalf("exhausted verdict = %+v, want exit=0 flaky=false", got)
 		}
 		observed["exhausted"] = "0"
@@ -149,4 +149,8 @@ func TestComputeVerdict(t *testing.T) {
 		parts = append(parts, key+"="+value)
 	}
 	t.Logf("CLI_VERDICT_RESULT %s", strings.Join(parts, " "))
+}
+
+func verdictExitCode(verdict Verdict) int {
+	return ci.ExitCode(nil, ci.Verdict{Violations: verdict.ViolationRuns, Flaky: verdict.Flaky})
 }

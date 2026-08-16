@@ -92,13 +92,12 @@ func runScenario(
 		}
 		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 
-		// A-18: cleanup failure never lowers an already decided code; it only
-		// raises an otherwise passing run to 4, so a leaked container is never
-		// reported as PASS and a real violation is never hidden by teardown.
 		var exit *exitError
-		if errors.As(finalErr, &exit) && exit.code == ci.ExitOK {
-			finalErr = &exitError{code: ci.ExitFixture, err: exit.err}
+		if errors.As(finalErr, &exit) {
+			exit.verdict.CleanupFailed = true
+			return
 		}
+		finalErr = &exitError{err: ci.FixtureError(cleanupErr)}
 	}()
 
 	db, err := fx.Provision(ctx, plan.Fixture)
@@ -146,18 +145,14 @@ func runScenario(
 	// afterward and is a no-op unless this attempt itself failed, in
 	// which case mysql.go's Teardown retries rather than losing track of
 	// the container, giving cleanup a second chance.
-	exitCode := outcome.Verdict.ExitCode
 	if cleanupErr := fx.Teardown(context.WithoutCancel(ctx)); cleanupErr != nil {
 		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 		manifest.CleanupFailed = true
-
-		// A-18: cleanup failure never lowers an already decided code; it
-		// only raises an otherwise passing run to 4, so a leaked container
-		// is never reported as PASS and a real violation is never hidden
-		// by teardown.
-		if exitCode == ci.ExitOK {
-			exitCode = ci.ExitFixture
-		}
+	}
+	semanticVerdict := ci.Verdict{
+		Violations:    outcome.Verdict.ViolationRuns,
+		Flaky:         outcome.Verdict.Flaky,
+		CleanupFailed: manifest.CleanupFailed,
 	}
 
 	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
@@ -185,7 +180,7 @@ func runScenario(
 			DiscoveryFingerprint: discoveryFingerprint(outcome),
 		},
 		Trace:         runTrace(outcome),
-		Pass:          outcome.Verdict.ExitCode == ci.ExitOK,
+		Pass:          !outcome.Verdict.Flaky && outcome.Verdict.ViolationRuns == 0,
 		Flaky:         outcome.Verdict.Flaky,
 		ReplayCommand: replayCommand,
 	}
@@ -206,7 +201,7 @@ func runScenario(
 		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: write run directory to stdout: %w", err)))
 	}
 
-	return &exitError{code: exitCode}
+	return &exitError{verdict: semanticVerdict}
 }
 
 func discoveryFingerprint(outcome runOutcome) string {
@@ -408,8 +403,11 @@ func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *sc
 // expected to already be a ci.FixtureError, ci.InputError, or
 // ci.OutputError from the call site.
 func reportRunFailure(stderr io.Writer, err error) error {
+	if errors.Is(err, context.Canceled) {
+		err = ci.InterruptedError(err)
+	}
 	fmt.Fprintf(stderr, "weavegate: %v\n", err)
-	return &exitError{code: ci.ExitCode(err, ci.Verdict{}), err: err}
+	return &exitError{err: err}
 }
 
 // writeAll reports both a write error and a short write (a writer that
