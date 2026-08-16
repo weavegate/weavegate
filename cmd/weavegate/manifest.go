@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
@@ -49,6 +50,11 @@ func collectManifest(
 		return report.Manifest{}, fmt.Errorf("read global transaction isolation: %w", err)
 	}
 
+	engine, err := readEngines(ctx, db)
+	if err != nil {
+		return report.Manifest{}, err
+	}
+
 	return report.Manifest{
 		RunID:            runID,
 		StartedAt:        startedAt,
@@ -56,11 +62,45 @@ func collectManifest(
 		SchemaVersion:    schemaVersion,
 		SeedData:         seedVersion,
 		IsolationLevel:   isolationLevel,
-		Engine:           "InnoDB",
+		Engine:           engine,
 		Adapter:          adapter,
 		Variant:          variant,
 		Image:            spec.Image,
 	}, nil
+}
+
+// readEngines reads the distinct storage engines actually in use by the
+// provisioned schema's tables, rather than assuming InnoDB: nothing in
+// config loading or fixture provisioning rejects a migration that declares
+// a different engine, and storage-engine choice materially changes locking
+// and concurrency behavior, so a constant here could mislabel the
+// environment behind a verdict. Multiple distinct engines are joined so a
+// mixed-engine schema is still reported truthfully rather than collapsed
+// into one value.
+func readEngines(ctx context.Context, db *fixture.DB) (string, error) {
+	rows, err := db.SQL.QueryContext(ctx,
+		"SELECT DISTINCT engine FROM information_schema.tables "+
+			"WHERE table_schema = DATABASE() AND engine IS NOT NULL ORDER BY engine")
+	if err != nil {
+		return "", fmt.Errorf("read storage engines: %w", err)
+	}
+	defer rows.Close()
+
+	var engines []string
+	for rows.Next() {
+		var engine string
+		if err := rows.Scan(&engine); err != nil {
+			return "", fmt.Errorf("read storage engines: %w", err)
+		}
+		engines = append(engines, engine)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("read storage engines: %w", err)
+	}
+	if len(engines) == 0 {
+		return "", fmt.Errorf("read storage engines: no tables found in the provisioned schema")
+	}
+	return strings.Join(engines, ","), nil
 }
 
 // hashMigrations hashes "<basename>\n"+content for every *.sql file in

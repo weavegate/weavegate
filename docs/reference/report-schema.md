@@ -36,7 +36,7 @@ deterministic or stripping timestamps everywhere.
 | `schema_version` | string | First 12 hex characters of the sha256 of every migration file's `"<basename>\n"+content`, concatenated in sorted filename order. Content-derived, not invented. |
 | `seed_data` | string | First 12 hex characters of the sha256 of the seed file's content. |
 | `isolation_level` | string | The literal result of `SELECT @@global.transaction_isolation`, read from the fixture's managing connection immediately after provisioning — the **global** value, not the session value a worker connection might override. If the SUT changes its session isolation level, this field will not reflect that. |
-| `engine` | string | Always `InnoDB` today. |
+| `engine` | string | Distinct storage engines actually in use by the provisioned schema's tables, read from `information_schema.tables` immediately after provisioning and joined with `,` when more than one engine is present. Not assumed from the config or migrations. |
 | `adapter`, `variant`, `image` | string | The resolved adapter, SUT variant, and database image for this run. |
 
 ## `scenario.json`
