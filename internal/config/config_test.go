@@ -109,6 +109,14 @@ func TestConfigLoad(t *testing.T) {
 		observed["report_section"] = "error"
 	})
 
+	t.Run("trailing_document", func(t *testing.T) {
+		content := base + "---\nrun:\n  repeat: 1\n"
+		if _, err := Load(writeConfig(t, content)); err == nil {
+			t.Fatal("load config with trailing YAML document: want error, got nil")
+		}
+		observed["trailing_document"] = "error"
+	})
+
 	t.Run("missing_required", func(t *testing.T) {
 		cases := map[string]struct{ old, new string }{
 			"target.db":              {"  db: mysql:8.4\n", ""},
@@ -271,7 +279,7 @@ func TestConfigLoad(t *testing.T) {
 		"scenarios", "workers", "sync_points", "assertions",
 		"repeat", "arrive_timeout_ms", "explore_passes",
 		"defaults", "relative_paths",
-		"unknown_key", "report_section", "missing_required",
+		"unknown_key", "report_section", "trailing_document", "missing_required",
 		"non_mysql_db", "path_entrypoint", "bad_expect_rows", "missing_expect_rows",
 		"bad_assertion_id", "duplicate_worker", "duplicate_sync_point",
 		"nonpositive_run_value", "explicit_zero_run_value", "worker_args_mismatch",

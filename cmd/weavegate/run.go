@@ -22,13 +22,15 @@ import (
 )
 
 type runFlags struct {
-	config    string
-	scenario  string
-	replay    string
-	repeat    int
-	repeatSet bool
-	variant   string
-	out       string
+	config     string
+	scenario   string
+	replay     string
+	replaySet  bool
+	repeat     int
+	repeatSet  bool
+	variant    string
+	variantSet bool
+	out        string
 }
 
 func newRunCommand(stdout, stderr io.Writer) *cobra.Command {
@@ -40,8 +42,10 @@ func newRunCommand(stdout, stderr io.Writer) *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			flags.replaySet = cmd.Flags().Changed("replay")
 			flags.repeatSet = cmd.Flags().Changed("repeat")
-			return runScenario(context.Background(), stdout, stderr, *flags, fixture.NewMySQLFixture)
+			flags.variantSet = cmd.Flags().Changed("variant")
+			return runScenario(cmd.Context(), stdout, stderr, *flags, fixture.NewMySQLFixture)
 		},
 	}
 
@@ -67,22 +71,9 @@ func runScenario(
 ) (finalErr error) {
 	startedAt := time.Now().UTC()
 
-	cfg, err := config.Load(flags.config)
-	if err != nil {
-		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: %w", err)))
-	}
-
-	resolved, err := Resolve(cfg, flags.scenario, flags.variant)
+	plan, err := buildRunPlan(flags)
 	if err != nil {
 		return reportRunFailure(stderr, err)
-	}
-
-	if flags.repeatSet && flags.repeat < 1 {
-		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: --repeat must be positive, got %d", flags.repeat)))
-	}
-	repeat := cfg.Run.Repeat
-	if flags.repeatSet {
-		repeat = flags.repeat
 	}
 
 	fx := newFixture()
@@ -110,7 +101,7 @@ func runScenario(
 		}
 	}()
 
-	db, err := fx.Provision(ctx, resolved.Fixture)
+	db, err := fx.Provision(ctx, plan.Resolved.Fixture)
 	if err != nil {
 		return reportRunFailure(stderr, ci.FixtureError(fmt.Errorf("run: provision fixture: %w", err)))
 	}
@@ -121,8 +112,8 @@ func runScenario(
 	}
 
 	manifest, err := collectManifest(
-		ctx, db, resolved.Fixture,
-		cfg.Target.SUT.Adapter, resolved.Scenario.SUTConfig.Variant,
+		ctx, db, plan.Resolved.Fixture,
+		plan.Config.Target.SUT.Adapter, plan.Resolved.Scenario.SUTConfig.Variant,
 		runID, startedAt,
 	)
 	if err != nil {
@@ -132,18 +123,18 @@ func runScenario(
 	executor, err := orchestrator.New(orchestrator.Config{
 		Fixture:               fx,
 		DB:                    db,
-		NewRuntime:            resolved.NewRuntime,
-		NewAdapter:            resolved.NewAdapter,
-		BlockInferenceTimeout: resolved.Timeouts.BlockInference,
-		StepTimeout:           resolved.Timeouts.Step,
-		RunTimeout:            resolved.Timeouts.Run,
-		StopTimeout:           resolved.Timeouts.Stop,
+		NewRuntime:            plan.Resolved.NewRuntime,
+		NewAdapter:            plan.Resolved.NewAdapter,
+		BlockInferenceTimeout: plan.Resolved.Timeouts.BlockInference,
+		StepTimeout:           plan.Resolved.Timeouts.Step,
+		RunTimeout:            plan.Resolved.Timeouts.Run,
+		StopTimeout:           plan.Resolved.Timeouts.Stop,
 	})
 	if err != nil {
 		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: create orchestrator: %w", err)))
 	}
 
-	outcome, err := executeScenario(ctx, executor, resolved, cfg, repeat, flags)
+	outcome, err := executeScenario(ctx, executor, plan)
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
@@ -169,24 +160,24 @@ func runScenario(
 		}
 	}
 
-	replayCommand := buildReplayCommand(flags, resolved.Scenario.SUTConfig.Variant, repeat, outcome.ViolatingSchedule)
+	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
 
 	run := report.Run{
 		Manifest: manifest,
 		Scenario: report.Scenario{
-			Name:              resolved.Scenario.Name,
-			Workers:           report.NewWorkers(resolved.Scenario.Workers),
-			SyncPoints:        resolved.Scenario.SyncPoints,
-			Params:            resolved.Scenario.SUTConfig.Params,
+			Name:              plan.Resolved.Scenario.Name,
+			Workers:           report.NewWorkers(plan.Resolved.Scenario.Workers),
+			SyncPoints:        plan.Resolved.Scenario.SyncPoints,
+			Params:            plan.Resolved.Scenario.SUTConfig.Params,
 			ViolatingSchedule: report.NewSchedule(outcome.ViolatingSchedule),
 		},
 		Observation: report.Observation{
 			SchedulesExplored:   outcome.SchedulesExplored,
 			ExplorePasses:       outcome.PassesExecuted,
 			AssertionViolations: assertionViolations(violationEvidenceRuns(outcome)),
-			Oracles:             oracleDeclarations(cfg.Oracle.Assertions),
-			Repeat:              repeat,
-			Timeouts:            effectiveTimeouts(cfg, resolved),
+			Oracles:             oracleDeclarations(plan.Config.Oracle.Assertions),
+			Repeat:              plan.Repeat,
+			Timeouts:            effectiveTimeouts(plan.Config, plan.Resolved),
 			ViolationRuns:       outcome.Verdict.ViolationRuns,
 			Flaky:               outcome.Verdict.Flaky,
 			Fingerprints:        outcome.Replay.Fingerprints,
@@ -197,7 +188,7 @@ func runScenario(
 		ReplayCommand: replayCommand,
 	}
 
-	dir, err := report.WriteRun(flags.out, run)
+	dir, err := report.WriteRun(plan.Out, run)
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}

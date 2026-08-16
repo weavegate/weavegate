@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -93,6 +94,13 @@ func Load(path string) (Config, error) {
 
 	var raw rawConfig
 	if err := decoder.Decode(&raw); err != nil {
+		return Config{}, fmt.Errorf("load config %q: %w (see docs/reference/config.md)", path, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("multiple YAML documents are not supported")
+		}
 		return Config{}, fmt.Errorf("load config %q: %w (see docs/reference/config.md)", path, err)
 	}
 
