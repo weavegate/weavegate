@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +12,15 @@ import (
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/report"
 )
+
+type shortWriter struct{}
+
+func (shortWriter) Write(content []byte) (int, error) {
+	if len(content) == 0 {
+		return 0, nil
+	}
+	return len(content) - 1, nil
+}
 
 func sampleReportRunAt(t *testing.T, runID string, startedAt time.Time) report.Run {
 	t.Helper()
@@ -144,9 +154,18 @@ func TestReportCommand(t *testing.T) {
 		observed["bad_format"] = "5"
 	})
 
+	t.Run("short_write", func(t *testing.T) {
+		var stderr bytes.Buffer
+		err := printReport(shortWriter{}, &stderr, outDir, newerID, "json")
+		if got := exitCodeFromError(err); got != ci.ExitInput {
+			t.Fatalf("short write exit = %d, want %d; stderr=%s", got, ci.ExitInput, stderr.String())
+		}
+		observed["short_write"] = "5"
+	})
+
 	order := []string{
 		"json", "md", "default_format", "run_identity", "latest_run",
-		"same_time_ties", "invalid_dirs", "missing_run", "invalid_run_id", "bad_format", "no_rerender",
+		"same_time_ties", "invalid_dirs", "missing_run", "invalid_run_id", "bad_format", "short_write", "no_rerender",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {

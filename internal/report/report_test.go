@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -87,6 +88,11 @@ func sampleRun(t *testing.T, runID string) Run {
 
 func TestWriteRunArtifacts(t *testing.T) {
 	base := t.TempDir()
+	umask := 0o077
+	previousUmask := syscall.Umask(umask)
+	defer syscall.Umask(previousUmask)
+	expectedDirMode := dirMode &^ os.FileMode(umask)
+	expectedFileMode := fileMode &^ os.FileMode(umask)
 	run := sampleRun(t, "run_20260816T120000.000Z_aaaaaaaa")
 
 	dir, err := WriteRun(base, run)
@@ -106,8 +112,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat run directory: %v", err)
 	}
-	if info.Mode().Perm() != dirMode {
-		t.Fatalf("run directory mode = %o, want %o", info.Mode().Perm(), dirMode)
+	if info.Mode().Perm() != expectedDirMode {
+		t.Fatalf("run directory mode = %o, want %o", info.Mode().Perm(), expectedDirMode)
 	}
 
 	for _, name := range FileNames {
@@ -116,8 +122,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", name, err)
 		}
-		if fileInfo.Mode().Perm() != fileMode {
-			t.Fatalf("%s mode = %o, want %o", name, fileInfo.Mode().Perm(), fileMode)
+		if fileInfo.Mode().Perm() != expectedFileMode {
+			t.Fatalf("%s mode = %o, want %o", name, fileInfo.Mode().Perm(), expectedFileMode)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -178,16 +184,42 @@ func TestWriteRunArtifacts(t *testing.T) {
 	rerunIdentical := testRerunIdentical(t, base)
 
 	t.Logf(
-		"RUN_ARTIFACT_RESULT files=%d dir_mode=0%o file_mode=0%o key_order=canonical "+
+		"RUN_ARTIFACT_RESULT files=%d umask=0077 dir_mode=0%o file_mode=0%o key_order=canonical "+
 			"empty_slice=json_array trailing_newline=true volatile_files=manifest+report_json "+
 			"deterministic_files=%d rerun_identical=%s replay_line=out_omitted shell_quote=posix config_path=as_given "+
 			"tmp_same_filesystem=true partial_write=cleaned write_failure=output_error",
 		len(entries),
-		dirMode,
-		fileMode,
+		expectedDirMode,
+		expectedFileMode,
 		len(DeterministicFiles),
 		rerunIdentical,
 	)
+}
+
+func TestWriteRunPreservesExistingDestination(t *testing.T) {
+	base := t.TempDir()
+	run := sampleRun(t, "run_20260816T120003.000000000Z_22222222222222222222222222222222")
+	finalDir := filepath.Join(base, "runs", run.Manifest.RunID)
+	if err := os.MkdirAll(finalDir, 0o755); err != nil {
+		t.Fatalf("create existing run directory: %v", err)
+	}
+	sentinelPath := filepath.Join(finalDir, "sentinel")
+	const sentinel = "preserve me"
+	if err := os.WriteFile(sentinelPath, []byte(sentinel), 0o600); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	_, err := WriteRun(base, run)
+	if err == nil {
+		t.Fatal("write colliding run: want error, got nil")
+	}
+	if got := ci.ExitCode(err, ci.Verdict{}); got != ci.ExitInput {
+		t.Fatalf("collision exit code = %d, want %d", got, ci.ExitInput)
+	}
+	content, readErr := os.ReadFile(sentinelPath)
+	if readErr != nil || string(content) != sentinel {
+		t.Fatalf("existing destination changed: content=%q err=%v", content, readErr)
+	}
 }
 
 func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {

@@ -10,6 +10,8 @@ import (
 // isolated database fixture has been provisioned.
 type Fixture interface {
 	Reset(context.Context) error
+	// Teardown must honor cancellation and deadlines on the supplied context.
+	// Callers provide a cleanup-specific context independent of the operation.
 	Teardown(context.Context) error
 }
 

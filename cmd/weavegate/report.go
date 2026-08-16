@@ -75,7 +75,7 @@ func printReport(stdout, stderr io.Writer, out, runID, format string) error {
 		return reportCommandFailure(stderr, fmt.Errorf("report: read %q: %w", path, err))
 	}
 
-	if _, err := stdout.Write(content); err != nil {
+	if err := writeAll(stdout, content); err != nil {
 		return reportCommandFailure(stderr, fmt.Errorf("report: write output: %w", err))
 	}
 	return nil

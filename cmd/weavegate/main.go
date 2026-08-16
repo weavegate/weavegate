@@ -2,8 +2,15 @@
 // and saves the run evidence to disk.
 package main
 
-import "os"
+import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+)
 
 func main() {
-	os.Exit(Execute(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(ExecuteContext(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }

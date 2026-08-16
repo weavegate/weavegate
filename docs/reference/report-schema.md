@@ -199,8 +199,10 @@ resolves schedules the entrypoint has registered.
 
 ## File and directory modes
 
-Directories are written `0755`, files `0644`. Writing uses a same-filesystem
+Directory mode `0755` and file mode `0644` are upper bounds. The process
+`umask` may remove permissions from those requested modes, and weavegate does
+not widen the resulting permissions afterward. Writing uses a same-filesystem
 temporary directory under `<out>/runs/` and an atomic rename, so a partial
-failure during writing never leaves a half-written run directory behind —
-and never leaves nothing behind either: on success, all six files exist
-together or none do.
+failure during writing never leaves a half-written run directory behind. A
+pre-existing destination run directory is an output error and is preserved;
+on success, all six files appear together.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,27 @@ import (
 	"github.com/weavegate/weavegate/internal/report"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
+
+type cleanupGuard struct {
+	once      sync.Once
+	fixture   fixture.Fixture
+	operation context.Context
+	timeout   time.Duration
+	err       error
+}
+
+func (g *cleanupGuard) run() error {
+	g.once.Do(func() {
+		operation := g.operation
+		if operation == nil {
+			operation = context.Background()
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(operation), g.timeout)
+		defer cancel()
+		g.err = g.fixture.Teardown(cleanupCtx)
+	})
+	return g.err
+}
 
 type runFlags struct {
 	config     string
@@ -78,16 +100,20 @@ func runScenario(
 	}
 
 	fx := newFixture()
+	cleanup := &cleanupGuard{
+		fixture: fx, operation: ctx, timeout: plan.CleanupTimeout,
+	}
+	cleanupDone := false
 
-	// The teardown defer is registered before checking Provision's error so
-	// that a failed provision still gets a Teardown call: when Provision
-	// itself starts a container but a later setup step fails, and the
-	// fixture's own cleanup-on-failure attempt also fails, it deliberately
-	// retains the container for a subsequent Teardown (see
-	// internal/fixture/mysql.go's cleanupFailedProvision) rather than losing
-	// track of it. Teardown is a no-op when there is nothing to clean up.
+	// Register cleanup immediately after fixture construction so every later
+	// return requests bounded teardown. The explicit success-path call below
+	// records cleanup in the manifest; this fallback runs only when execution
+	// returned earlier.
 	defer func() {
-		cleanupErr := fx.Teardown(context.WithoutCancel(ctx))
+		if cleanupDone {
+			return
+		}
+		cleanupErr := cleanup.run()
 		if cleanupErr == nil {
 			return
 		}
@@ -139,14 +165,11 @@ func runScenario(
 		return reportRunFailure(stderr, err)
 	}
 
-	// Tear down before writing and printing the report, not only in the
-	// deferred cleanup above: otherwise a leaked container is discovered
-	// only after the saved manifest and the printed report have already
-	// gone out reporting success. The deferred call above still runs
-	// afterward and is a no-op unless this attempt itself failed, in
-	// which case mysql.go's Teardown retries rather than losing track of
-	// the container, giving cleanup a second chance.
-	if cleanupErr := fx.Teardown(context.WithoutCancel(ctx)); cleanupErr != nil {
+	// Tear down before writing and printing so cleanup failure is present in
+	// the saved manifest. cleanupGuard guarantees this is the only call.
+	cleanupErr := cleanup.run()
+	cleanupDone = true
+	if cleanupErr != nil {
 		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 		manifest.CleanupFailed = true
 	}

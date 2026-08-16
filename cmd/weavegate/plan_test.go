@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -143,4 +145,53 @@ func TestBuildRunPlanUsesExplicitReplayPresence(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--replay must not be empty") {
 		t.Fatalf("explicit blank replay error = %v", err)
 	}
+}
+
+type cancellationFixture struct {
+	teardownCalls   int
+	cleanupErr      error
+	cleanupDeadline time.Time
+}
+
+func (f *cancellationFixture) Provision(ctx context.Context, _ fixture.Prepared) (*fixture.DB, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (*cancellationFixture) Reset(context.Context) error {
+	return errors.New("reset must not be called")
+}
+
+func (f *cancellationFixture) Teardown(ctx context.Context) error {
+	f.teardownCalls++
+	f.cleanupErr = ctx.Err()
+	f.cleanupDeadline, _ = ctx.Deadline()
+	return nil
+}
+
+func TestCanceledRunUsesIndependentBoundedCleanupOnce(t *testing.T) {
+	configPath := filepath.Join(repoRoot(t), "fixtures", "matching-slice", ".weavegate", "config.yaml")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	fx := &cancellationFixture{}
+	var stderr bytes.Buffer
+	err := runScenario(ctx, &bytes.Buffer{}, &stderr, runFlags{
+		config: configPath, scenario: "concurrent-assign", out: t.TempDir(),
+	}, func() fixture.Provisioner { return fx })
+	if got := exitCodeFromError(err); got != ci.ExitInterrupted {
+		t.Fatalf("canceled run exit = %d, want %d; stderr=%s", got, ci.ExitInterrupted, stderr.String())
+	}
+	if fx.teardownCalls != 1 {
+		t.Fatalf("teardown calls = %d, want exactly 1", fx.teardownCalls)
+	}
+	if fx.cleanupErr != nil {
+		t.Fatalf("cleanup context error = %v, want operation cancellation detached", fx.cleanupErr)
+	}
+	remaining := time.Until(fx.cleanupDeadline)
+	if fx.cleanupDeadline.IsZero() || remaining <= 0 || remaining > fixtureCleanupTimeout {
+		t.Fatalf("cleanup deadline remaining = %v, want within (0, %v]", remaining, fixtureCleanupTimeout)
+	}
+
+	t.Log("CLI_INTERRUPT_RESULT exit=130 teardown_calls=1 cleanup_deadline=30s operation_cancel=detached")
 }

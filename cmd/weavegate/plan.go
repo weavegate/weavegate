@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
+
+const fixtureCleanupTimeout = 30 * time.Second
 
 // runPlan is the immutable CLI-side boundary between validating inputs and
 // starting fixture side effects. Every schedule and candidate-plan decision
@@ -23,6 +26,7 @@ type runPlan struct {
 	CandidatePlan  *scenario.SchedulePlan
 	Repeat         int
 	Out            string
+	CleanupTimeout time.Duration
 }
 
 func buildRunPlan(flags runFlags) (runPlan, error) {
@@ -65,11 +69,12 @@ func buildRunPlan(flags runFlags) (runPlan, error) {
 	}
 
 	plan := runPlan{
-		Config:   cfg,
-		Resolved: resolved,
-		Fixture:  prepared,
-		Repeat:   repeat,
-		Out:      flags.out,
+		Config:         cfg,
+		Resolved:       resolved,
+		Fixture:        prepared,
+		Repeat:         repeat,
+		Out:            flags.out,
+		CleanupTimeout: fixtureCleanupTimeout,
 	}
 	if flags.replaySet {
 		schedule, err := resolveReplaySchedule(flags.replay, flags.out, resolved.Schedules)

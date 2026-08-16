@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -87,10 +88,20 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 // flag, invalid usage — is a configuration-shaped problem (exit 5), not a
 // fixture or determinism failure.
 func Execute(args []string, stdout, stderr io.Writer) int {
+	return ExecuteContext(context.Background(), args, stdout, stderr)
+}
+
+// ExecuteContext runs the root command with a caller-owned lifecycle context.
+// Cobra passes this context to subcommands, including fixture provisioning and
+// orchestration.
+func ExecuteContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	root := newRootCommand(stdout, stderr)
 	root.SetArgs(args)
 
-	err := root.Execute()
+	err := root.ExecuteContext(ctx)
 	if err == nil {
 		return ci.ExitOK
 	}

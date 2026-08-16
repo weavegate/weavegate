@@ -266,6 +266,44 @@ func TestMySQLFixtureTeardownRetriesFailedTermination(t *testing.T) {
 	}
 }
 
+func TestMySQLFixtureTeardownHonorsContextDeadline(t *testing.T) {
+	terminateCalls := 0
+	container := &mysqlcontainer.MySQLContainer{}
+	fixture := &mysqlFixture{
+		container:   container,
+		db:          &DB{},
+		prepared:    Prepared{image: "mysql:8.4", valid: true},
+		provisioned: true,
+		terminateContainer: func(ctx context.Context, got *mysqlcontainer.MySQLContainer) error {
+			terminateCalls++
+			if got != container {
+				t.Fatalf("terminate container = %p, want %p", got, container)
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := fixture.Teardown(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("teardown error = %v, want %v", err, context.DeadlineExceeded)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("teardown elapsed = %v, want bounded by context deadline", elapsed)
+	}
+	if terminateCalls != 1 {
+		t.Fatalf("terminate calls = %d, want 1", terminateCalls)
+	}
+	if fixture.container != container || !fixture.provisioned {
+		t.Fatal("deadline-exceeded teardown discarded retryable fixture state")
+	}
+
+	t.Log("FIXTURE_TEARDOWN_CONTEXT_RESULT deadline=honored calls=1 state=retryable")
+}
+
 func itemCount(t *testing.T, ctx context.Context, db *DB) int {
 	t.Helper()
 

@@ -176,8 +176,18 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 }
 
 func (f *mysqlFixture) Teardown(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("teardown MySQL fixture: context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("teardown MySQL fixture: %w", err)
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("teardown MySQL fixture: %w", err)
+	}
 
 	if !f.provisioned && f.container == nil && f.admin == nil && f.db == nil {
 		return nil
@@ -192,6 +202,9 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 	appErr := closeDatabase("application database", app)
 	adminErr := closeDatabase("administrative database", f.admin)
 	terminateErr := f.terminate(ctx, f.container)
+	if terminateErr != nil {
+		terminateErr = fmt.Errorf("terminate MySQL container: %w", terminateErr)
+	}
 	err := errors.Join(appErr, adminErr, terminateErr)
 
 	if terminateErr != nil {
