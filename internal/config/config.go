@@ -256,7 +256,8 @@ func stringMapEqual(left, right map[string]string) bool {
 		return false
 	}
 	for key, value := range left {
-		if right[key] != value {
+		rightValue, exists := right[key]
+		if !exists || rightValue != value {
 			return false
 		}
 	}

@@ -235,6 +235,30 @@ func TestConfigLoad(t *testing.T) {
 		observed["worker_args_mismatch"] = "error"
 	})
 
+	// Same-sized maps with different keys, both mapping to "" (e.g.
+	// {request_id: "42", x: ""} vs {request_id: "42", y: ""}), must still
+	// be rejected: a plain right[key] != value comparison can't tell a
+	// missing key from one present with an empty value, and would
+	// wrongly call these two maps equal.
+	t.Run("worker_args_key_presence_mismatch", func(t *testing.T) {
+		content := mutate(
+			t,
+			base,
+			"      - id: A\n        command: assign\n        args:\n          request_id: \"42\"\n",
+			"      - id: A\n        command: assign\n        args:\n          request_id: \"42\"\n          x: \"\"\n",
+		)
+		content = mutate(
+			t,
+			content,
+			"      - id: B\n        command: assign\n        args:\n          request_id: \"42\"\n",
+			"      - id: B\n        command: assign\n        args:\n          request_id: \"42\"\n          y: \"\"\n",
+		)
+		if _, err := Load(writeConfig(t, content)); err == nil {
+			t.Fatal("load config with key-presence-mismatched worker args: want error, got nil")
+		}
+		observed["worker_args_key_presence_mismatch"] = "error"
+	})
+
 	t.Run("unsupported_adapter", func(t *testing.T) {
 		content := mutate(t, base, "adapter: gonative", "adapter: springtest")
 		if _, err := Load(writeConfig(t, content)); err == nil {
@@ -250,7 +274,8 @@ func TestConfigLoad(t *testing.T) {
 		"unknown_key", "report_section", "missing_required",
 		"non_mysql_db", "path_entrypoint", "bad_expect_rows", "missing_expect_rows",
 		"bad_assertion_id", "duplicate_worker", "duplicate_sync_point",
-		"nonpositive_run_value", "explicit_zero_run_value", "worker_args_mismatch", "unsupported_adapter",
+		"nonpositive_run_value", "explicit_zero_run_value", "worker_args_mismatch",
+		"worker_args_key_presence_mismatch", "unsupported_adapter",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {
