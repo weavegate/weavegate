@@ -36,11 +36,6 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
-func matchingSliceConfigPath(t *testing.T) string {
-	t.Helper()
-	return filepath.Join(repoRoot(t), "fixtures", "matching-slice", ".weavegate", "config.yaml")
-}
-
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	original, err := os.Getwd()
@@ -132,9 +127,21 @@ func TestRun(t *testing.T) {
 	requireDocker(t)
 
 	observed := map[string]string{}
-	configPath := matchingSliceConfigPath(t)
+	// Computed before any chdir below: repoRoot derives the module root from
+	// the current working directory, which only holds while it is still the
+	// go test package directory.
+	root := repoRoot(t)
+	configPath := filepath.Join(root, "fixtures", "matching-slice", ".weavegate", "config.yaml")
 
-	vulnerableOutDir := t.TempDir()
+	// report.md's replay line omits --out (it is not part of the
+	// deterministic file contract; see buildReplayCommand), so a pasted
+	// replay resolves stage ① of --replay lookup (A-5) against the default
+	// ".weavegate" relative to the *current* working directory. Running the
+	// whole test from one fixed directory makes that resolution work the
+	// same way a real paste-and-run would.
+	workDir := t.TempDir()
+	chdir(t, workDir)
+	vulnerableOutDir := filepath.Join(workDir, ".weavegate")
 	var vulnerableDir string
 
 	t.Run("explore_vulnerable", func(t *testing.T) {
@@ -143,7 +150,6 @@ func TestRun(t *testing.T) {
 			"--config", configPath,
 			"--scenario", "concurrent-assign",
 			"--variant", "vulnerable",
-			"--out", vulnerableOutDir,
 		)
 		if exit != ci.ExitViolation {
 			t.Fatalf("vulnerable explore exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitViolation, stdout, stderr)
@@ -210,7 +216,7 @@ func TestRun(t *testing.T) {
 	t.Run("replay_known_schedule", func(t *testing.T) {
 		// The registry's schedules directory is a repo-relative path
 		// (A-3): run from the repo root so stage ② of A-5 resolves it.
-		chdir(t, repoRoot(t))
+		chdir(t, root)
 
 		outDir := t.TempDir()
 		stdout, stderr, exit := run(
