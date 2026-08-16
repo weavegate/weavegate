@@ -78,4 +78,5 @@ Five-of-six was on the table before four-of-six: keeping `report.json`
 deterministic and accepting that its `manifest` block silently omits
 `run_id`/`started_at` while the standalone `manifest.json` keeps them. That
 asymmetry — the same field present in one file and missing from its own
-merge — was judged more confusing than a plainly-stated two-file exception.
+merge — was considered more confusing than a plainly-stated two-file
+exception.
