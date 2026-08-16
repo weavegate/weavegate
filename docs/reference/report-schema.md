@@ -52,18 +52,46 @@ when none are set). It is recorded here, not only in the config, so the
 evidence still shows which parameters produced this verdict even if the
 referenced config is later edited or deleted.
 
+Every field here is `internal/report`'s own JSON contract, not the engine's
+internal types re-serialized — the report package defines its own
+`Worker`/`Schedule`/`CoordinationStep` shapes and converts into them, so this
+schema stays independent from unrelated changes to the engine's internal
+field names or casing:
+
+```json
+{
+  "name": "concurrent-assign",
+  "workers": [{"id": "w1", "command": "assign"}, {"id": "w2", "command": "assign"}],
+  "sync_points": ["after_read_request", "before_insert_assignment"],
+  "params": {"request_id": "42"},
+  "violating_schedule": {
+    "id": "sch_7dcb74b1e506",
+    "steps": [{"worker": "w1", "point": "after_read_request"}, "..."]
+  }
+}
+```
+
 ## `observation.json`
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `schedules_explored` | int | The number of candidates **actually evaluated**, not the total size of the candidate space. Explore mode stops at the first violation, so this is often smaller than the full candidate count. |
 | `explore_passes` | int | How many full sweeps ran before stopping — 1 if a violation was found on the first pass, up to `run.explore_passes` if every pass exhausted its candidates. `0` in replay mode, where no exploration happens. |
-| `assertion_violations` | array of strings | IDs of assertions that had at least one violation across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). `[]` when none did. |
+| `assertion_violations` | array of objects | One entry per distinct violation found across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). Each entry is `{"oracle_id": "...", "rows": [...]}` — `oracle_id` names the assertion, and `rows` is that oracle's own evidence rows, so a saved verdict shows *which* rows violated it, not only that it did. Each row is a plain object keyed by the query's column names, restricted to deterministic, JSON-safe scalar values (no `NaN`/`Inf`, no non-UTF-8 strings). Two violations sharing an `oracle_id` are only collapsed into one entry when their rows are also identical; a later run reproducing the same assertion with different rows is kept as a separate entry so each stays individually auditable. `[]` when nothing violated. |
 | `oracles` | array of objects | Every configured assertion's effective `id`, `sql`, and `expect_rows` — the same fields as `oracle.assertions` in config, snapshotted here so a saved verdict stays auditable against the query that produced it even after the referenced config is edited or deleted. `[]` when the scenario declares none. |
 | `repeat` | int | The effective repeat count used (config default or `--repeat` override). |
 | `violation_runs` | int | How many of the `repeat` replay runs had at least one violation. |
 | `flaky` | bool | See [exit-codes.md](exit-codes.md#the-flaky-determination). |
 | `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky purely from this divergence (differing terminal states or timing classification) with zero assertion violations anywhere, so this is the only evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
+
+```json
+"assertion_violations": [
+  {
+    "oracle_id": "active-assignment-is-unique",
+    "rows": [{"project_request_id": 42, "active_assignment_count": 2}]
+  }
+]
+```
 
 **Fields not emitted yet:** `duplicate_rows`, `missing_rows`, `stale_rows`,
 `constraint_violations`, `aborted_transactions`, `retries`, and
@@ -78,6 +106,10 @@ never ran.
 ```json
 {"schedule_ref": "...", "events": [...], "terminals": [...]}
 ```
+
+Like `scenario.json`, this is `internal/report`'s own `Event`/`WorkerTerminal`
+shapes, converted from the engine's internal trace types rather than
+re-serializing them directly.
 
 The underlying trace model is deliberately wall-clock-free — there is no
 `t_ms` field on an event. A timeline view that needs one is a future
