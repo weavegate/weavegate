@@ -135,6 +135,14 @@ func (f resetFailingFixture) Reset(context.Context) error {
 	return errors.New("simulated fixture reset failure")
 }
 
+// failingWriter simulates a broken output pipe: every Write call fails,
+// as if the process consuming stdout had already closed its end.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("simulated write failure")
+}
+
 func TestRun(t *testing.T) {
 	requireDocker(t)
 
@@ -426,10 +434,26 @@ func TestRun(t *testing.T) {
 		observed["fixture_failure_during_replay"] = "4"
 	})
 
+	t.Run("stdout_write_failure", func(t *testing.T) {
+		var stderr bytes.Buffer
+		flags := runFlags{
+			config:   configPath,
+			scenario: "concurrent-assign",
+			variant:  "fixed",
+			out:      t.TempDir(),
+		}
+		err := runScenario(context.Background(), failingWriter{}, &stderr, flags, fixture.NewMySQLFixture)
+		exit := exitCodeFromError(err)
+		if exit != ci.ExitInput {
+			t.Fatalf("stdout write failure exit = %d, want %d; stderr=%s", exit, ci.ExitInput, stderr.String())
+		}
+		observed["stdout_write_failure"] = "5"
+	})
+
 	order := []string{
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
 		"ambiguous_schedule", "unwritable_out", "unreachable_docker",
-		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay",
+		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay", "stdout_write_failure",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {

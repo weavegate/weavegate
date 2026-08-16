@@ -180,11 +180,16 @@ func runScenario(
 		return reportRunFailure(stderr, err)
 	}
 
-	content, readErr := os.ReadFile(filepath.Join(dir, report.MarkdownFile))
-	if readErr == nil {
-		stdout.Write(content)
+	content, err := os.ReadFile(filepath.Join(dir, report.MarkdownFile))
+	if err != nil {
+		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: read %s: %w", report.MarkdownFile, err)))
 	}
-	fmt.Fprintln(stdout, dir)
+	if err := writeAll(stdout, content); err != nil {
+		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: write report to stdout: %w", err)))
+	}
+	if err := writeAll(stdout, []byte(dir+"\n")); err != nil {
+		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: write run directory to stdout: %w", err)))
+	}
 
 	return &exitError{code: outcome.Verdict.ExitCode}
 }
@@ -366,4 +371,20 @@ func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *sc
 func reportRunFailure(stderr io.Writer, err error) error {
 	fmt.Fprintf(stderr, "weavegate: %v\n", err)
 	return &exitError{code: ci.ExitCode(err, ci.Verdict{}), err: err}
+}
+
+// writeAll reports both a write error and a short write (a writer that
+// consumed fewer bytes than given without itself returning an error) as a
+// failure, so a caller printing an already-decided verdict to a writer that
+// closes early — for example because the consuming process closed its end
+// of a pipe — cannot silently report success.
+func writeAll(w io.Writer, content []byte) error {
+	written, err := w.Write(content)
+	if err != nil {
+		return err
+	}
+	if written != len(content) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
