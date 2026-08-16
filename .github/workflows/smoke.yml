@@ -115,7 +115,7 @@ jobs:
           grep -F 'CLI_REPORT_RESULT json=byte_identical md=byte_identical default_format=json latest_run=lexicographic_max same_second_ties=ordered missing_run=5 bad_format=5 no_rerender=true' fixture.log
           grep -F 'CLI_VERDICT_RESULT all_violation=2 partial_violation=3 all_pass_after_discovery=3 fingerprint_mismatch=3 replay_mode_flaky=3 exhausted=0' fixture.log
           grep -F 'CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim resolved_from=run_directory verdict=identical exit=2' fixture.log
-          grep -F 'CLI_RUN_FAILURE_RESULT bad_config=5 missing_scenario=5 unknown_scenario=5 unknown_schedule=5 ambiguous_schedule=5 unwritable_out=5 unreachable_docker=4 artifacts_written_on_pass=true cleanup_failure_on_pass=4' fixture.log
+          grep -F 'CLI_RUN_FAILURE_RESULT bad_config=5 missing_scenario=5 unknown_scenario=5 nonpositive_repeat_override=5 unknown_schedule=5 ambiguous_schedule=5 unwritable_out=5 unreachable_docker=4 artifacts_written_on_pass=true cleanup_failure_on_pass=4' fixture.log
           grep -E 'CLI_RUN_RESULT mode=explore variant=vulnerable passes=1 evaluated=[1-9][0-9]* schedule=sch_[0-9a-f]{12} repeat=20 violation_runs=20 flaky=false artifacts=6 exit=2' fixture.log
           grep -F 'CLI_RUN_RESULT mode=explore variant=fixed passes=3 evaluated=18 violating=none exhausted=true flaky=false artifacts=6 exit=0' fixture.log
           grep -F 'CLI_RUN_RESULT mode=replay variant=vulnerable schedule=sch_ba00582f9632 repeat=20 violation_runs=20 flaky=false artifacts=6 exit=2' fixture.log

@@ -14,7 +14,7 @@ weavegate run --config <path> --scenario <name> [--replay <id>] [--repeat <n>] [
 | `--config` | `.weavegate/config.yaml` | Path to the run configuration file. |
 | `--scenario` | (required) | Scenario name declared in `scenarios:`. Required whether or not `--replay` is set — a replay still needs the scenario's worker and sync-point declarations to execute. |
 | `--replay` | (unset) | Schedule ID or file to replay instead of exploring. See [Mode selection](#mode-selection). |
-| `--repeat` | config's `run.repeat` | Overrides the configured repeat count. |
+| `--repeat` | config's `run.repeat` | Overrides the configured repeat count. Must be positive if given; `--repeat 0` or a negative value is rejected (exit 5) rather than silently falling back to the config value. |
 | `--variant` | config's `target.sut.variant` | Overrides the configured SUT variant. |
 | `--out` | `.weavegate` | Run directory base. Every run — pass or violation — writes `<out>/runs/<run_id>/`. |
 

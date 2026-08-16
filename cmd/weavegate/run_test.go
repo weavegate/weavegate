@@ -288,6 +288,21 @@ func TestRun(t *testing.T) {
 		observed["unknown_scenario"] = "5"
 	})
 
+	t.Run("nonpositive_repeat_override", func(t *testing.T) {
+		// Neither Docker nor a valid --scenario is reachable before this
+		// rejection: it must fire from flag validation alone, before
+		// provisioning starts.
+		_, _, exit := run("run", "--config", configPath, "--scenario", "concurrent-assign", "--repeat", "0")
+		if exit != ci.ExitInput {
+			t.Fatalf("--repeat 0 exit = %d, want %d", exit, ci.ExitInput)
+		}
+		_, _, exit = run("run", "--config", configPath, "--scenario", "concurrent-assign", "--repeat", "-1")
+		if exit != ci.ExitInput {
+			t.Fatalf("--repeat -1 exit = %d, want %d", exit, ci.ExitInput)
+		}
+		observed["nonpositive_repeat_override"] = "5"
+	})
+
 	t.Run("unknown_schedule", func(t *testing.T) {
 		_, _, exit := run(
 			"run", "--config", configPath, "--scenario", "concurrent-assign",
@@ -383,7 +398,7 @@ func TestRun(t *testing.T) {
 	})
 
 	order := []string{
-		"bad_config", "missing_scenario", "unknown_scenario", "unknown_schedule",
+		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
 		"ambiguous_schedule", "unwritable_out", "unreachable_docker",
 		"artifacts_written_on_pass", "cleanup_failure_on_pass",
 	}

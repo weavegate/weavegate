@@ -22,12 +22,13 @@ import (
 )
 
 type runFlags struct {
-	config   string
-	scenario string
-	replay   string
-	repeat   int
-	variant  string
-	out      string
+	config    string
+	scenario  string
+	replay    string
+	repeat    int
+	repeatSet bool
+	variant   string
+	out       string
 }
 
 func newRunCommand(stdout, stderr io.Writer) *cobra.Command {
@@ -38,7 +39,8 @@ func newRunCommand(stdout, stderr io.Writer) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			flags.repeatSet = cmd.Flags().Changed("repeat")
 			return runScenario(context.Background(), stdout, stderr, *flags, fixture.NewMySQLFixture)
 		},
 	}
@@ -75,8 +77,11 @@ func runScenario(
 		return reportRunFailure(stderr, err)
 	}
 
+	if flags.repeatSet && flags.repeat < 1 {
+		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: --repeat must be positive, got %d", flags.repeat)))
+	}
 	repeat := cfg.Run.Repeat
-	if flags.repeat > 0 {
+	if flags.repeatSet {
 		repeat = flags.repeat
 	}
 
