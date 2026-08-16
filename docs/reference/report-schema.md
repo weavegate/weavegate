@@ -58,7 +58,7 @@ referenced config is later edited or deleted.
 | --- | --- | --- |
 | `schedules_explored` | int | The number of candidates **actually evaluated**, not the total size of the candidate space. Explore mode stops at the first violation, so this is often smaller than the full candidate count. |
 | `explore_passes` | int | How many full sweeps ran before stopping — 1 if a violation was found on the first pass, up to `run.explore_passes` if every pass exhausted its candidates. `0` in replay mode, where no exploration happens. |
-| `assertion_violations` | array of strings | IDs of assertions that had at least one violation across the replay runs. `[]` when none did. |
+| `assertion_violations` | array of strings | IDs of assertions that had at least one violation across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). `[]` when none did. |
 | `repeat` | int | The effective repeat count used (config default or `--repeat` override). |
 | `violation_runs` | int | How many of the `repeat` replay runs had at least one violation. |
 | `flaky` | bool | See [exit-codes.md](exit-codes.md#the-flaky-determination). |
@@ -80,6 +80,12 @@ never ran.
 The underlying trace model is deliberately wall-clock-free — there is no
 `t_ms` field on an event. A timeline view that needs one is a future
 `report --timeline` feature, not part of this schema.
+
+The saved run is whichever run best supports the reported observation: a
+replay run with an assertion violation when one exists, falling back to
+exploration's own discovery run when replay never reproduced it (the
+0/repeat flaky case), and only falling back to the first replay run when
+neither found anything to show.
 
 ## `report.json`
 

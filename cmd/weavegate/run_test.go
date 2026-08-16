@@ -13,6 +13,7 @@ import (
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/orchestrator"
 	"github.com/weavegate/weavegate/internal/report"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
@@ -426,4 +427,84 @@ func writeConfigWithBadMigrations(t *testing.T, configPath string) string {
 		t.Fatalf("write bad-migrations config: %v", err)
 	}
 	return path
+}
+
+// TestRunEvidenceSelection covers the 0/repeat flaky case (A-18-adjacent):
+// exploration finds a violation, but every replay run passes. Without a
+// discovery-run fallback, runTrace and violatedAssertionIDs would report
+// nothing to substantiate the resulting FLAKY verdict. No Docker needed:
+// runOutcome is built directly, the same way verdict_test.go builds
+// VerdictInput.
+func TestRunEvidenceSelection(t *testing.T) {
+	violating := violatingEvaluation(t)
+	passing := passingEvaluation(t)
+	discoveryRun := orchestrator.RunResult{
+		ScheduleID:  "sch_discovery000",
+		Evaluation:  violating,
+		Fingerprint: "fp-violation",
+		Trace:       nil,
+	}
+
+	t.Run("discovery_fallback_when_replay_never_reproduces", func(t *testing.T) {
+		outcome := runOutcome{
+			Mode:         ModeExplore,
+			DiscoveryRun: &discoveryRun,
+			Replay: orchestrator.ReplayResult{
+				Runs: repeatRuns(passing, "fp-pass", 20),
+			},
+		}
+
+		trace := runTrace(outcome)
+		if trace.ScheduleRef != discoveryRun.ScheduleID {
+			t.Fatalf("trace.schedule_ref = %q, want discovery run %q", trace.ScheduleRef, discoveryRun.ScheduleID)
+		}
+
+		ids := violatedAssertionIDs(violationEvidenceRuns(outcome))
+		if len(ids) != 1 || ids[0] != "active-assignment-is-unique" {
+			t.Fatalf("assertion_violations = %v, want [active-assignment-is-unique] from the discovery run", ids)
+		}
+	})
+
+	t.Run("violating_replay_run_preferred_over_discovery", func(t *testing.T) {
+		outcome := runOutcome{
+			Mode:         ModeExplore,
+			DiscoveryRun: &discoveryRun,
+			Replay: orchestrator.ReplayResult{
+				Runs: append(repeatRuns(passing, "fp-pass", 19), orchestrator.RunResult{
+					ScheduleID:  "sch_replayrun0001",
+					Evaluation:  violating,
+					Fingerprint: "fp-violation",
+				}),
+			},
+		}
+
+		trace := runTrace(outcome)
+		if trace.ScheduleRef != "sch_replayrun0001" {
+			t.Fatalf("trace.schedule_ref = %q, want the violating replay run, not the discovery run", trace.ScheduleRef)
+		}
+	})
+
+	t.Run("no_discovery_falls_back_to_first_replay_run", func(t *testing.T) {
+		outcome := runOutcome{
+			Mode: ModeExplore,
+			Replay: orchestrator.ReplayResult{
+				Runs: repeatRuns(passing, "fp-pass", 3),
+			},
+		}
+
+		trace := runTrace(outcome)
+		if trace.ScheduleRef == discoveryRun.ScheduleID {
+			t.Fatalf("trace.schedule_ref = %q, want a replay run (no discovery run set)", trace.ScheduleRef)
+		}
+		if len(violatedAssertionIDs(violationEvidenceRuns(outcome))) != 0 {
+			t.Fatalf("assertion_violations should be empty when nothing violated")
+		}
+	})
+
+	t.Run("no_runs_at_all", func(t *testing.T) {
+		trace := runTrace(runOutcome{})
+		if trace.ScheduleRef != "" || trace.Events != nil || trace.Terminals != nil {
+			t.Fatalf("trace = %+v, want zero value when there is nothing to report", trace)
+		}
+	})
 }

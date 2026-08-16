@@ -19,7 +19,15 @@ type runOutcome struct {
 	PassesExecuted    int
 	ViolatingSchedule *scenario.Schedule
 	Replay            orchestrator.ReplayResult
-	Verdict           Verdict
+
+	// DiscoveryRun is the single exploration run that first found a
+	// violation (explore mode only; nil in replay mode and when exploration
+	// found nothing). It is evidence in its own right: when replay cannot
+	// reproduce the violation on any of its repeat runs (the 0/repeat flaky
+	// case), it is the only run that actually shows what exploration found.
+	DiscoveryRun *orchestrator.RunResult
+
+	Verdict Verdict
 }
 
 // executeScenario runs the scenario named in flags: a full explore sweep
@@ -105,12 +113,14 @@ func executeExplore(
 			DiscoveryFingerprint: result.ViolatingRun.Fingerprint,
 			Replay:               replay,
 		})
+		discoveryRun := result.ViolatingRun
 		return runOutcome{
 			Mode:              ModeExplore,
 			SchedulesExplored: schedulesExplored,
 			PassesExecuted:    pass,
 			ViolatingSchedule: &schedule,
 			Replay:            replay,
+			DiscoveryRun:      &discoveryRun,
 			Verdict:           verdict,
 		}, nil
 	}

@@ -156,7 +156,7 @@ func runScenario(
 		Observation: report.Observation{
 			SchedulesExplored:   outcome.SchedulesExplored,
 			ExplorePasses:       outcome.PassesExecuted,
-			AssertionViolations: violatedAssertionIDs(outcome.Replay.Runs),
+			AssertionViolations: violatedAssertionIDs(violationEvidenceRuns(outcome)),
 			Repeat:              repeat,
 			ViolationRuns:       outcome.Verdict.ViolationRuns,
 			Flaky:               outcome.Verdict.Flaky,
@@ -181,28 +181,41 @@ func runScenario(
 	return &exitError{code: outcome.Verdict.ExitCode}
 }
 
-// runTrace selects the run whose trace.json should be saved. It prefers the
-// first run with an assertion violation over the first run overall: a flaky
-// replay's first run can pass while a later run violates an assertion, and
-// observation.json reports that assertion regardless of which run found it,
-// so the saved trace must be able to support the reported observation
-// rather than always coming from a passing run.
+// runTrace selects the run whose trace.json should be saved. It prefers a
+// replay run with an assertion violation over the first replay run: a
+// flaky replay's first run can pass while a later run violates an
+// assertion, and observation.json reports that assertion regardless of
+// which run found it, so the saved trace must be able to support the
+// reported observation rather than always coming from a passing run. When
+// no replay run reproduces a violation at all (the 0/repeat flaky case —
+// exploration found one, but every replay run passed), it falls back to
+// the exploration's own discovery run rather than a trace with nothing to
+// show for a FLAKY verdict.
 func runTrace(outcome runOutcome) report.Trace {
-	if len(outcome.Replay.Runs) == 0 {
+	selected, ok := selectTraceRun(outcome)
+	if !ok {
 		return report.Trace{}
-	}
-	selected := outcome.Replay.Runs[0]
-	for _, run := range outcome.Replay.Runs {
-		if runHasViolation(run) {
-			selected = run
-			break
-		}
 	}
 	return report.Trace{
 		ScheduleRef: selected.ScheduleID,
 		Events:      selected.Trace,
 		Terminals:   selected.Terminals,
 	}
+}
+
+func selectTraceRun(outcome runOutcome) (orchestrator.RunResult, bool) {
+	for _, run := range outcome.Replay.Runs {
+		if runHasViolation(run) {
+			return run, true
+		}
+	}
+	if outcome.DiscoveryRun != nil {
+		return *outcome.DiscoveryRun, true
+	}
+	if len(outcome.Replay.Runs) > 0 {
+		return outcome.Replay.Runs[0], true
+	}
+	return orchestrator.RunResult{}, false
 }
 
 func runHasViolation(run orchestrator.RunResult) bool {
@@ -212,6 +225,20 @@ func runHasViolation(run orchestrator.RunResult) bool {
 		}
 	}
 	return false
+}
+
+// violationEvidenceRuns returns every run that should be scanned for
+// violated assertion IDs: all replay runs, plus the exploration's discovery
+// run when replay never reproduced its violation. Without the discovery
+// run, a 0/repeat flaky verdict would report assertion_violations: [] even
+// though exploration found a specific assertion violated.
+func violationEvidenceRuns(outcome runOutcome) []orchestrator.RunResult {
+	runs := make([]orchestrator.RunResult, 0, len(outcome.Replay.Runs)+1)
+	runs = append(runs, outcome.Replay.Runs...)
+	if outcome.DiscoveryRun != nil {
+		runs = append(runs, *outcome.DiscoveryRun)
+	}
+	return runs
 }
 
 func violatedAssertionIDs(runs []orchestrator.RunResult) []string {
