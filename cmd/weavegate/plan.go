@@ -72,7 +72,7 @@ func buildRunPlan(flags runFlags) (runPlan, error) {
 		Out:      flags.out,
 	}
 	if flags.replaySet {
-		schedule, err := resolveReplaySchedule(flags.replay, flags.out, resolved.SchedulesDir)
+		schedule, err := resolveReplaySchedule(flags.replay, flags.out, resolved.Schedules)
 		if err != nil {
 			return runPlan{}, err
 		}

@@ -374,7 +374,7 @@ func TestRun(t *testing.T) {
 		writeScenarioDoc(t, filepath.Join(runDirA, "scenario.json"), scheduleA)
 		writeScenarioDoc(t, filepath.Join(runDirB, "scenario.json"), scheduleB)
 
-		_, err = resolveReplaySchedule(scheduleA.ID, outDir, "")
+		_, err = resolveReplaySchedule(scheduleA.ID, outDir, nil)
 		if err == nil {
 			t.Fatal("resolve ambiguous schedule: want error, got nil")
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"slices"
 	"time"
 
@@ -30,13 +31,13 @@ type Timeouts struct {
 // scenario, an Oracle set, and orchestrator timeouts. It does not access a
 // database or a fixture.
 type Resolved struct {
-	Fixture      fixture.FixtureSpec
-	Scenario     scenario.Scenario
-	Oracle       *oracle.Set
-	NewRuntime   orchestrator.RuntimeFactory
-	NewAdapter   orchestrator.AdapterFactory
-	Timeouts     Timeouts
-	SchedulesDir string
+	Fixture    fixture.FixtureSpec
+	Scenario   scenario.Scenario
+	Oracle     *oracle.Set
+	NewRuntime orchestrator.RuntimeFactory
+	NewAdapter orchestrator.AdapterFactory
+	Timeouts   Timeouts
+	Schedules  fs.FS
 }
 
 // Resolve translates cfg's named scenario into engine dependencies. variant,
@@ -123,7 +124,7 @@ func Resolve(cfg config.Config, scenarioName, variant string) (Resolved, error) 
 			Run:            60 * arrive,
 			Stop:           20 * arrive,
 		},
-		SchedulesDir: entry.SchedulesDir,
+		Schedules: entry.Schedules,
 	}, nil
 }
 
