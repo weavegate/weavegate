@@ -108,12 +108,26 @@ invalid ID, or unknown format exits 5.
 
 ```console
 $ weavegate report --out /tmp/wg-doc --format md
-## weavegate: FAIL
+## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: concurrent write not serialized
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  help:      add a unique constraint on the active assignment key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
 ```
+
+Because `report` streams the stored artifact, this diagnostic is the same block
+written by `run`, not a second rendering. Longer explanations live under
+[`docs/reference/diagnostics/`](diagnostics/RG001.md).
 
 ## Global behavior
 

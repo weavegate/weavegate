@@ -28,6 +28,12 @@ PR-comment feature. This CLI's artifact contract is fixed (six files, always
 written — see [report-schema.md](report-schema.md)), so a `report:` key is
 rejected the same way any other unknown key is.
 
+Diagnostic codes are not declared by configuration. Weavegate derives them
+from the Oracle kind or engine signal that produced the verdict and loads their
+text from its embedded rule table. In particular, adding a `diagnostic:` key to
+an assertion or anywhere else is rejected by strict decoding. See the
+[RG001 reference](diagnostics/RG001.md) for the current assertion mapping.
+
 ## Built-in entrypoints
 
 `target.sut.entrypoint` selects a Go adapter compiled into the binary — it

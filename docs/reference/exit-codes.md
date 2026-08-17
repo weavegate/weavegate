@@ -6,8 +6,8 @@ codes.
 | Code | Meaning |
 | --- | --- |
 | `0` | No violation. See [PASS's limit](#pass-is-not-a-proof) below. |
-| `2` | An invariant violation was detected and reproduced. |
-| `3` | The determinism check failed (`flaky`) — a judgment could not be trusted, not a clean pass or a clean violation. |
+| `2` | An invariant violation was detected and reproduced. A SQL assertion violation is named [RG001](diagnostics/RG001.md). |
+| `3` | The determinism check failed (`flaky`) and is named [RG090](diagnostics/RG090.md) — a judgment could not be trusted, not a clean pass or a clean violation. |
 | `4` | Fixture provisioning, database operation, or cleanup failed. |
 | `5` | A configuration, adapter, assertion, schedule, or artifact I/O error. |
 | `130` | The run was interrupted by SIGINT or SIGTERM. |
@@ -27,6 +27,10 @@ in this order:
 
 A run that is `flaky` is never reported as PASS or as a stable violation,
 even when most replay runs agree.
+
+The RG code names an already-decided verdict; it does not participate in this
+priority calculation. Adding RG001 leaves a violation at exit 2, and adding
+RG090 leaves a flaky run at exit 3.
 
 ## The `flaky` determination
 
