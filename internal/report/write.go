@@ -73,9 +73,6 @@ func WriteRun(base string, run Run) (dir string, returnErr error) {
 	if err := os.Mkdir(tempDir, dirMode); err != nil {
 		return "", fmt.Errorf("write run %q: create temporary directory: %w", run.Manifest.RunID, err)
 	}
-	if err := os.Chmod(tempDir, dirMode); err != nil {
-		return "", fmt.Errorf("write run %q: set temporary directory mode: %w", run.Manifest.RunID, err)
-	}
 
 	keepTemp := true
 	defer func() {
@@ -89,17 +86,16 @@ func WriteRun(base string, run Run) (dir string, returnErr error) {
 		if err := os.WriteFile(path, files[name], fileMode); err != nil {
 			return "", fmt.Errorf("write run %q: write %s: %w", run.Manifest.RunID, name, err)
 		}
-		if err := os.Chmod(path, fileMode); err != nil {
-			return "", fmt.Errorf("write run %q: set %s mode: %w", run.Manifest.RunID, name, err)
-		}
 	}
 
 	finalDir := filepath.Join(runsDir, run.Manifest.RunID)
-	if err := os.RemoveAll(finalDir); err != nil {
-		return "", fmt.Errorf("write run %q: clear stale run directory: %w", run.Manifest.RunID, err)
+	if _, err := os.Lstat(finalDir); err == nil {
+		return "", fmt.Errorf("write run %q: destination already exists", run.Manifest.RunID)
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("write run %q: inspect destination: %w", run.Manifest.RunID, err)
 	}
 	if err := os.Rename(tempDir, finalDir); err != nil {
-		return "", fmt.Errorf("write run %q: replace destination: %w", run.Manifest.RunID, err)
+		return "", fmt.Errorf("write run %q: publish destination: %w", run.Manifest.RunID, err)
 	}
 	keepTemp = false
 
@@ -134,9 +130,10 @@ func renderFiles(run Run) (map[string][]byte, error) {
 	files[TraceFile] = traceJSON
 
 	mergedJSON, err := canonicalJSON(Merged{
-		Manifest:    run.Manifest,
-		Scenario:    run.Scenario,
-		Observation: run.Observation,
+		ArtifactVersion: ArtifactVersion,
+		Manifest:        run.Manifest,
+		Scenario:        run.Scenario,
+		Observation:     run.Observation,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode merged report: %w", err)
@@ -159,6 +156,10 @@ func canonicalJSON(value any) ([]byte, error) {
 // normalizeRun replaces nil slices with non-nil empty slices so JSON
 // encodes them as [] rather than null.
 func normalizeRun(run Run) Run {
+	run.Manifest.ArtifactVersion = ArtifactVersion
+	run.Scenario.ArtifactVersion = ArtifactVersion
+	run.Observation.ArtifactVersion = ArtifactVersion
+	run.Trace.ArtifactVersion = ArtifactVersion
 	if run.Scenario.Workers == nil {
 		run.Scenario.Workers = []Worker{}
 	}

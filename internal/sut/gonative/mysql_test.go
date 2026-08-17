@@ -24,11 +24,15 @@ func TestGoNativeMySQL(t *testing.T) {
 		}
 	})
 
-	db, err := databaseFixture.Provision(ctx, fixture.FixtureSpec{
+	prepared, err := fixture.Prepare(fixture.FixtureSpec{
 		Image:      "mysql:8.4",
 		Migrations: filepath.Join("..", "..", "fixture", "testdata", "mysql", "migration"),
 		Seed:       filepath.Join("..", "..", "fixture", "testdata", "mysql", "seed.sql"),
 	})
+	if err != nil {
+		t.Fatalf("prepare MySQL fixture: %v", err)
+	}
+	db, err := databaseFixture.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision MySQL fixture: %v", err)
 	}

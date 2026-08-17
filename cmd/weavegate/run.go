@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,14 +23,37 @@ import (
 	"github.com/weavegate/weavegate/internal/scenario"
 )
 
+type cleanupGuard struct {
+	once      sync.Once
+	fixture   fixture.Fixture
+	operation context.Context
+	timeout   time.Duration
+	err       error
+}
+
+func (g *cleanupGuard) run() error {
+	g.once.Do(func() {
+		operation := g.operation
+		if operation == nil {
+			operation = context.Background()
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(operation), g.timeout)
+		defer cancel()
+		g.err = g.fixture.Teardown(cleanupCtx)
+	})
+	return g.err
+}
+
 type runFlags struct {
-	config    string
-	scenario  string
-	replay    string
-	repeat    int
-	repeatSet bool
-	variant   string
-	out       string
+	config     string
+	scenario   string
+	replay     string
+	replaySet  bool
+	repeat     int
+	repeatSet  bool
+	variant    string
+	variantSet bool
+	out        string
 }
 
 func newRunCommand(stdout, stderr io.Writer) *cobra.Command {
@@ -40,8 +65,10 @@ func newRunCommand(stdout, stderr io.Writer) *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			flags.replaySet = cmd.Flags().Changed("replay")
 			flags.repeatSet = cmd.Flags().Changed("repeat")
-			return runScenario(context.Background(), stdout, stderr, *flags, fixture.NewMySQLFixture)
+			flags.variantSet = cmd.Flags().Changed("variant")
+			return runScenario(cmd.Context(), stdout, stderr, *flags, fixture.NewMySQLFixture)
 		},
 	}
 
@@ -63,54 +90,44 @@ func runScenario(
 	ctx context.Context,
 	stdout, stderr io.Writer,
 	flags runFlags,
-	newFixture func() fixture.Fixture,
+	newFixture func() fixture.Provisioner,
 ) (finalErr error) {
 	startedAt := time.Now().UTC()
 
-	cfg, err := config.Load(flags.config)
-	if err != nil {
-		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: %w", err)))
-	}
-
-	resolved, err := Resolve(cfg, flags.scenario, flags.variant)
+	plan, err := buildRunPlan(flags)
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
 
-	if flags.repeatSet && flags.repeat < 1 {
-		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: --repeat must be positive, got %d", flags.repeat)))
-	}
-	repeat := cfg.Run.Repeat
-	if flags.repeatSet {
-		repeat = flags.repeat
-	}
-
 	fx := newFixture()
+	cleanup := &cleanupGuard{
+		fixture: fx, operation: ctx, timeout: plan.CleanupTimeout,
+	}
+	cleanupDone := false
 
-	// The teardown defer is registered before checking Provision's error so
-	// that a failed provision still gets a Teardown call: when Provision
-	// itself starts a container but a later setup step fails, and the
-	// fixture's own cleanup-on-failure attempt also fails, it deliberately
-	// retains the container for a subsequent Teardown (see
-	// internal/fixture/mysql.go's cleanupFailedProvision) rather than losing
-	// track of it. Teardown is a no-op when there is nothing to clean up.
+	// Register cleanup immediately after fixture construction so every later
+	// return requests bounded teardown. The explicit success-path call below
+	// records cleanup in the manifest; this fallback runs only when execution
+	// returned earlier.
 	defer func() {
-		cleanupErr := fx.Teardown(context.WithoutCancel(ctx))
+		if cleanupDone {
+			return
+		}
+		cleanupErr := cleanup.run()
 		if cleanupErr == nil {
 			return
 		}
 		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 
-		// A-18: cleanup failure never lowers an already decided code; it only
-		// raises an otherwise passing run to 4, so a leaked container is never
-		// reported as PASS and a real violation is never hidden by teardown.
 		var exit *exitError
-		if errors.As(finalErr, &exit) && exit.code == ci.ExitOK {
-			finalErr = &exitError{code: ci.ExitFixture, err: exit.err}
+		if errors.As(finalErr, &exit) {
+			exit.verdict.CleanupFailed = true
+			return
 		}
+		finalErr = &exitError{err: ci.FixtureError(cleanupErr)}
 	}()
 
-	db, err := fx.Provision(ctx, resolved.Fixture)
+	db, err := fx.Provision(ctx, plan.Fixture)
 	if err != nil {
 		return reportRunFailure(stderr, ci.FixtureError(fmt.Errorf("run: provision fixture: %w", err)))
 	}
@@ -121,8 +138,8 @@ func runScenario(
 	}
 
 	manifest, err := collectManifest(
-		ctx, db, resolved.Fixture,
-		cfg.Target.SUT.Adapter, resolved.Scenario.SUTConfig.Variant,
+		ctx, db, plan.Fixture,
+		plan.Config.Target.SUT.Adapter, plan.Resolved.Scenario.SUTConfig.Variant,
 		runID, startedAt,
 	)
 	if err != nil {
@@ -132,72 +149,67 @@ func runScenario(
 	executor, err := orchestrator.New(orchestrator.Config{
 		Fixture:               fx,
 		DB:                    db,
-		NewRuntime:            resolved.NewRuntime,
-		NewAdapter:            resolved.NewAdapter,
-		BlockInferenceTimeout: resolved.Timeouts.BlockInference,
-		StepTimeout:           resolved.Timeouts.Step,
-		RunTimeout:            resolved.Timeouts.Run,
-		StopTimeout:           resolved.Timeouts.Stop,
+		NewRuntime:            plan.Resolved.NewRuntime,
+		NewAdapter:            plan.Resolved.NewAdapter,
+		BlockInferenceTimeout: plan.Resolved.Timeouts.BlockInference,
+		StepTimeout:           plan.Resolved.Timeouts.Step,
+		RunTimeout:            plan.Resolved.Timeouts.Run,
+		StopTimeout:           plan.Resolved.Timeouts.Stop,
 	})
 	if err != nil {
 		return reportRunFailure(stderr, ci.InputError(fmt.Errorf("run: create orchestrator: %w", err)))
 	}
 
-	outcome, err := executeScenario(ctx, executor, resolved, cfg, repeat, flags)
+	outcome, err := executeScenario(ctx, executor, plan)
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
 
-	// Tear down before writing and printing the report, not only in the
-	// deferred cleanup above: otherwise a leaked container is discovered
-	// only after the saved manifest and the printed report have already
-	// gone out reporting success. The deferred call above still runs
-	// afterward and is a no-op unless this attempt itself failed, in
-	// which case mysql.go's Teardown retries rather than losing track of
-	// the container, giving cleanup a second chance.
-	exitCode := outcome.Verdict.ExitCode
-	if cleanupErr := fx.Teardown(context.WithoutCancel(ctx)); cleanupErr != nil {
+	// Tear down before writing and printing so cleanup failure is present in
+	// the saved manifest. cleanupGuard guarantees this is the only call.
+	cleanupErr := cleanup.run()
+	cleanupDone = true
+	if cleanupErr != nil {
 		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 		manifest.CleanupFailed = true
-
-		// A-18: cleanup failure never lowers an already decided code; it
-		// only raises an otherwise passing run to 4, so a leaked container
-		// is never reported as PASS and a real violation is never hidden
-		// by teardown.
-		if exitCode == ci.ExitOK {
-			exitCode = ci.ExitFixture
-		}
+	}
+	semanticVerdict := ci.Verdict{
+		Violations:    outcome.Verdict.ViolationRuns,
+		Flaky:         outcome.Verdict.Flaky,
+		CleanupFailed: manifest.CleanupFailed,
 	}
 
-	replayCommand := buildReplayCommand(flags, resolved.Scenario.SUTConfig.Variant, repeat, outcome.ViolatingSchedule)
+	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
 
 	run := report.Run{
 		Manifest: manifest,
 		Scenario: report.Scenario{
-			Name:              resolved.Scenario.Name,
-			Workers:           report.NewWorkers(resolved.Scenario.Workers),
-			SyncPoints:        resolved.Scenario.SyncPoints,
-			Params:            resolved.Scenario.SUTConfig.Params,
-			ViolatingSchedule: report.NewSchedule(outcome.ViolatingSchedule),
+			Name:       plan.Resolved.Scenario.Name,
+			Workers:    report.NewWorkers(plan.Resolved.Scenario.Workers),
+			SyncPoints: plan.Resolved.Scenario.SyncPoints,
+			Params:     plan.Resolved.Scenario.SUTConfig.Params,
+			Schedule:   report.NewSchedule(outcome.ViolatingSchedule),
 		},
 		Observation: report.Observation{
-			SchedulesExplored:   outcome.SchedulesExplored,
-			ExplorePasses:       outcome.PassesExecuted,
-			AssertionViolations: assertionViolations(violationEvidenceRuns(outcome)),
-			Oracles:             oracleDeclarations(cfg.Oracle.Assertions),
-			Repeat:              repeat,
-			Timeouts:            effectiveTimeouts(cfg, resolved),
-			ViolationRuns:       outcome.Verdict.ViolationRuns,
-			Flaky:               outcome.Verdict.Flaky,
-			Fingerprints:        outcome.Replay.Fingerprints,
+			Mode:                 string(outcome.Mode),
+			SchedulesExplored:    outcome.SchedulesExplored,
+			ExplorePasses:        outcome.PassesExecuted,
+			AssertionViolations:  assertionViolations(violationEvidenceRuns(outcome)),
+			Oracles:              oracleDeclarations(plan.Config.Oracle.Assertions),
+			Repeat:               plan.Repeat,
+			Timeouts:             effectiveTimeouts(plan.Config, plan.Resolved),
+			ViolationRuns:        outcome.Verdict.ViolationRuns,
+			Flaky:                outcome.Verdict.Flaky,
+			Fingerprints:         outcome.Replay.Fingerprints,
+			DiscoveryFingerprint: discoveryFingerprint(outcome),
 		},
 		Trace:         runTrace(outcome),
-		Pass:          outcome.Verdict.ExitCode == ci.ExitOK,
+		Pass:          !outcome.Verdict.Flaky && outcome.Verdict.ViolationRuns == 0,
 		Flaky:         outcome.Verdict.Flaky,
 		ReplayCommand: replayCommand,
 	}
 
-	dir, err := report.WriteRun(flags.out, run)
+	dir, err := report.WriteRun(plan.Out, run)
 	if err != nil {
 		return reportRunFailure(stderr, err)
 	}
@@ -213,7 +225,14 @@ func runScenario(
 		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: write run directory to stdout: %w", err)))
 	}
 
-	return &exitError{code: exitCode}
+	return &exitError{verdict: semanticVerdict}
+}
+
+func discoveryFingerprint(outcome runOutcome) string {
+	if outcome.Mode != ModeExplore || outcome.DiscoveryRun == nil {
+		return ""
+	}
+	return outcome.DiscoveryRun.Fingerprint
 }
 
 // runTrace selects the run whose trace.json should be saved, in priority
@@ -381,26 +400,42 @@ func effectiveTimeouts(cfg config.Config, resolved Resolved) report.Timeouts {
 	}
 }
 
-// buildReplayCommand renders the self-sufficient replay line (A-5). --out is
+// buildReplayCommand renders the runnable replay line (A-5). --out is
 // deliberately omitted: it is not part of the deterministic file contract
 // (docs/adr/0005-volatile-run-metadata-boundary.md), so a config-as-given
 // value here would make report.md vary with where a run happened to write
-// its evidence rather than with what was actually run. A reader replaying
-// from the printed line uses the same --out (or its default) as the run
-// that discovered the schedule, so stage ① of --replay resolution still
-// finds it; see cli.md for the two-stage resolution order.
+// its evidence rather than with what was actually run. Pasting the line from
+// the same directory uses the default --out: stage ① finds evidence written
+// there, while a different or non-default output relies on the entrypoint's
+// embedded stage ② schedule; see cli.md for the two-stage resolution order.
 func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *scenario.Schedule) string {
 	if schedule == nil {
 		return ""
 	}
 	return fmt.Sprintf(
 		"weavegate run --config %s --scenario %s --variant %s --replay %s --repeat %d",
-		flags.config,
-		flags.scenario,
-		variant,
-		schedule.ID,
+		shellQuote(flags.config),
+		shellQuote(flags.scenario),
+		shellQuote(variant),
+		shellQuote(schedule.ID),
 		repeat,
 	)
+}
+
+func shellQuote(value string) string {
+	if value != "" {
+		safe := true
+		for _, char := range value {
+			if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-", char) {
+				safe = false
+				break
+			}
+		}
+		if safe {
+			return value
+		}
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // reportRunFailure prints err to stderr and wraps it as the process's
@@ -408,8 +443,11 @@ func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *sc
 // expected to already be a ci.FixtureError, ci.InputError, or
 // ci.OutputError from the call site.
 func reportRunFailure(stderr io.Writer, err error) error {
+	if errors.Is(err, context.Canceled) {
+		err = ci.InterruptedError(err)
+	}
 	fmt.Fprintf(stderr, "weavegate: %v\n", err)
-	return &exitError{code: ci.ExitCode(err, ci.Verdict{}), err: err}
+	return &exitError{err: err}
 }
 
 // writeAll reports both a write error and a short write (a writer that

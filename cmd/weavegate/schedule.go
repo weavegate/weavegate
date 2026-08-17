@@ -1,27 +1,30 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
-	"sort"
-	"strings"
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
 
-// resolveReplaySchedule interprets a --replay value (A-5). A value
-// containing "/" or ".json" is a file path loaded directly. Otherwise it is
-// a schedule ID, resolved in order from ① this --out directory's own run
-// evidence, then ② the entrypoint's registered schedules directory. Both
-// stages sort candidate paths for a deterministic search order. Several
+var scheduleIDPattern = regexp.MustCompile(`^sch_[0-9a-f]{12}$`)
+
+// resolveReplaySchedule interprets a --replay value (A-5). Exactly
+// "sch_" plus 12 lowercase hexadecimal characters is a schedule ID; every
+// other non-empty value is a file path. IDs resolve in order from ① this
+// --out directory's own run evidence, then ② the entrypoint's embedded
+// schedules. Several
 // candidates sharing the ID are accepted only when their steps agree;
 // otherwise the ID is ambiguous and rejected rather than guessed at.
-func resolveReplaySchedule(value, outDir, schedulesDir string) (scenario.Schedule, error) {
-	if strings.Contains(value, "/") || strings.Contains(value, ".json") {
+func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Schedule, error) {
+	if !scheduleIDPattern.MatchString(value) {
 		schedule, err := scenario.LoadScheduleFile(value)
 		if err != nil {
 			return scenario.Schedule{}, ci.InputError(fmt.Errorf("resolve replay schedule file %q: %w", value, err))
@@ -29,12 +32,12 @@ func resolveReplaySchedule(value, outDir, schedulesDir string) (scenario.Schedul
 		return schedule, nil
 	}
 
-	candidates, err := findScheduleByID(filepath.Join(outDir, "runs", "*", "scenario.json"), value, extractRunDirectorySchedule)
+	candidates, err := findSavedSchedulesByID(outDir, value)
 	if err != nil {
 		return scenario.Schedule{}, err
 	}
-	if len(candidates) == 0 && strings.TrimSpace(schedulesDir) != "" {
-		candidates, err = findScheduleByID(filepath.Join(schedulesDir, "*.json"), value, extractRegistrySchedule)
+	if len(candidates) == 0 && schedules != nil {
+		candidates, err = findEmbeddedSchedulesByID(schedules, value)
 		if err != nil {
 			return scenario.Schedule{}, err
 		}
@@ -44,7 +47,7 @@ func resolveReplaySchedule(value, outDir, schedulesDir string) (scenario.Schedul
 			"resolve replay schedule %q: not found in %q or %q",
 			value,
 			outDir,
-			schedulesDir,
+			"embedded schedules",
 		))
 	}
 
@@ -60,23 +63,27 @@ func resolveReplaySchedule(value, outDir, schedulesDir string) (scenario.Schedul
 	return baseline, nil
 }
 
-func findScheduleByID(
-	pattern, id string,
-	extract func([]byte) (*scenario.Schedule, error),
-) ([]scenario.Schedule, error) {
-	paths, err := filepath.Glob(pattern)
+func findSavedSchedulesByID(outDir, id string) ([]scenario.Schedule, error) {
+	runsDir := filepath.Join(outDir, "runs")
+	entries, err := os.ReadDir(runsDir)
 	if err != nil {
-		return nil, ci.InputError(fmt.Errorf("search %q: %w", pattern, err))
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, ci.InputError(fmt.Errorf("search saved schedules in %q: %w", runsDir, err))
 	}
-	sort.Strings(paths)
 
 	var matches []scenario.Schedule
-	for _, path := range paths {
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(runsDir, entry.Name(), "scenario.json")
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		schedule, err := extract(content)
+		schedule, err := extractRunDirectorySchedule(content)
 		if err != nil || schedule == nil {
 			continue
 		}
@@ -87,7 +94,33 @@ func findScheduleByID(
 	return matches, nil
 }
 
+func findEmbeddedSchedulesByID(schedules fs.FS, id string) ([]scenario.Schedule, error) {
+	entries, err := fs.ReadDir(schedules, ".")
+	if err != nil {
+		return nil, ci.InputError(fmt.Errorf("search embedded schedules: %w", err))
+	}
+	var matches []scenario.Schedule
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		content, err := fs.ReadFile(schedules, entry.Name())
+		if err != nil {
+			return nil, ci.InputError(fmt.Errorf("read embedded schedule %q: %w", entry.Name(), err))
+		}
+		schedule, err := extractRegistrySchedule(content)
+		if err != nil {
+			return nil, ci.InputError(fmt.Errorf("parse embedded schedule %q: %w", entry.Name(), err))
+		}
+		if schedule.ID == id {
+			matches = append(matches, *schedule)
+		}
+	}
+	return matches, nil
+}
+
 type scenarioFileShape struct {
+	Schedule          *scenario.Schedule `json:"schedule"`
 	ViolatingSchedule *scenario.Schedule `json:"violating_schedule"`
 }
 
@@ -96,12 +129,15 @@ func extractRunDirectorySchedule(content []byte) (*scenario.Schedule, error) {
 	if err := json.Unmarshal(content, &doc); err != nil {
 		return nil, err
 	}
+	if doc.Schedule != nil {
+		return doc.Schedule, nil
+	}
 	return doc.ViolatingSchedule, nil
 }
 
 func extractRegistrySchedule(content []byte) (*scenario.Schedule, error) {
-	var schedule scenario.Schedule
-	if err := json.Unmarshal(content, &schedule); err != nil {
+	schedule, err := scenario.LoadSchedule(bytes.NewReader(content))
+	if err != nil {
 		return nil, err
 	}
 	return &schedule, nil

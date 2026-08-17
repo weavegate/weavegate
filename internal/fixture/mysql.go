@@ -18,6 +18,10 @@ const (
 	fixtureUsername               = "weavegate"
 	fixturePassword               = "weavegate"
 	failedProvisionCleanupTimeout = 30 * time.Second
+	// Leave most of the cleanup deadline for terminating the external
+	// container: a local pool can be abandoned on process exit, while a
+	// leaked container remains an external resource.
+	poolCloseTimeout = 5 * time.Second
 )
 
 type mysqlFixture struct {
@@ -26,19 +30,19 @@ type mysqlFixture struct {
 	container          *mysqlcontainer.MySQLContainer
 	admin              *sql.DB
 	db                 *DB
-	spec               FixtureSpec
+	prepared           Prepared
 	provisioned        bool
 	terminateContainer func(context.Context, *mysqlcontainer.MySQLContainer) error
 }
 
 // NewMySQLFixture returns a fixture backed by a Testcontainers MySQL instance.
-func NewMySQLFixture() Fixture {
+func NewMySQLFixture() Provisioner {
 	return &mysqlFixture{terminateContainer: terminateContainer}
 }
 
 func (f *mysqlFixture) Provision(
 	ctx context.Context,
-	spec FixtureSpec,
+	prepared Prepared,
 ) (_ *DB, returnErr error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -49,19 +53,13 @@ func (f *mysqlFixture) Provision(
 	if f.container != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: cleanup pending; call Teardown before provisioning again")
 	}
-	if strings.TrimSpace(spec.Image) == "" {
-		return nil, fmt.Errorf("provision MySQL fixture: image is required")
-	}
-	if _, err := migrationSources(spec.Migrations); err != nil {
-		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
-	}
-	if _, err := seedSource(spec.Seed); err != nil {
-		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
+	if !prepared.valid || strings.TrimSpace(prepared.image) == "" {
+		return nil, fmt.Errorf("provision MySQL fixture: prepared fixture is required")
 	}
 
 	container, err := mysqlcontainer.Run(
 		ctx,
-		spec.Image,
+		prepared.image,
 		mysqlcontainer.WithDatabase(fixtureDatabase),
 		mysqlcontainer.WithUsername(fixtureUsername),
 		mysqlcontainer.WithPassword(fixturePassword),
@@ -98,7 +96,7 @@ func (f *mysqlFixture) Provision(
 	if err != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
 	}
-	if err := applyFixtureSQL(ctx, app, spec); err != nil {
+	if err := applyFixtureSQL(ctx, app, prepared); err != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: apply SQL: %w", err)
 	}
 
@@ -106,7 +104,7 @@ func (f *mysqlFixture) Provision(
 	f.container = container
 	f.admin = admin
 	f.db = handle
-	f.spec = spec
+	f.prepared = prepared.clone()
 	f.provisioned = true
 
 	return handle, nil
@@ -118,16 +116,16 @@ func (f *mysqlFixture) cleanupFailedProvision(
 	admin *sql.DB,
 	container *mysqlcontainer.MySQLContainer,
 ) error {
-	appErr := closeDatabase("application database", app)
-	adminErr := closeDatabase("administrative database", admin)
-	terminateErr := withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
-		return f.terminate(cleanupCtx, container)
-	})
-	if terminateErr != nil && container != nil {
-		f.container = container
-	}
+	return withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
+		appErr := closeDatabaseWithin(cleanupCtx, poolCloseTimeout, "application database", app)
+		adminErr := closeDatabaseWithin(cleanupCtx, poolCloseTimeout, "administrative database", admin)
+		terminateErr := f.terminate(cleanupCtx, container)
+		if terminateErr != nil && container != nil {
+			f.container = container
+		}
 
-	return errors.Join(appErr, adminErr, terminateErr)
+		return errors.Join(appErr, adminErr, terminateErr)
+	})
 }
 
 func withProvisionCleanupContext(
@@ -154,6 +152,8 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
 
+	// Reset runs only after every worker is terminal, so unlike teardown it
+	// does not need to abandon a pool close to preserve a cleanup deadline.
 	if err := closeDatabase("application database", f.db.SQL); err != nil {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
@@ -170,7 +170,7 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
-	if err := applyFixtureSQL(ctx, app, f.spec); err != nil {
+	if err := applyFixtureSQL(ctx, app, f.prepared); err != nil {
 		return errors.Join(
 			fmt.Errorf("reset MySQL fixture: apply SQL: %w", err),
 			closeDatabase("application database", app),
@@ -182,8 +182,18 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 }
 
 func (f *mysqlFixture) Teardown(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("teardown MySQL fixture: context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("teardown MySQL fixture: %w", err)
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("teardown MySQL fixture: %w", err)
+	}
 
 	if !f.provisioned && f.container == nil && f.admin == nil && f.db == nil {
 		return nil
@@ -195,9 +205,12 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 		f.db.SQL = nil
 	}
 
-	appErr := closeDatabase("application database", app)
-	adminErr := closeDatabase("administrative database", f.admin)
+	appErr := closeDatabaseWithin(ctx, poolCloseTimeout, "application database", app)
+	adminErr := closeDatabaseWithin(ctx, poolCloseTimeout, "administrative database", f.admin)
 	terminateErr := f.terminate(ctx, f.container)
+	if terminateErr != nil {
+		terminateErr = fmt.Errorf("terminate MySQL container: %w", terminateErr)
+	}
 	err := errors.Join(appErr, adminErr, terminateErr)
 
 	if terminateErr != nil {
@@ -207,7 +220,7 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 	f.container = nil
 	f.admin = nil
 	f.db = nil
-	f.spec = FixtureSpec{}
+	f.prepared = Prepared{}
 	f.provisioned = false
 
 	return err
@@ -285,6 +298,36 @@ func closeDatabase(name string, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+func closeDatabaseWithin(
+	ctx context.Context,
+	timeout time.Duration,
+	name string,
+	db *sql.DB,
+) error {
+	if db == nil {
+		return nil
+	}
+
+	closed := make(chan error, 1)
+	go func() {
+		closed <- db.Close()
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-closed:
+		if err != nil {
+			return fmt.Errorf("close %s: %w", name, err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("close %s: exceeded teardown budget: %w", name, ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("close %s: exceeded %v teardown budget", name, timeout)
+	}
 }
 
 func terminateContainer(

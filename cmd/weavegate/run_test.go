@@ -129,11 +129,11 @@ func extractReplayLine(t *testing.T, dir string) string {
 }
 
 type teardownFailingFixture struct {
-	fixture.Fixture
+	fixture.Provisioner
 }
 
 func (f teardownFailingFixture) Teardown(ctx context.Context) error {
-	_ = f.Fixture.Teardown(ctx)
+	_ = f.Provisioner.Teardown(ctx)
 	return errors.New("simulated cleanup failure")
 }
 
@@ -141,7 +141,7 @@ func (f teardownFailingFixture) Teardown(ctx context.Context) error {
 // otherwise failing) partway through exploration or replay: Provision and
 // Teardown behave normally, but every Reset call fails.
 type resetFailingFixture struct {
-	fixture.Fixture
+	fixture.Provisioner
 }
 
 func (f resetFailingFixture) Reset(context.Context) error {
@@ -154,6 +154,62 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("simulated write failure")
+}
+
+func TestReplayCommandPreservesShellArguments(t *testing.T) {
+	attackMarker := filepath.Join(t.TempDir(), "must-not-exist")
+	flags := runFlags{
+		config:   "config dir/it's $(touch " + attackMarker + ");*.yaml",
+		scenario: "scenario name;echo nope",
+		variant:  "fixed'$HOME",
+		out:      "ignored out;path",
+	}
+	scheduleValue := &scenario.Schedule{ID: "sch_ba00582f9632"}
+	line := buildReplayCommand(flags, flags.variant, 7, scheduleValue)
+	if strings.Contains(line, "--out") {
+		t.Fatalf("replay command contains --out: %q", line)
+	}
+	got := parseShellReplayArgs(t, line)
+	want := []string{
+		"weavegate", "run",
+		"--config", flags.config,
+		"--scenario", flags.scenario,
+		"--variant", flags.variant,
+		"--replay", scheduleValue.ID,
+		"--repeat", "7",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parsed replay argv = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("parsed replay argv[%d] = %q, want %q; argv=%#v", index, got[index], want[index], got)
+		}
+	}
+	if _, err := os.Stat(attackMarker); !os.IsNotExist(err) {
+		t.Fatalf("shell metacharacter executed unexpectedly: %v", err)
+	}
+
+	t.Log("CLI_REPLAY_QUOTE_RESULT argv=preserved whitespace=true single_quote=true metachar=true out=omitted")
+}
+
+func parseShellReplayArgs(t *testing.T, line string) []string {
+	t.Helper()
+	script := "weavegate() { printf '%s\\037' \"$@\"; }\n" + line
+	output, err := exec.Command("sh", "-c", script).Output()
+	if err != nil {
+		t.Fatalf("parse replay command with POSIX shell: %v", err)
+	}
+	parts := bytes.Split(output, []byte{0x1f})
+	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
+		parts = parts[:len(parts)-1]
+	}
+	args := make([]string, 0, len(parts)+1)
+	args = append(args, "weavegate")
+	for _, part := range parts {
+		args = append(args, string(part))
+	}
+	return args
 }
 
 func TestRun(t *testing.T) {
@@ -197,8 +253,11 @@ func TestRun(t *testing.T) {
 			t.Fatalf("vulnerable observation = %+v, want repeat=20 violation_runs=20 flaky=false", obs)
 		}
 		doc := readScenario(t, dir)
-		if doc.ViolatingSchedule == nil || !strings.HasPrefix(doc.ViolatingSchedule.ID, "sch_") {
+		if doc.Schedule == nil || !strings.HasPrefix(doc.Schedule.ID, "sch_") {
 			t.Fatalf("vulnerable scenario.json violating schedule missing/invalid: %+v", doc)
+		}
+		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint == "" {
+			t.Fatalf("vulnerable observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
 		if !strings.Contains(stdout, "## weavegate: FAIL") {
 			t.Fatalf("vulnerable stdout = %q, want the report.md headline", stdout)
@@ -208,7 +267,7 @@ func TestRun(t *testing.T) {
 
 		t.Logf(
 			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
-			obs.ExplorePasses, obs.SchedulesExplored, doc.ViolatingSchedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
+			obs.ExplorePasses, obs.SchedulesExplored, doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
 
@@ -234,8 +293,11 @@ func TestRun(t *testing.T) {
 			t.Fatalf("fixed observation = %+v, want evaluated=18 passes=3 flaky=false violation_runs=0", obs)
 		}
 		doc := readScenario(t, dir)
-		if doc.ViolatingSchedule != nil {
-			t.Fatalf("fixed scenario.json has a violating schedule, want none: %+v", doc.ViolatingSchedule)
+		if doc.Schedule != nil {
+			t.Fatalf("fixed scenario.json has a schedule, want none: %+v", doc.Schedule)
+		}
+		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint != "" {
+			t.Fatalf("fixed observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
 
 		observed["artifacts_written_on_pass"] = "true"
@@ -247,10 +309,6 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("replay_known_schedule", func(t *testing.T) {
-		// The registry's schedules directory is a repo-relative path
-		// (A-3): run from the repo root so stage ② of A-5 resolves it.
-		chdir(t, root)
-
 		outDir := t.TempDir()
 		stdout, stderr, exit := run(
 			"run",
@@ -268,13 +326,16 @@ func TestRun(t *testing.T) {
 		entries := listRunFiles(t, dir)
 		obs := readObservation(t, dir)
 		doc := readScenario(t, dir)
-		if doc.ViolatingSchedule == nil || doc.ViolatingSchedule.ID != "sch_ba00582f9632" {
-			t.Fatalf("replay schedule = %+v, want sch_ba00582f9632", doc.ViolatingSchedule)
+		if doc.Schedule == nil || doc.Schedule.ID != "sch_ba00582f9632" {
+			t.Fatalf("replay schedule = %+v, want sch_ba00582f9632", doc.Schedule)
+		}
+		if obs.Mode != string(ModeReplay) || obs.DiscoveryFingerprint != "" {
+			t.Fatalf("replay observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
 
 		t.Logf(
 			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
-			doc.ViolatingSchedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
+			doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
 
@@ -283,7 +344,7 @@ func TestRun(t *testing.T) {
 			t.Fatal("vulnerable run directory not captured; explore_vulnerable must run first")
 		}
 		replayLine := extractReplayLine(t, vulnerableDir)
-		fields := strings.Fields(replayLine)
+		fields := parseShellReplayArgs(t, replayLine)
 		if len(fields) < 2 || fields[0] != "weavegate" || fields[1] != "run" {
 			t.Fatalf("replay line = %q, does not start with \"weavegate run\"", replayLine)
 		}
@@ -293,7 +354,10 @@ func TestRun(t *testing.T) {
 			t.Fatalf("replay command roundtrip exit = %d, want %d; stdout=%s stderr=%s", exit, ci.ExitViolation, stdout, stderr)
 		}
 
-		t.Logf("CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim resolved_from=run_directory verdict=identical exit=%d", exit)
+		if strings.Contains(replayLine, "--out") {
+			t.Fatalf("replay line unexpectedly contains --out: %q", replayLine)
+		}
+		t.Logf("CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim argv=preserved out=omitted resolved_from=run_directory verdict=identical exit=%d", exit)
 	})
 
 	t.Run("bad_config", func(t *testing.T) {
@@ -374,7 +438,7 @@ func TestRun(t *testing.T) {
 		writeScenarioDoc(t, filepath.Join(runDirA, "scenario.json"), scheduleA)
 		writeScenarioDoc(t, filepath.Join(runDirB, "scenario.json"), scheduleB)
 
-		_, err = resolveReplaySchedule(scheduleA.ID, outDir, "")
+		_, err = resolveReplaySchedule(scheduleA.ID, outDir, nil)
 		if err == nil {
 			t.Fatal("resolve ambiguous schedule: want error, got nil")
 		}
@@ -384,13 +448,13 @@ func TestRun(t *testing.T) {
 		observed["ambiguous_schedule"] = "5"
 	})
 
-	t.Run("unreachable_docker", func(t *testing.T) {
+	t.Run("missing_fixture_source", func(t *testing.T) {
 		badConfig := writeConfigWithBadMigrations(t, configPath)
 		_, _, exit := run("run", "--config", badConfig, "--scenario", "concurrent-assign", "--out", t.TempDir())
-		if exit != ci.ExitFixture {
-			t.Fatalf("unreachable fixture exit = %d, want %d", exit, ci.ExitFixture)
+		if exit != ci.ExitInput {
+			t.Fatalf("missing fixture source exit = %d, want %d", exit, ci.ExitInput)
 		}
-		observed["unreachable_docker"] = "4"
+		observed["missing_fixture_source"] = "5"
 	})
 
 	t.Run("unwritable_out", func(t *testing.T) {
@@ -417,8 +481,8 @@ func TestRun(t *testing.T) {
 			variant:  "fixed",
 			out:      outDir,
 		}
-		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
-			return teardownFailingFixture{Fixture: fixture.NewMySQLFixture()}
+		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Provisioner {
+			return teardownFailingFixture{Provisioner: fixture.NewMySQLFixture()}
 		})
 		exit := exitCodeFromError(err)
 		if exit != ci.ExitFixture {
@@ -445,8 +509,8 @@ func TestRun(t *testing.T) {
 			variant:  "vulnerable",
 			out:      t.TempDir(),
 		}
-		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Fixture {
-			return resetFailingFixture{Fixture: fixture.NewMySQLFixture()}
+		err := runScenario(context.Background(), &stdout, &stderr, flags, func() fixture.Provisioner {
+			return resetFailingFixture{Provisioner: fixture.NewMySQLFixture()}
 		})
 		exit := exitCodeFromError(err)
 		if exit != ci.ExitFixture {
@@ -473,7 +537,7 @@ func TestRun(t *testing.T) {
 
 	order := []string{
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
-		"ambiguous_schedule", "unwritable_out", "unreachable_docker",
+		"ambiguous_schedule", "unwritable_out", "missing_fixture_source",
 		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay", "stdout_write_failure",
 	}
 	parts := make([]string, 0, len(order))

@@ -29,7 +29,11 @@ func TestMatchingFixtureReset(t *testing.T) {
 		}
 	})
 
-	db, err := runner.Provision(ctx, matchingFixtureSpec)
+	prepared, err := fixture.Prepare(matchingFixtureSpec)
+	if err != nil {
+		t.Fatalf("prepare matching fixture: %v", err)
+	}
+	db, err := runner.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision matching fixture: %v", err)
 	}

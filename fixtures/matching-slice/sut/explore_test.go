@@ -35,11 +35,15 @@ func TestExploreConcurrentAssign(t *testing.T) {
 			t.Errorf("cleanup matching exploration fixture: %v", err)
 		}
 	})
-	db, err := runner.Provision(ctx, fixture.FixtureSpec{
+	prepared, err := fixture.Prepare(fixture.FixtureSpec{
 		Image:      "mysql:8.4",
 		Migrations: filepath.Join("..", "db", "migration"),
 		Seed:       filepath.Join("..", "db", "seed.sql"),
 	})
+	if err != nil {
+		t.Fatalf("prepare matching exploration fixture: %v", err)
+	}
+	db, err := runner.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision matching exploration fixture: %v", err)
 	}

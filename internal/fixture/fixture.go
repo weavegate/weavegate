@@ -6,11 +6,21 @@ import (
 	"database/sql"
 )
 
-// Fixture manages the lifecycle of an isolated database fixture.
+// Fixture manages the runtime lifecycle used by the orchestrator after an
+// isolated database fixture has been provisioned.
 type Fixture interface {
-	Provision(context.Context, FixtureSpec) (*DB, error)
 	Reset(context.Context) error
+	// Teardown must honor cancellation and deadlines on the supplied context.
+	// Callers provide a cleanup-specific context independent of the operation.
 	Teardown(context.Context) error
+}
+
+// Provisioner owns the external side effect that creates a prepared fixture.
+// Keeping it separate from Fixture prevents the orchestrator from acquiring a
+// provisioning capability it never uses.
+type Provisioner interface {
+	Fixture
+	Provision(context.Context, Prepared) (*DB, error)
 }
 
 // FixtureSpec describes the database image and SQL sources for a fixture.
@@ -19,6 +29,27 @@ type FixtureSpec struct {
 	Migrations string
 	Seed       string
 }
+
+// Prepared is an immutable snapshot of the fixture sources. Its fields are
+// intentionally private: Provision and Reset apply only the bytes parsed by
+// Prepare, while evidence reads the digests derived from the same snapshot.
+type Prepared struct {
+	image           string
+	migrations      []preparedSQLSource
+	seed            preparedSQLSource
+	migrationDigest string
+	seedDigest      string
+	valid           bool
+}
+
+// Image returns the database container image captured during preparation.
+func (p Prepared) Image() string { return p.image }
+
+// MigrationDigest returns the digest derived from the prepared migrations.
+func (p Prepared) MigrationDigest() string { return p.migrationDigest }
+
+// SeedDigest returns the digest derived from the prepared seed bytes.
+func (p Prepared) SeedDigest() string { return p.seedDigest }
 
 // DB exposes the fixture's managed database connection pool.
 //

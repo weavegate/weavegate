@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -47,10 +48,11 @@ func sampleRun(t *testing.T, runID string) Run {
 				{ID: "w1", Command: "assign"},
 				{ID: "w2", Command: "assign"},
 			},
-			SyncPoints:        []string{"after_read_request", "before_insert_assignment"},
-			ViolatingSchedule: &schedule,
+			SyncPoints: []string{"after_read_request", "before_insert_assignment"},
+			Schedule:   &schedule,
 		},
 		Observation: Observation{
+			Mode:              "explore",
 			SchedulesExplored: 2,
 			ExplorePasses:     1,
 			AssertionViolations: []AssertionViolation{
@@ -64,8 +66,10 @@ func sampleRun(t *testing.T, runID string) Run {
 				RunMS:            180000,
 				StopMS:           60000,
 			},
-			ViolationRuns: 20,
-			Flaky:         false,
+			ViolationRuns:        20,
+			Flaky:                false,
+			Fingerprints:         map[string]int{"fp-discovery": 20},
+			DiscoveryFingerprint: "fp-discovery",
 		},
 		Trace: Trace{
 			ScheduleRef: schedule.ID,
@@ -84,6 +88,11 @@ func sampleRun(t *testing.T, runID string) Run {
 
 func TestWriteRunArtifacts(t *testing.T) {
 	base := t.TempDir()
+	umask := 0o077
+	previousUmask := syscall.Umask(umask)
+	defer syscall.Umask(previousUmask)
+	expectedDirMode := dirMode &^ os.FileMode(umask)
+	expectedFileMode := fileMode &^ os.FileMode(umask)
 	run := sampleRun(t, "run_20260816T120000.000Z_aaaaaaaa")
 
 	dir, err := WriteRun(base, run)
@@ -103,8 +112,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat run directory: %v", err)
 	}
-	if info.Mode().Perm() != dirMode {
-		t.Fatalf("run directory mode = %o, want %o", info.Mode().Perm(), dirMode)
+	if info.Mode().Perm() != expectedDirMode {
+		t.Fatalf("run directory mode = %o, want %o", info.Mode().Perm(), expectedDirMode)
 	}
 
 	for _, name := range FileNames {
@@ -113,8 +122,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", name, err)
 		}
-		if fileInfo.Mode().Perm() != fileMode {
-			t.Fatalf("%s mode = %o, want %o", name, fileInfo.Mode().Perm(), fileMode)
+		if fileInfo.Mode().Perm() != expectedFileMode {
+			t.Fatalf("%s mode = %o, want %o", name, fileInfo.Mode().Perm(), expectedFileMode)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -126,6 +135,19 @@ func TestWriteRunArtifacts(t *testing.T) {
 		if strings.Count(string(content), "\n") == 1 && strings.HasSuffix(name, ".json") {
 			t.Fatalf("%s is not indented JSON", name)
 		}
+	}
+	for _, name := range []string{ManifestFile, ScenarioFile, ObservationFile, TraceFile, MergedFile} {
+		var doc map[string]any
+		if err := json.Unmarshal(mustRead(t, filepath.Join(dir, name)), &doc); err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		if got := doc["artifact_version"]; got != float64(ArtifactVersion) {
+			t.Fatalf("%s artifact_version = %#v, want %d", name, got, ArtifactVersion)
+		}
+	}
+	scenarioContent := string(mustRead(t, filepath.Join(dir, ScenarioFile)))
+	if strings.Contains(scenarioContent, "violating_schedule") || !strings.Contains(scenarioContent, `"schedule"`) {
+		t.Fatalf("scenario.json is not v2 neutral schedule output: %s", scenarioContent)
 	}
 
 	var traceDoc map[string]json.RawMessage
@@ -155,23 +177,84 @@ func TestWriteRunArtifacts(t *testing.T) {
 	}
 
 	replayLine := extractReplayLine(t, filepath.Join(dir, MarkdownFile))
-	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.ViolatingSchedule.ID) {
+	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.Schedule.ID) || strings.Contains(replayLine, "--out") {
 		t.Fatalf("report.md replay line = %q, not self-sufficient", replayLine)
 	}
 
 	rerunIdentical := testRerunIdentical(t, base)
 
 	t.Logf(
-		"RUN_ARTIFACT_RESULT files=%d dir_mode=0%o file_mode=0%o key_order=canonical "+
+		"RUN_ARTIFACT_RESULT files=%d umask=0077 dir_mode=0%o file_mode=0%o key_order=canonical "+
 			"empty_slice=json_array trailing_newline=true volatile_files=manifest+report_json "+
-			"deterministic_files=%d rerun_identical=%s replay_line=self_sufficient config_path=as_given "+
+			"deterministic_files=%d rerun_identical=%s replay_line=out_omitted shell_quote=posix config_path=as_given "+
 			"tmp_same_filesystem=true partial_write=cleaned write_failure=output_error",
 		len(entries),
-		dirMode,
-		fileMode,
+		expectedDirMode,
+		expectedFileMode,
 		len(DeterministicFiles),
 		rerunIdentical,
 	)
+}
+
+func TestWriteRunPreservesExistingDestination(t *testing.T) {
+	base := t.TempDir()
+	run := sampleRun(t, "run_20260816T120003.000000000Z_22222222222222222222222222222222")
+	finalDir := filepath.Join(base, "runs", run.Manifest.RunID)
+	if err := os.MkdirAll(finalDir, 0o755); err != nil {
+		t.Fatalf("create existing run directory: %v", err)
+	}
+	sentinelPath := filepath.Join(finalDir, "sentinel")
+	const sentinel = "preserve me"
+	if err := os.WriteFile(sentinelPath, []byte(sentinel), 0o600); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	_, err := WriteRun(base, run)
+	if err == nil {
+		t.Fatal("write colliding run: want error, got nil")
+	}
+	if got := ci.ExitCode(err, ci.Verdict{}); got != ci.ExitInput {
+		t.Fatalf("collision exit code = %d, want %d", got, ci.ExitInput)
+	}
+	content, readErr := os.ReadFile(sentinelPath)
+	if readErr != nil || string(content) != sentinel {
+		t.Fatalf("existing destination changed: content=%q err=%v", content, readErr)
+	}
+}
+
+func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {
+	base := t.TempDir()
+	run := sampleRun(t, "run_20260816T120002.000000000Z_11111111111111111111111111111111")
+	run.Observation.Mode = "replay"
+	run.Observation.SchedulesExplored = 0
+	run.Observation.ExplorePasses = 0
+	run.Observation.AssertionViolations = nil
+	run.Observation.ViolationRuns = 0
+	run.Observation.DiscoveryFingerprint = ""
+	run.Pass = true
+
+	dir, err := WriteRun(base, run)
+	if err != nil {
+		t.Fatalf("write passing replay: %v", err)
+	}
+	markdown := string(mustRead(t, filepath.Join(dir, MarkdownFile)))
+	if !strings.Contains(markdown, "| replayed: "+run.Scenario.Schedule.ID) || strings.Contains(markdown, "| violating:") {
+		t.Fatalf("passing replay markdown has misleading schedule label: %s", markdown)
+	}
+	observation := string(mustRead(t, filepath.Join(dir, ObservationFile)))
+	if strings.Contains(observation, "discovery_fingerprint") {
+		t.Fatalf("direct replay emitted discovery_fingerprint: %s", observation)
+	}
+	flaky := run
+	flaky.Pass = false
+	flaky.Flaky = true
+	flaky.Observation.Flaky = true
+	flakyMarkdown := renderMarkdown(flaky)
+	if !strings.Contains(flakyMarkdown, "| violating: "+run.Scenario.Schedule.ID) || strings.Contains(flakyMarkdown, "| replayed:") {
+		t.Fatalf("flaky replay lost violating label: %s", flakyMarkdown)
+	}
+
+	t.Log("ARTIFACT_V2_RESULT files=6 writer=v2 schedule=neutral mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
 }
 
 func testRerunIdentical(t *testing.T, base string) string {

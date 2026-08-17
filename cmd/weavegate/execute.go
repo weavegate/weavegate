@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/weavegate/weavegate/internal/ci"
-	"github.com/weavegate/weavegate/internal/config"
 	"github.com/weavegate/weavegate/internal/orchestrator"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
@@ -40,33 +39,25 @@ type runOutcome struct {
 func executeScenario(
 	ctx context.Context,
 	executor *orchestrator.Orchestrator,
-	resolved Resolved,
-	cfg config.Config,
-	repeat int,
-	flags runFlags,
+	plan runPlan,
 ) (runOutcome, error) {
-	if flags.replay != "" {
-		return executeReplay(ctx, executor, resolved, repeat, flags)
+	if plan.Mode == ModeReplay {
+		return executeReplay(ctx, executor, plan)
 	}
-	return executeExplore(ctx, executor, resolved, cfg, repeat)
+	return executeExplore(ctx, executor, plan)
 }
 
 func executeReplay(
 	ctx context.Context,
 	executor *orchestrator.Orchestrator,
-	resolved Resolved,
-	repeat int,
-	flags runFlags,
+	plan runPlan,
 ) (runOutcome, error) {
-	schedule, err := resolveReplaySchedule(flags.replay, flags.out, resolved.SchedulesDir)
-	if err != nil {
-		return runOutcome{}, err
+	if plan.ReplaySchedule == nil {
+		return runOutcome{}, ci.InputError(fmt.Errorf("run: replay schedule is required"))
 	}
-	if err := scenario.Validate(resolved.Scenario, schedule); err != nil {
-		return runOutcome{}, ci.InputError(fmt.Errorf("run: replay schedule %q: %w", schedule.ID, err))
-	}
+	schedule := plan.ReplaySchedule.Clone()
 
-	replay, err := executor.Replay(ctx, resolved.Scenario, schedule, repeat, resolved.Oracle)
+	replay, err := executor.Replay(ctx, plan.Resolved.Scenario, schedule, plan.Repeat, plan.Resolved.Oracle)
 	if err != nil {
 		return runOutcome{}, classifyExecutionError(fmt.Errorf("run: replay schedule %q: %w", schedule.ID, err))
 	}
@@ -85,15 +76,16 @@ func executeReplay(
 func executeExplore(
 	ctx context.Context,
 	executor *orchestrator.Orchestrator,
-	resolved Resolved,
-	cfg config.Config,
-	repeat int,
+	plan runPlan,
 ) (runOutcome, error) {
-	explorePasses := cfg.Run.ExplorePasses
+	if plan.CandidatePlan == nil {
+		return runOutcome{}, ci.InputError(fmt.Errorf("run: candidate plan is required"))
+	}
+	explorePasses := plan.Config.Run.ExplorePasses
 	schedulesExplored := 0
 
 	for pass := 1; pass <= explorePasses; pass++ {
-		result, err := executor.Explore(ctx, resolved.Scenario, scenario.Exhaustive{}, resolved.Oracle)
+		result, err := executor.ExplorePlan(ctx, plan.Resolved.Scenario, *plan.CandidatePlan, plan.Resolved.Oracle)
 		if err != nil {
 			return runOutcome{}, classifyExecutionError(fmt.Errorf("run: explore pass %d/%d: %w", pass, explorePasses, err))
 		}
@@ -104,7 +96,7 @@ func executeExplore(
 		}
 
 		schedule := result.Violating.Clone()
-		replay, err := executor.Replay(ctx, resolved.Scenario, schedule, repeat, resolved.Oracle)
+		replay, err := executor.Replay(ctx, plan.Resolved.Scenario, schedule, plan.Repeat, plan.Resolved.Oracle)
 		if err != nil {
 			return runOutcome{}, classifyExecutionError(fmt.Errorf("run: replay discovered schedule %q: %w", schedule.ID, err))
 		}

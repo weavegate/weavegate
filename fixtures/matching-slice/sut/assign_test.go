@@ -28,11 +28,15 @@ func TestAssignSequential(t *testing.T) {
 			t.Errorf("cleanup matching SUT fixture: %v", err)
 		}
 	})
-	db, err := runner.Provision(ctx, fixture.FixtureSpec{
+	prepared, err := fixture.Prepare(fixture.FixtureSpec{
 		Image:      "mysql:8.4",
 		Migrations: filepath.Join("..", "db", "migration"),
 		Seed:       filepath.Join("..", "db", "seed.sql"),
 	})
+	if err != nil {
+		t.Fatalf("prepare matching SUT fixture: %v", err)
+	}
+	db, err := runner.Provision(ctx, prepared)
 	if err != nil {
 		t.Fatalf("provision matching SUT fixture: %v", err)
 	}

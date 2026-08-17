@@ -42,6 +42,34 @@ func (o *Orchestrator) Explore(
 	value scenario.Scenario,
 	strategy scenario.Strategy,
 	evaluator oracle.Evaluator,
+) (ExploreResult, error) {
+	if ctx == nil {
+		return ExploreResult{}, errors.New("explore schedules: context is required")
+	}
+	if isNilStrategy(strategy) {
+		return ExploreResult{}, errors.New("explore schedules: strategy is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return ExploreResult{}, fmt.Errorf("explore schedules: %w", err)
+	}
+
+	plan, err := strategy.Schedules(value.Clone())
+	if err != nil {
+		return ExploreResult{}, fmt.Errorf("explore schedules: build candidate plan: %w", err)
+	}
+	return o.ExplorePlan(ctx, value, plan, evaluator)
+}
+
+// ExplorePlan traverses a candidate plan that was already built and validated
+// before external fixture provisioning. This boundary lets CLI callers prove
+// that candidate-count and strategy failures cannot occur after a container
+// starts. SchedulePlan.Seq must be repeatable when the same plan is used for
+// multiple exploration passes.
+func (o *Orchestrator) ExplorePlan(
+	ctx context.Context,
+	value scenario.Scenario,
+	plan scenario.SchedulePlan,
+	evaluator oracle.Evaluator,
 ) (result ExploreResult, returnErr error) {
 	startedAt := time.Now()
 	defer func() {
@@ -52,19 +80,11 @@ func (o *Orchestrator) Explore(
 	if ctx == nil {
 		return result, errors.New("explore schedules: context is required")
 	}
-	if isNilStrategy(strategy) {
-		return result, errors.New("explore schedules: strategy is required")
-	}
 	if isNilEvaluator(evaluator) {
 		return result, errors.New("explore schedules: Oracle evaluator is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return result, fmt.Errorf("explore schedules: %w", err)
-	}
-
-	plan, err := strategy.Schedules(value.Clone())
-	if err != nil {
-		return result, fmt.Errorf("explore schedules: build candidate plan: %w", err)
 	}
 	if plan.TotalKnown && plan.Total < 0 {
 		return result, fmt.Errorf("explore schedules: candidate total must not be negative: %d", plan.Total)

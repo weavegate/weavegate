@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,22 +23,22 @@ var version = "0.0.0-dev"
 // cause; it has already been reported to stderr by the command that built
 // this value.
 type exitError struct {
-	code int
-	err  error
+	err     error
+	verdict ci.Verdict
 }
 
 func (e *exitError) Error() string {
 	if e.err != nil {
 		return e.err.Error()
 	}
-	return fmt.Sprintf("exit %d", e.code)
+	return "run completed"
 }
 
 func (e *exitError) Unwrap() error { return e.err }
 
 // exitCodeFromError resolves any error returned by root.Execute() (or by
-// runScenario directly, in tests) into a process exit code, preferring an
-// already-decided exitError over the generic input-error fallback.
+// runScenario directly, in tests) into a process exit code, mapping a
+// semantic exitError through internal/ci exactly once.
 func exitCodeFromError(err error) int {
 	if err == nil {
 		return ci.ExitOK
@@ -45,7 +46,7 @@ func exitCodeFromError(err error) int {
 
 	var exit *exitError
 	if errors.As(err, &exit) {
-		return exit.code
+		return ci.ExitCode(exit.err, exit.verdict)
 	}
 
 	return ci.ExitCode(ci.InputError(err), ci.Verdict{})
@@ -82,15 +83,25 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 }
 
 // Execute runs the root command with args and returns the process exit
-// code. A subcommand that reached a verdict reports its exit code through
-// exitError; any other Cobra-level failure — an unknown command, an unknown
+// code. A subcommand that reached a verdict reports its semantic outcome
+// through exitError; any other Cobra-level failure — an unknown command, an unknown
 // flag, invalid usage — is a configuration-shaped problem (exit 5), not a
 // fixture or determinism failure.
 func Execute(args []string, stdout, stderr io.Writer) int {
+	return ExecuteContext(context.Background(), args, stdout, stderr)
+}
+
+// ExecuteContext runs the root command with a caller-owned lifecycle context.
+// Cobra passes this context to subcommands, including fixture provisioning and
+// orchestration.
+func ExecuteContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	root := newRootCommand(stdout, stderr)
 	root.SetArgs(args)
 
-	err := root.Execute()
+	err := root.ExecuteContext(ctx)
 	if err == nil {
 		return ci.ExitOK
 	}

@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -14,11 +17,16 @@ func TestSQLLoader(t *testing.T) {
 
 	executor := &recordingExecutor{}
 	spec := FixtureSpec{
+		Image:      "mysql:8.4",
 		Migrations: "testdata/loader/migration",
 		Seed:       "testdata/loader/seed.sql",
 	}
 
-	if err := applyFixtureSQL(context.Background(), executor, spec); err != nil {
+	prepared, err := Prepare(spec)
+	if err != nil {
+		t.Fatalf("prepare fixture SQL: %v", err)
+	}
+	if err := applyFixtureSQL(context.Background(), executor, prepared); err != nil {
 		t.Fatalf("apply fixture SQL: %v", err)
 	}
 
@@ -34,16 +42,68 @@ func TestSQLLoader(t *testing.T) {
 	t.Log("FIXTURE_LOADER_RESULT migrations=2 seed=1 order=lexicographic")
 }
 
+func TestPreparedFixtureDigestsUseFullFramedSHA256(t *testing.T) {
+	t.Parallel()
+
+	seedPath := filepath.Join(t.TempDir(), "seed.sql")
+	if err := os.WriteFile(seedPath, []byte("SELECT 1;"), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+	writeMigrations := func(files map[string]string) string {
+		dir := t.TempDir()
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatalf("write migration %q: %v", name, err)
+			}
+		}
+		return dir
+	}
+
+	// The previous unframed stream collides:
+	// "a.sql\n" + "b.sql\nX" == "a.sql\n" + "" + "b.sql\n" + "X".
+	oneFile := writeMigrations(map[string]string{"a.sql": "b.sql\nX"})
+	twoFiles := writeMigrations(map[string]string{"a.sql": "", "b.sql": "X"})
+	first, err := Prepare(FixtureSpec{Image: "mysql:8.4", Migrations: oneFile, Seed: seedPath})
+	if err != nil {
+		t.Fatalf("prepare one-file fixture: %v", err)
+	}
+	second, err := Prepare(FixtureSpec{Image: "mysql:8.4", Migrations: twoFiles, Seed: seedPath})
+	if err != nil {
+		t.Fatalf("prepare two-file fixture: %v", err)
+	}
+
+	fullDigest := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	for name, digest := range map[string]string{
+		"first migration":  first.MigrationDigest(),
+		"second migration": second.MigrationDigest(),
+		"seed":             first.SeedDigest(),
+	} {
+		if !fullDigest.MatchString(digest) {
+			t.Fatalf("%s digest = %q, want sha256:<64 lowercase hex>", name, digest)
+		}
+	}
+	if first.MigrationDigest() == second.MigrationDigest() {
+		t.Fatalf("framed migration digests collided: %s", first.MigrationDigest())
+	}
+
+	t.Log("FIXTURE_DIGEST_RESULT migration=sha256_full seed=sha256_full framing=byte_length collision=distinct")
+}
+
 func TestSQLLoaderErrorContext(t *testing.T) {
 	t.Parallel()
 
 	executor := &recordingExecutor{failAt: 2, err: errors.New("execute failed")}
 	spec := FixtureSpec{
+		Image:      "mysql:8.4",
 		Migrations: "testdata/loader/migration",
 		Seed:       "testdata/loader/seed.sql",
 	}
 
-	err := applyFixtureSQL(context.Background(), executor, spec)
+	prepared, err := Prepare(spec)
+	if err != nil {
+		t.Fatalf("prepare fixture SQL: %v", err)
+	}
+	err = applyFixtureSQL(context.Background(), executor, prepared)
 	if err == nil {
 		t.Fatal("apply fixture SQL returned nil, want error")
 	}
@@ -52,6 +112,52 @@ func TestSQLLoaderErrorContext(t *testing.T) {
 		if !strings.Contains(err.Error(), part) {
 			t.Errorf("error %q does not contain %q", err, part)
 		}
+	}
+}
+
+func TestPreparedFixtureIsIndependentFromSourceEdits(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	migrations := filepath.Join(root, "migration")
+	if err := os.Mkdir(migrations, 0o755); err != nil {
+		t.Fatalf("create migration directory: %v", err)
+	}
+	migrationPath := filepath.Join(migrations, "001.sql")
+	seedPath := filepath.Join(root, "seed.sql")
+	if err := os.WriteFile(migrationPath, []byte("INSERT INTO log VALUES ('original migration');"), 0o644); err != nil {
+		t.Fatalf("write migration: %v", err)
+	}
+	if err := os.WriteFile(seedPath, []byte("INSERT INTO log VALUES ('original seed');"), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	prepared, err := Prepare(FixtureSpec{Image: "mysql:8.4", Migrations: migrations, Seed: seedPath})
+	if err != nil {
+		t.Fatalf("prepare fixture: %v", err)
+	}
+	migrationDigest, seedDigest := prepared.MigrationDigest(), prepared.SeedDigest()
+
+	if err := os.WriteFile(migrationPath, []byte("INSERT INTO log VALUES ('edited migration');"), 0o644); err != nil {
+		t.Fatalf("edit migration: %v", err)
+	}
+	if err := os.WriteFile(seedPath, []byte("INSERT INTO log VALUES ('edited seed');"), 0o644); err != nil {
+		t.Fatalf("edit seed: %v", err)
+	}
+
+	executor := &recordingExecutor{}
+	if err := applyFixtureSQL(context.Background(), executor, prepared); err != nil {
+		t.Fatalf("apply prepared fixture: %v", err)
+	}
+	want := []string{
+		"INSERT INTO log VALUES ('original migration')",
+		"INSERT INTO log VALUES ('original seed')",
+	}
+	if !reflect.DeepEqual(executor.statements, want) {
+		t.Fatalf("prepared statements = %#v, want %#v", executor.statements, want)
+	}
+	if prepared.MigrationDigest() != migrationDigest || prepared.SeedDigest() != seedDigest {
+		t.Fatal("prepared digests changed after source edits")
 	}
 }
 

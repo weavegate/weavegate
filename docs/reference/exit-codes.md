@@ -8,14 +8,18 @@ codes.
 | `0` | No violation. See [PASS's limit](#pass-is-not-a-proof) below. |
 | `2` | An invariant violation was detected and reproduced. |
 | `3` | The determinism check failed (`flaky`) — a judgment could not be trusted, not a clean pass or a clean violation. |
-| `4` | The fixture or database container failed to start. |
+| `4` | Fixture provisioning, database operation, or cleanup failed. |
 | `5` | A configuration, adapter, assertion, schedule, or artifact I/O error. |
+| `130` | The run was interrupted by SIGINT or SIGTERM. |
 
 ## Priority: error beats verdict, flaky beats violation
 
 If the run itself failed — a fixture couldn't start, a config was invalid, an
-Oracle failed to evaluate — that failure is reported and no verdict is
-implied. A completed run's verdict is then decided in this order:
+Oracle failed to evaluate, or the operation was interrupted — that failure is
+reported and no verdict is implied. Error classifications take priority in
+this order: interruption → 130, fixture/database failure → 4, and input,
+output, or unclassified failure → 5. A completed run's verdict is then decided
+in this order:
 
 1. `flaky` → 3
 2. a violation was reproduced → 2
@@ -79,6 +83,23 @@ code are never one run's snapshot mismatched against the other's.
 This keeps a leaked container from being silently reported as PASS, while
 never letting a teardown problem hide a real violation.
 
+### Bounded cleanup after interruption
+
+SIGINT and SIGTERM cancel the operation context. Once a fixture has been
+created, weavegate requests `Teardown` exactly once with operation cancellation
+detached and an independent 30-second deadline. A deadline or teardown error
+is printed as a warning; for a completed run it is also stored as
+`manifest.cleanup_failed` and follows the exit-code rule above.
+On the first signal, weavegate restores the default signal disposition before
+canceling the operation; a repeated signal therefore terminates the process
+even while detached cleanup is still running.
+Each application or administrative pool close receives at most five seconds
+of that budget, leaving the remainder for terminating the external container.
+
+This is a bounded cleanup request, not a guarantee that an uncooperative
+external library will return or that SIGKILL can be handled. No in-process
+cleanup can run after SIGKILL.
+
 ## Exit 5's scope
 
 Exit 5 covers every input- and output-shaped failure, not just configuration
@@ -90,6 +111,8 @@ syntax:
 - an unresolvable or ambiguous `--replay` schedule ID (see [cli.md](cli.md))
 - a run-directory write failure — permission, disk, or rename — writing the
   six run artifacts (see [report-schema.md](report-schema.md))
+- an existing destination run directory or a short stdout write from `run`
+  or `report`
 
 An unclassified internal error also resolves to 5 rather than silently
 succeeding.

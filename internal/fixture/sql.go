@@ -2,7 +2,9 @@ package fixture
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +18,15 @@ type statementExecutor interface {
 
 type sqlSource struct {
 	phase string
+	name  string
 	path  string
+}
+
+type preparedSQLSource struct {
+	phase      string
+	name       string
+	contents   []byte
+	statements []string
 }
 
 type sqlScanState uint8
@@ -30,28 +40,67 @@ const (
 	sqlStateBlockComment
 )
 
-// applyFixtureSQL applies migrations in lexical filename order, followed by
-// the fixture's seed file.
+// Prepare reads and parses all fixture sources exactly once. Failures here are
+// input-shaped and happen before a container is started.
+func Prepare(spec FixtureSpec) (Prepared, error) {
+	if strings.TrimSpace(spec.Image) == "" {
+		return Prepared{}, fmt.Errorf("prepare fixture: image is required")
+	}
+	migrations, err := migrationSources(spec.Migrations)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("prepare fixture: %w", err)
+	}
+	seed, err := seedSource(spec.Seed)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("prepare fixture: %w", err)
+	}
+
+	prepared := Prepared{image: spec.Image, valid: true}
+	for _, source := range migrations {
+		item, err := prepareSQLSource(source)
+		if err != nil {
+			return Prepared{}, fmt.Errorf("prepare fixture: %w", err)
+		}
+		prepared.migrations = append(prepared.migrations, item)
+	}
+	prepared.migrationDigest = hashMigrations(prepared.migrations)
+
+	prepared.seed, err = prepareSQLSource(seed)
+	if err != nil {
+		return Prepared{}, fmt.Errorf("prepare fixture: %w", err)
+	}
+	seedSum := sha256.Sum256(prepared.seed.contents)
+	prepared.seedDigest = "sha256:" + hex.EncodeToString(seedSum[:])
+	return prepared.clone(), nil
+}
+
+func hashMigrations(migrations []preparedSQLSource) string {
+	hasher := sha256.New()
+	for _, migration := range migrations {
+		fmt.Fprintf(hasher, "%d\n", len(migration.name))
+		_, _ = hasher.Write([]byte(migration.name))
+		fmt.Fprintf(hasher, "%d\n", len(migration.contents))
+		_, _ = hasher.Write(migration.contents)
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+}
+
+// applyFixtureSQL applies prepared migrations in lexical filename order,
+// followed by the prepared seed statements, without reading source paths.
 func applyFixtureSQL(
 	ctx context.Context,
 	executor statementExecutor,
-	spec FixtureSpec,
+	prepared Prepared,
 ) error {
 	if executor == nil {
 		return fmt.Errorf("apply fixture SQL: executor is required")
 	}
-
-	migrations, err := migrationSources(spec.Migrations)
-	if err != nil {
-		return err
+	if !prepared.valid {
+		return fmt.Errorf("apply fixture SQL: prepared fixture is required")
 	}
 
-	seed, err := seedSource(spec.Seed)
-	if err != nil {
-		return err
-	}
-
-	sources := append(migrations, seed)
+	sources := append([]preparedSQLSource(nil), prepared.migrations...)
+	sources = append(sources, prepared.seed)
 	for _, source := range sources {
 		if err := executeSQLSource(ctx, executor, source); err != nil {
 			return err
@@ -91,6 +140,7 @@ func migrationSources(directory string) ([]sqlSource, error) {
 
 		sources = append(sources, sqlSource{
 			phase: "migration",
+			name:  entry.Name(),
 			path:  filepath.Join(directory, entry.Name()),
 		})
 	}
@@ -111,34 +161,40 @@ func seedSource(path string) (sqlSource, error) {
 		return sqlSource{}, fmt.Errorf("inspect seed file %q: not a regular file", filepath.Base(path))
 	}
 
-	return sqlSource{phase: "seed", path: path}, nil
+	return sqlSource{phase: "seed", name: filepath.Base(path), path: path}, nil
+}
+
+func prepareSQLSource(source sqlSource) (preparedSQLSource, error) {
+	contents, err := os.ReadFile(source.path)
+	if err != nil {
+		return preparedSQLSource{}, fmt.Errorf("read %s file %q: %w", source.phase, source.name, err)
+	}
+	statements, err := splitSQLStatements(string(contents))
+	if err != nil {
+		return preparedSQLSource{}, fmt.Errorf("parse %s file %q: %w", source.phase, source.name, err)
+	}
+	return preparedSQLSource{
+		phase: source.phase, name: source.name,
+		contents:   append([]byte(nil), contents...),
+		statements: append([]string(nil), statements...),
+	}, nil
 }
 
 func executeSQLSource(
 	ctx context.Context,
 	executor statementExecutor,
-	source sqlSource,
+	source preparedSQLSource,
 ) error {
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("execute %s file %q: %w", source.phase, filepath.Base(source.path), err)
+		return fmt.Errorf("execute %s file %q: %w", source.phase, source.name, err)
 	}
 
-	contents, err := os.ReadFile(source.path)
-	if err != nil {
-		return fmt.Errorf("read %s file %q: %w", source.phase, filepath.Base(source.path), err)
-	}
-
-	statements, err := splitSQLStatements(string(contents))
-	if err != nil {
-		return fmt.Errorf("parse %s file %q: %w", source.phase, filepath.Base(source.path), err)
-	}
-
-	for statementIndex, statement := range statements {
+	for statementIndex, statement := range source.statements {
 		if _, err := executor.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf(
 				"execute %s file %q statement %d: %w",
 				source.phase,
-				filepath.Base(source.path),
+				source.name,
 				statementIndex+1,
 				err,
 			)
@@ -146,6 +202,23 @@ func executeSQLSource(
 	}
 
 	return nil
+}
+
+func (p Prepared) clone() Prepared {
+	cloned := p
+	cloned.migrations = make([]preparedSQLSource, len(p.migrations))
+	for index, source := range p.migrations {
+		cloned.migrations[index] = source.clone()
+	}
+	cloned.seed = p.seed.clone()
+	return cloned
+}
+
+func (s preparedSQLSource) clone() preparedSQLSource {
+	cloned := s
+	cloned.contents = append([]byte(nil), s.contents...)
+	cloned.statements = append([]string(nil), s.statements...)
+	return cloned
 }
 
 // splitSQLStatements handles ordinary MySQL DDL and DML. The fixture contract

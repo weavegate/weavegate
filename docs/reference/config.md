@@ -1,8 +1,8 @@
 # Configuration reference
 
-`weavegate run --config <path>` reads one YAML file. Decoding is strict:
-an unrecognized key — including a typo — is rejected rather than silently
-ignored.
+`weavegate run --config <path>` reads exactly one YAML document. Decoding is
+strict: an unrecognized key — including a typo — or a trailing second YAML
+document is rejected rather than silently ignored.
 
 ## Keys
 
@@ -70,8 +70,41 @@ multiples: block-inference = 1×, step = 20×, run = 60×, stop = 20×. The
 default `arrive_timeout_ms` (3000) is safe but slow for a scenario with a
 lock-blocked path — the `matching-slice` example config sets it to `250`,
 because the "fixed" variant's blocked worker waits out this exact timeout on
-every run. At 3000ms, a blocked replay of 20 runs adds roughly a minute; at
-250ms it adds under a second per run.
+every run.
+
+Measure the effect on the same replay rather than inferring it from one run.
+The following commands time 20 repeats with the committed 250ms value, then
+with a temporary config beside the original whose relative fixture paths stay
+valid:
+
+```bash
+CFG=fixtures/matching-slice/.weavegate/config.yaml
+FAST_OUT=$(mktemp -d)
+/usr/bin/time -f 'arrive=250ms elapsed=%e seconds' \
+  weavegate run --config "$CFG" --scenario concurrent-assign \
+  --variant fixed --replay sch_ba00582f9632 --repeat 20 --out "$FAST_OUT"
+test $? -eq 0
+
+SLOW_CFG=$(mktemp fixtures/matching-slice/.weavegate/timing.XXXXXX.yaml)
+trap 'rm -f "$SLOW_CFG"' EXIT
+sed 's/arrive_timeout_ms: 250/arrive_timeout_ms: 3000/' "$CFG" > "$SLOW_CFG"
+SLOW_OUT=$(mktemp -d)
+/usr/bin/time -f 'arrive=3000ms elapsed=%e seconds' \
+  weavegate run --config "$SLOW_CFG" --scenario concurrent-assign \
+  --variant fixed --replay sch_ba00582f9632 --repeat 20 --out "$SLOW_OUT"
+test $? -eq 0
+```
+
+Wall-clock results depend on the host; record both emitted timing lines when
+making a quantitative comparison.
+
+## Exploration candidate limit
+
+The built-in exhaustive strategy counts the complete candidate space before
+the fixture is created. The CLI accepts at most 5,000 candidates. A larger
+scenario exits 5 during preflight instead of starting a container or lazily
+discovering the excess after partial execution. The limit is not currently a
+config key or CLI flag.
 
 ## Example
 

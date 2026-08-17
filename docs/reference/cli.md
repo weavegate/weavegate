@@ -30,18 +30,27 @@ flag.
 - **Replay mode** (`--replay` present): runs one saved schedule `--repeat`
   times without exploring.
 
+### Preflight boundary
+
+Before creating a fixture or starting a container, `run` loads exactly one
+strict YAML document, resolves the scenario and variant, prepares an immutable
+snapshot of the migration and seed sources, resolves and validates a replay,
+or counts and builds the exploration candidate plan. Explicit empty flag
+values and an exploration plan larger than 5,000 candidates are input errors
+(exit 5) at this boundary, so none of these failures can provision a database.
+
 ### `--replay` resolution order
 
-A value containing `/` or `.json` is loaded as a schedule file directly.
-Otherwise it is treated as a schedule ID (`sch_` followed by 12 hex
-characters) and resolved in this order:
+Exactly `sch_` followed by 12 lowercase hexadecimal characters is treated as
+a schedule ID. Every other non-empty value is treated literally as a schedule
+file path; path characters such as `[` or `*` are not glob patterns. IDs are
+resolved in this order:
 
-1. `<out>/runs/*/scenario.json` — the `violating_schedule` field of every run
-   under `--out`, most recently written or not, searched in sorted path
-   order.
-2. The selected entrypoint's registered schedules directory (for example
-   `fixtures/matching-slice/schedules/*.json`), also searched in sorted path
-   order.
+1. `<out>/runs/<run_id>/scenario.json` — the neutral `schedule` field of each
+   saved run under `--out`. Legacy v1 `violating_schedule` fields remain
+   readable.
+2. The selected entrypoint's registered schedules, embedded in the binary at
+   build time. This fallback therefore works outside a source checkout.
 
 Resolution stops at the first stage that finds at least one match. If more
 than one candidate shares the ID, their saved steps must be identical;
@@ -57,14 +66,17 @@ scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e50
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
-/tmp/wg-doc/runs/run_20260815T172917.706Z_bc391ac5
+/tmp/wg-doc/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
 $ echo $?
 2
 ```
 
 The last stdout line before the exit is always the run directory path. The
 `replay:` line is a complete command — pasting it verbatim from the same
-working directory reproduces the same verdict. `--out` is deliberately
+working directory reproduces the same verdict. String arguments use POSIX
+shell minimal quoting, so whitespace, single quotes, and shell
+metacharacters are preserved as argument data rather than interpreted by the
+shell. `--out` is deliberately
 absent from it (see [`--replay` resolution order](#--replay-resolution-order)
 above): replaying from a different `--out` than the one shown here falls
 back to stage ②, which only resolves schedules the entrypoint has
@@ -84,11 +96,13 @@ weavegate report [run_id] [--format json|md] [--out <dir>]
 | `--out` | `.weavegate` | Run directory base to look under. |
 
 The stored file is streamed to stdout unchanged — `report` never
-re-renders. Omitting `run_id` picks the lexicographically greatest run
-directory name under `<out>/runs/`; the run ID's fixed-width millisecond
-timestamp (see [report-schema.md](report-schema.md)) makes lexicographic
-order the same as time order, so this is unambiguous even for two runs
-started in the same second. A missing run or an unknown format exits 5.
+re-renders. Omitting `run_id` selects the complete, valid run whose
+`manifest.json.started_at` is greatest. A run ID is only a deterministic
+tie-breaker for equal timestamps, not an ordering API. Temporary directories,
+malformed IDs, incomplete runs, and manifests whose `run_id` does not match
+their directory are ignored. An explicit ID must match the opaque run-ID
+grammar documented in [report-schema.md](report-schema.md). A missing run,
+invalid ID, or unknown format exits 5.
 
 ### `report` example
 
@@ -109,6 +123,9 @@ replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --
 - Results meant for a human or a script go to stdout; diagnostics go to
   stderr.
 - `weavegate --version` prints the build version and exits 0.
+- The first SIGINT or SIGTERM cancels the run and begins bounded cleanup; a
+  repeated signal uses the operating system's default disposition so the
+  process can be terminated immediately.
 
 ## Current limits
 
