@@ -171,11 +171,13 @@ error[RG001]: concurrent write not serialized
 ```
 
 The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three
-verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). When a
-diagnostic exists, the first code is appended to the headline and every
-diagnostic is rendered below the unchanged summary lines. An exhausted
-exploration with no diagnostic has the previous output shape and no `replay:`
-line because there is no schedule to reproduce:
+verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). A stable
+violation appends its first violation code to `FAIL`. A flaky run appends
+RG090 to `FLAKY`, even when an RG001 block precedes RG090 in the body, because
+the determinism failure takes verdict priority. Every diagnostic is rendered
+below the unchanged summary lines. An exhausted exploration with no diagnostic
+has the previous output shape and no `replay:` line because there is no
+schedule to reproduce:
 
 ```text
 ## weavegate: PASS

@@ -321,9 +321,12 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	}
 	flaky := run
 	flaky.Flaky = true
-	flaky.Observation.Diagnostics = flaky.Observation.Diagnostics[1:]
-	if got := renderMarkdown(flaky); !strings.HasPrefix(got, "## weavegate: FLAKY (RG090)\n") {
+	got := renderMarkdown(flaky)
+	if !strings.HasPrefix(got, "## weavegate: FLAKY (RG090)\n") {
 		t.Fatalf("flaky headline:\n%s", got)
+	}
+	if strings.Index(got, "error[RG001]") >= strings.Index(got, "error[RG090]") {
+		t.Fatalf("flaky diagnostic order changed:\n%s", got)
 	}
 	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=rg090 render=single_source")
 }

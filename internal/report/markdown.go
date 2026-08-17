@@ -19,8 +19,8 @@ func renderMarkdown(run Run) string {
 	case run.Pass:
 		headline = "PASS"
 	}
-	if len(run.Observation.Diagnostics) > 0 {
-		headline += " (" + run.Observation.Diagnostics[0].Code + ")"
+	if code := headlineDiagnosticCode(run); code != "" {
+		headline += " (" + code + ")"
 	}
 	fmt.Fprintf(&b, "## weavegate: %s\n", headline)
 
@@ -56,6 +56,24 @@ func renderMarkdown(run Run) string {
 	}
 
 	return b.String()
+}
+
+// headlineDiagnosticCode follows verdict priority rather than diagnostic list
+// order. RG090 is rendered last in the body, but a flaky verdict must name the
+// determinism failure that made the run untrustworthy.
+func headlineDiagnosticCode(run Run) string {
+	if run.Flaky {
+		for _, diagnostic := range run.Observation.Diagnostics {
+			if diagnostic.Code == "RG090" {
+				return diagnostic.Code
+			}
+		}
+		return ""
+	}
+	if len(run.Observation.Diagnostics) == 0 {
+		return ""
+	}
+	return run.Observation.Diagnostics[0].Code
 }
 
 func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
