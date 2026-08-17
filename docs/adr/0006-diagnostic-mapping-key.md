@@ -38,6 +38,10 @@ implicit fallback classification.
   that has enough structural knowledge to distinguish those anomaly classes.
 - The dependency is one-way: the diagnostic package reads `Violation.Kind`;
   the Oracle and engine packages do not know about RG codes.
+- A completed flaky verdict remains exit 3 even if its detailed fingerprint
+  comparison is unavailable or internally inconsistent. RG090 then uses a
+  neutral observed statement instead of turning diagnostic rendering into an
+  exit 5 error; a diagnostic names the verdict and does not decide it.
 
 ## What didn't work
 

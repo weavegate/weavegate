@@ -328,6 +328,10 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	if strings.Index(got, "error[RG001]") >= strings.Index(got, "error[RG090]") {
 		t.Fatalf("flaky diagnostic order changed:\n%s", got)
 	}
+	rg090Block := got[strings.Index(got, "error[RG090]"):]
+	if strings.Contains(rg090Block, "violating row") || !strings.Contains(rg090Block, "  evidence:  trace.json\n") {
+		t.Fatalf("RG090 row-independent evidence rendered incorrectly:\n%s", rg090Block)
+	}
 	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=rg090 render=single_source")
 }
 

@@ -98,11 +98,13 @@ func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
 	if diagnostic.Evidence.Trace != "" {
 		parts = append(parts, diagnostic.Evidence.Trace)
 	}
-	rowLabel := "violating rows"
-	if diagnostic.Evidence.Rows == 1 {
-		rowLabel = "violating row"
+	if diagnostic.Evidence.Rows > 0 {
+		rowLabel := "violating rows"
+		if diagnostic.Evidence.Rows == 1 {
+			rowLabel = "violating row"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", diagnostic.Evidence.Rows, rowLabel))
 	}
-	parts = append(parts, fmt.Sprintf("%d %s", diagnostic.Evidence.Rows, rowLabel))
 	writeDiagnosticField(b, "evidence:", strings.Join(parts, " · "))
 }
 

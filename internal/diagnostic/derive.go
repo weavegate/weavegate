@@ -76,10 +76,7 @@ func Derive(input Input) ([]Diagnostic, error) {
 	}
 	if input.Flaky {
 		if rule, ok := input.Table.LookupTrigger(TriggerEngineDeterminism); ok {
-			observed, err := renderFlakyObserved(input.Fingerprints, input.DiscoveryFingerprint)
-			if err != nil {
-				return nil, fmt.Errorf("derive diagnostics: %w", err)
-			}
+			observed := renderFlakyObserved(input.Fingerprints, input.DiscoveryFingerprint)
 			diagnostics = append(diagnostics, fromRule(
 				rule,
 				observed,
@@ -90,21 +87,21 @@ func Derive(input Input) ([]Diagnostic, error) {
 	return diagnostics, nil
 }
 
-func renderFlakyObserved(fingerprints map[string]int, discoveryFingerprint string) (string, error) {
+func renderFlakyObserved(fingerprints map[string]int, discoveryFingerprint string) string {
 	if len(fingerprints) > 1 {
 		return fmt.Sprintf(
 			"repeated executions produced %d normalized fingerprints",
 			len(fingerprints),
-		), nil
+		)
 	}
 	if len(fingerprints) == 1 && discoveryFingerprint != "" {
 		for replayFingerprint := range fingerprints {
 			if replayFingerprint != discoveryFingerprint {
-				return "the discovery fingerprint differs from the replay fingerprint", nil
+				return "the discovery fingerprint differs from the replay fingerprint"
 			}
 		}
 	}
-	return "", fmt.Errorf("flaky verdict has no fingerprint divergence")
+	return "the determinism check reported divergent normalized results"
 }
 
 func fromRule(rule Rule, observed, assertion, scheduleRef string, rows int) Diagnostic {

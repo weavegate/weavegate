@@ -72,18 +72,22 @@ func TestDeriveDescribesDiscoveryReplayMismatch(t *testing.T) {
 	}
 }
 
-func TestDeriveRejectsFlakyWithoutDivergence(t *testing.T) {
+func TestDerivePreservesFlakyVerdictWithoutDetailedDivergence(t *testing.T) {
 	table, err := Load(shippedrules.FS())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Derive(Input{
+	got, err := Derive(Input{
 		Table: table, Flaky: true,
 		Fingerprints:         map[string]int{"fp-same": 20},
 		DiscoveryFingerprint: "fp-same",
 	})
-	if err == nil {
-		t.Fatal("Derive succeeded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Code != "RG090" ||
+		got[0].Observed != "the determinism check reported divergent normalized results" {
+		t.Fatalf("diagnostics = %#v", got)
 	}
 }
 
