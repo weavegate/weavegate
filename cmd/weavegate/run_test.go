@@ -259,14 +259,17 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint == "" {
 			t.Fatalf("vulnerable observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
-		if !strings.Contains(stdout, "## weavegate: FAIL") {
-			t.Fatalf("vulnerable stdout = %q, want the report.md headline", stdout)
+		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "RG001" {
+			t.Fatalf("vulnerable diagnostics = %+v, want RG001", obs.Diagnostics)
+		}
+		if !strings.Contains(stdout, "## weavegate: FAIL (RG001)") || !strings.Contains(stdout, "error[RG001]:") {
+			t.Fatalf("vulnerable stdout = %q, want the RG001 report", stdout)
 		}
 
 		vulnerableDir = dir
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=RG001 artifacts=%d exit=%d",
 			obs.ExplorePasses, obs.SchedulesExplored, doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
@@ -299,11 +302,14 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint != "" {
 			t.Fatalf("fixed observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
+		if len(obs.Diagnostics) != 0 {
+			t.Fatalf("fixed diagnostics = %+v, want none", obs.Diagnostics)
+		}
 
 		observed["artifacts_written_on_pass"] = "true"
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=explore variant=fixed passes=%d evaluated=%d violating=none exhausted=true flaky=%t artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=explore variant=fixed passes=%d evaluated=%d violating=none exhausted=true flaky=%t diagnostic=none artifacts=%d exit=%d",
 			obs.ExplorePasses, obs.SchedulesExplored, obs.Flaky, len(entries), exit,
 		)
 	})
@@ -332,9 +338,12 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeReplay) || obs.DiscoveryFingerprint != "" {
 			t.Fatalf("replay observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
+		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "RG001" {
+			t.Fatalf("replay diagnostics = %+v, want RG001", obs.Diagnostics)
+		}
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=RG001 artifacts=%d exit=%d",
 			doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})

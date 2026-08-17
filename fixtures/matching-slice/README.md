@@ -146,6 +146,27 @@ The fixed variant produced two evaluated Oracle results with zero violations in
 20/20 runs. The vulnerable variant's count Oracle also passed in 20/20 runs. A
 missing or empty result set is not accepted as PASS.
 
+The vulnerable CLI run names that assertion result without any diagnostic key
+in the fixture configuration. Its saved `report.md` contains:
+
+```text
+## weavegate: FAIL (RG001)
+scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
+assertion: active-assignment-is-unique
+flaky: false (repeat=20)
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: concurrent write not serialized
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  help:      add a unique constraint on the active assignment key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
+```
+
 Evaluation starts after both worker terminals, so command transactions have
 committed or rolled back and worker-owned connections have been returned. It
 finishes before adapter cleanup and before the next fixture reset. The full
