@@ -8,6 +8,7 @@ import (
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
+	"github.com/weavegate/weavegate/internal/diagnostic"
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/oracle/sqlassert"
@@ -15,7 +16,10 @@ import (
 	"github.com/weavegate/weavegate/internal/scenario"
 	internalsut "github.com/weavegate/weavegate/internal/sut"
 	"github.com/weavegate/weavegate/internal/syncpoint"
+	shippedrules "github.com/weavegate/weavegate/rules"
 )
+
+var diagnosticRuleFS fs.FS = shippedrules.FS()
 
 // Timeouts holds the four orchestrator timeouts derived from the
 // configured arrive timeout (A-13).
@@ -31,20 +35,26 @@ type Timeouts struct {
 // scenario, an Oracle set, and orchestrator timeouts. It does not access a
 // database or a fixture.
 type Resolved struct {
-	Fixture    fixture.FixtureSpec
-	Scenario   scenario.Scenario
-	Oracle     *oracle.Set
-	NewRuntime orchestrator.RuntimeFactory
-	NewAdapter orchestrator.AdapterFactory
-	Timeouts   Timeouts
-	Schedules  fs.FS
+	Fixture     fixture.FixtureSpec
+	Scenario    scenario.Scenario
+	Oracle      *oracle.Set
+	NewRuntime  orchestrator.RuntimeFactory
+	NewAdapter  orchestrator.AdapterFactory
+	Timeouts    Timeouts
+	Schedules   fs.FS
+	Diagnostics diagnostic.Table
 }
 
 // Resolve translates cfg's named scenario into engine dependencies. variant,
 // when non-empty, overrides target.sut.variant. No container starts here:
 // an error here is always a configuration problem (exit 5), never a fixture
-// failure.
+// failure. A malformed embedded diagnostic table is an internal build defect;
+// it is deliberately not wrapped as a user configuration error.
 func Resolve(cfg config.Config, scenarioName, variant string) (Resolved, error) {
+	diagnosticTable, err := diagnostic.Load(diagnosticRuleFS)
+	if err != nil {
+		return Resolved{}, fmt.Errorf("resolve embedded diagnostic rules: %w", err)
+	}
 	configuredScenario, ok := cfg.Scenarios[scenarioName]
 	if !ok {
 		return Resolved{}, ci.InputError(fmt.Errorf(
@@ -124,7 +134,8 @@ func Resolve(cfg config.Config, scenarioName, variant string) (Resolved, error) 
 			Run:            60 * arrive,
 			Stop:           20 * arrive,
 		},
-		Schedules: entry.Schedules,
+		Schedules:   entry.Schedules,
+		Diagnostics: diagnosticTable,
 	}, nil
 }
 

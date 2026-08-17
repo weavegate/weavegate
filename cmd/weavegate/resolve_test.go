@@ -1,11 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
+	"github.com/weavegate/weavegate/internal/diagnostic"
+	"github.com/weavegate/weavegate/internal/fixture"
 )
 
 func validResolveConfig() config.Config {
@@ -68,6 +75,9 @@ func TestResolve(t *testing.T) {
 		}
 		if resolved.NewAdapter == nil || resolved.NewRuntime == nil {
 			t.Fatalf("adapter/runtime factories are nil: %+v", resolved)
+		}
+		if got := fmt.Sprint(resolved.Diagnostics.Codes()); got != "[RG001 RG090]" {
+			t.Fatalf("diagnostic rule codes = %s", got)
 		}
 
 		observed["entrypoint"] = "matching-slice"
@@ -147,4 +157,37 @@ func TestResolve(t *testing.T) {
 		parts = append(parts, key+"="+value)
 	}
 	t.Logf("CLI_RESOLVE_RESULT %s", strings.Join(parts, " "))
+}
+
+func TestDiagnosticPreflightContract(t *testing.T) {
+	original := diagnosticRuleFS
+	diagnosticRuleFS = fstest.MapFS{"bad.txt": {Data: []byte("not a rule")}}
+	t.Cleanup(func() { diagnosticRuleFS = original })
+
+	factoryCalls := 0
+	var stdout, stderr bytes.Buffer
+	err := runScenario(context.Background(), &stdout, &stderr, runFlags{
+		config:   filepath.Join(repoRoot(t), "fixtures", "matching-slice", ".weavegate", "config.yaml"),
+		scenario: "concurrent-assign",
+		out:      t.TempDir(),
+	}, func() fixture.Provisioner {
+		factoryCalls++
+		return nil
+	})
+	if exitCodeFromError(err) != ci.ExitInput {
+		t.Fatalf("rule load failure exit = %d, want %d; stderr=%s", exitCodeFromError(err), ci.ExitInput, stderr.String())
+	}
+	if factoryCalls != 0 {
+		t.Fatalf("fixture factory calls = %d, want 0", factoryCalls)
+	}
+	if got := ci.ExitCode(nil, ci.Verdict{Violations: 1}); got != ci.ExitViolation {
+		t.Fatalf("violation exit = %d", got)
+	}
+	if got := ci.ExitCode(nil, ci.Verdict{Flaky: true}); got != ci.ExitFlaky {
+		t.Fatalf("flaky exit = %d", got)
+	}
+	if _, ok := diagnostic.TriggerForKind("assertion"); !ok {
+		t.Fatal("oracle assertion kind has no diagnostic trigger")
+	}
+	t.Log("CLI_DIAGNOSTIC_RESULT rule_table=embedded load_failure=5 preflight=before_fixture fixture_factory_calls=0 kind_source=oracle_violation oracle_order=preserved verdict_unchanged=true exit_policy_unchanged=true config_keys_added=0")
 }

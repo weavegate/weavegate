@@ -16,6 +16,7 @@ import (
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
+	"github.com/weavegate/weavegate/internal/diagnostic"
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/orchestrator"
@@ -180,6 +181,16 @@ func runScenario(
 	}
 
 	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
+	diagnostics, err := diagnostic.Derive(diagnostic.Input{
+		Table:       plan.Resolved.Diagnostics,
+		Violations:  diagnosticViolations(violationEvidenceRuns(outcome)),
+		OracleOrder: oracleOrder(plan.Config.Oracle.Assertions),
+		Flaky:       outcome.Verdict.Flaky,
+		ScheduleRef: violatingScheduleID(outcome),
+	})
+	if err != nil {
+		return reportRunFailure(stderr, fmt.Errorf("run: derive diagnostics: %w", err))
+	}
 
 	run := report.Run{
 		Manifest: manifest,
@@ -195,6 +206,7 @@ func runScenario(
 			SchedulesExplored:    outcome.SchedulesExplored,
 			ExplorePasses:        outcome.PassesExecuted,
 			AssertionViolations:  assertionViolations(violationEvidenceRuns(outcome)),
+			Diagnostics:          reportDiagnostics(diagnostics),
 			Oracles:              oracleDeclarations(plan.Config.Oracle.Assertions),
 			Repeat:               plan.Repeat,
 			Timeouts:             effectiveTimeouts(plan.Config, plan.Resolved),
@@ -347,6 +359,64 @@ func assertionViolations(runs []orchestrator.RunResult) []report.AssertionViolat
 		}
 	}
 	return violations
+}
+
+// diagnosticViolations preserves oracle.Kind until the diagnostic layer has
+// classified it, while applying the same evidence de-duplication used by the
+// report DTO. Repeated replays of identical evidence must not multiply the
+// number of violating rows in a single diagnostic.
+func diagnosticViolations(runs []orchestrator.RunResult) []oracle.Violation {
+	seen := make(map[string]struct{})
+	var violations []oracle.Violation
+	for _, run := range runs {
+		for _, result := range run.Evaluation.Results {
+			for _, violation := range result.Violations {
+				encoded, err := json.Marshal(violation)
+				if err != nil {
+					continue
+				}
+				key := string(encoded)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				violations = append(violations, violation)
+			}
+		}
+	}
+	return violations
+}
+
+func oracleOrder(assertions []config.Assertion) []string {
+	order := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		order = append(order, assertion.ID)
+	}
+	return order
+}
+
+func violatingScheduleID(outcome runOutcome) string {
+	if outcome.ViolatingSchedule == nil {
+		return ""
+	}
+	return outcome.ViolatingSchedule.ID
+}
+
+func reportDiagnostics(values []diagnostic.Diagnostic) []report.Diagnostic {
+	converted := make([]report.Diagnostic, 0, len(values))
+	for _, value := range values {
+		converted = append(converted, report.Diagnostic{
+			Code: string(value.Code), Severity: string(value.Severity), Title: value.Title,
+			Observed: value.Observed, Assertion: value.Assertion, Invariant: value.Invariant,
+			Reason: value.Reason, Help: append([]string(nil), value.Help...),
+			Evidence: report.DiagnosticEvidence{
+				ScheduleRef: value.Evidence.ScheduleRef,
+				Rows:        value.Evidence.Rows,
+				Trace:       value.Evidence.Trace,
+			},
+		})
+	}
+	return converted
 }
 
 func convertRows(rows []oracle.Row) []report.Row {
