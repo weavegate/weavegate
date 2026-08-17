@@ -117,10 +117,12 @@ in commit [50064de](https://github.com/weavegate/weavegate/commit/50064de4b8b111
 
 - The teardown deadline no longer depends on `sql.DB.Close` implementation
   details; both pool closes now use a deadline-aware helper.
-- Pool closure still precedes container termination to avoid driver errors, so
-  the proposed teardown reordering was not adopted.
+- Pool-close attempts still start before container termination to avoid driver
+  errors; after a timeout, teardown proceeds without waiting for closure, so
+  server-first reordering was not adopted.
 - A blocking stub driver verifies the bound and subsequent termination; the
-  preserved order trades earlier termination for clean connection shutdown.
+  close-attempt budget allows clean shutdown when possible without delaying
+  container cleanup indefinitely.
 
 ### Rejected example
 
