@@ -193,5 +193,5 @@ func TestCanceledRunUsesIndependentBoundedCleanupOnce(t *testing.T) {
 		t.Fatalf("cleanup deadline remaining = %v, want within (0, %v]", remaining, fixtureCleanupTimeout)
 	}
 
-	t.Log("CLI_INTERRUPT_RESULT exit=130 teardown_calls=1 cleanup_deadline=30s operation_cancel=detached")
+	t.Log("CLI_INTERRUPT_RESULT exit=130 teardown_calls=1 cleanup_deadline=30s operation_cancel=detached second_signal=default")
 }

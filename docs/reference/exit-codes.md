@@ -90,6 +90,9 @@ created, weavegate requests `Teardown` exactly once with operation cancellation
 detached and an independent 30-second deadline. A deadline or teardown error
 is printed as a warning; for a completed run it is also stored as
 `manifest.cleanup_failed` and follows the exit-code rule above.
+On the first signal, weavegate restores the default signal disposition before
+canceling the operation; a repeated signal therefore terminates the process
+even while detached cleanup is still running.
 Each application or administrative pool close receives at most five seconds
 of that budget, leaving the remainder for terminating the external container.
 

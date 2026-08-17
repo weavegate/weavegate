@@ -123,6 +123,9 @@ replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --
 - Results meant for a human or a script go to stdout; diagnostics go to
   stderr.
 - `weavegate --version` prints the build version and exits 0.
+- The first SIGINT or SIGTERM cancels the run and begins bounded cleanup; a
+  repeated signal uses the operating system's default disposition so the
+  process can be terminated immediately.
 
 ## Current limits
 
