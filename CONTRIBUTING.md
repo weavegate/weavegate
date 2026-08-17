@@ -76,6 +76,63 @@ Keep the pull request template's section order as it is. In the `Validation`
 section, record only the checks you actually ran, marked `PASS`, `FAIL`, or
 `SKIP` with a reason. Do not mark a check you did not run as passing.
 
+## Responding to review feedback
+
+Write each review reply so it is concise and understandable without reopening
+the full thread. Start with one of these decision tags and an outcome-oriented
+summary:
+
+- `[Accepted]` means the feedback was implemented. Link the pushed commit, then
+  use about three bullets for the problem, the change, and the evidence or
+  behavior preserved.
+- `[Partially accepted]` means the concern was addressed with narrower scope or
+  a different implementation. Link the pushed commit, then cover what changed,
+  which boundary remains and why, and the evidence or remaining tradeoff.
+- `[Rejected]` means no implementation change was made. Use about three bullets
+  for the reason, the governing contract or invariant, and the tradeoff or
+  follow-up path.
+
+Resolve the thread only after posting the reply and, for accepted or partially
+accepted feedback, after the linked commit is pushed and accessible. This is a
+project convention; GitHub does not enforce it.
+
+### Accepted example
+
+[Accepted] Release signal notification before cancellation
+
+in commit [6d960e8](https://github.com/weavegate/weavegate/commit/6d960e89506e25e54d4651d5c0001f8f7c24b113)
+
+- Signal notification now stops before cancellation, restoring the default
+  disposition while detached cleanup runs.
+- The normal-return path also stops notification before `os.Exit`; first-signal
+  exit 130 behavior is unchanged.
+- Injected signal seams verify the ordering, and the reference marker records
+  `second_signal=default`.
+
+### Partially accepted example
+
+[Partially accepted] Bound pool closes without reordering teardown
+
+in commit [50064de](https://github.com/weavegate/weavegate/commit/50064de4b8b11151e07c702b2e557c092eff6928)
+
+- The teardown deadline no longer depends on `sql.DB.Close` implementation
+  details; both pool closes now use a deadline-aware helper.
+- Pool closure still precedes container termination to avoid driver errors, so
+  the proposed teardown reordering was not adopted.
+- A blocking stub driver verifies the bound and subsequent termination; the
+  preserved order trades earlier termination for clean connection shutdown.
+
+### Rejected example
+
+[Rejected] Keep one opaque run-ID grammar because no legacy CLI shipped
+
+- The project has no released predecessor or committed legacy run directories;
+  the older form existed only in unreleased branch history.
+- v1 compatibility covers artifact content, and replay does not apply the
+  report command's run-ID grammar.
+- A second grammar would widen the path-validation surface; a documented
+  migration remains the follow-up if pre-1.0 IDs ever need support.
+
 ## Documentation is part of the change
 
 If a pull request changes a user-visible contract — a diagnostic code, a
