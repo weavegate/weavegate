@@ -6,8 +6,9 @@ import (
 	"strings"
 )
 
-// renderMarkdown builds report.md. RG diagnostic codes are not part of the
-// headline yet (A-10) — that follows once M7 exists.
+const diagnosticLabelWidth = 11
+
+// renderMarkdown builds report.md.
 func renderMarkdown(run Run) string {
 	var b strings.Builder
 
@@ -17,6 +18,9 @@ func renderMarkdown(run Run) string {
 		headline = "FLAKY"
 	case run.Pass:
 		headline = "PASS"
+	}
+	if len(run.Observation.Diagnostics) > 0 {
+		headline += " (" + run.Observation.Diagnostics[0].Code + ")"
 	}
 	fmt.Fprintf(&b, "## weavegate: %s\n", headline)
 
@@ -46,8 +50,46 @@ func renderMarkdown(run Run) string {
 	if run.ReplayCommand != "" {
 		fmt.Fprintf(&b, "replay: %s\n", run.ReplayCommand)
 	}
+	for _, diagnostic := range run.Observation.Diagnostics {
+		b.WriteByte('\n')
+		renderDiagnostic(&b, diagnostic)
+	}
 
 	return b.String()
+}
+
+func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
+	fmt.Fprintf(b, "%s[%s]: %s\n", diagnostic.Severity, diagnostic.Code, diagnostic.Title)
+	writeDiagnosticField(b, "observed:", diagnostic.Observed)
+	if diagnostic.Assertion != "" {
+		writeDiagnosticField(b, "assertion:", diagnostic.Assertion)
+	}
+	writeDiagnosticField(b, "invariant:", diagnostic.Invariant)
+	writeDiagnosticField(b, "reason:", diagnostic.Reason)
+	for index, help := range diagnostic.Help {
+		label := ""
+		if index == 0 {
+			label = "help:"
+		}
+		writeDiagnosticField(b, label, help)
+	}
+	parts := make([]string, 0, 3)
+	if diagnostic.Evidence.ScheduleRef != "" {
+		parts = append(parts, "schedule "+diagnostic.Evidence.ScheduleRef)
+	}
+	if diagnostic.Evidence.Trace != "" {
+		parts = append(parts, diagnostic.Evidence.Trace)
+	}
+	rowLabel := "violating rows"
+	if diagnostic.Evidence.Rows == 1 {
+		rowLabel = "violating row"
+	}
+	parts = append(parts, fmt.Sprintf("%d %s", diagnostic.Evidence.Rows, rowLabel))
+	writeDiagnosticField(b, "evidence:", strings.Join(parts, " · "))
+}
+
+func writeDiagnosticField(b *strings.Builder, label, value string) {
+	fmt.Fprintf(b, "  %-*s%s\n", diagnosticLabelWidth, label, value)
 }
 
 func explorationSummary(run Run) string {

@@ -277,6 +277,57 @@ func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {
 	t.Log("ARTIFACT_V2_RESULT files=6 writer=v2 schedule=neutral mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
 }
 
+func TestRenderMarkdownDiagnostics(t *testing.T) {
+	run := sampleRun(t, "run_20260816T120004.000Z_ffffffff")
+	without := renderMarkdown(run)
+	wantWithout := "## weavegate: FAIL\n" +
+		"scenario: concurrent-assign | schedules explored: 2 | violating: sch_sample00000\n" +
+		"assertion: active-assignment-is-unique\n" +
+		"flaky: false (repeat=20)\n" +
+		"replay: weavegate run --config .weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_sample00000 --repeat 20\n"
+	if without != wantWithout {
+		t.Fatalf("no-diagnostic markdown changed:\n%s", without)
+	}
+	run.Observation.Diagnostics = []Diagnostic{
+		{
+			Code: "RG001", Severity: "error", Title: "concurrent write not serialized",
+			Observed:  "active-assignment-is-unique returned 1 row: active_count=2",
+			Assertion: "active-assignment-is-unique",
+			Invariant: "a declared state invariant must hold under every release schedule the database permits",
+			Reason:    "read-then-write without a lock or a unique constraint allows interleaving",
+			Help:      []string{"add a unique constraint", "take a pessimistic lock"},
+			Evidence:  DiagnosticEvidence{ScheduleRef: "sch_sample00000", Rows: 1, Trace: "trace.json"},
+		},
+		{
+			Code: "RG090", Severity: "error", Title: "determinism check failed",
+			Observed: "repeated executions diverged", Invariant: "same schedule, same result",
+			Reason: "fingerprints differ", Help: []string{"compare fingerprints"},
+			Evidence: DiagnosticEvidence{Rows: 0, Trace: "trace.json"},
+		},
+	}
+	markdown := renderMarkdown(run)
+	for _, want := range []string{
+		"## weavegate: FAIL (RG001)",
+		"error[RG001]: concurrent write not serialized",
+		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
+		"  assertion: active-assignment-is-unique",
+		"  help:      add a unique constraint\n             take a pessimistic lock",
+		"  evidence:  schedule sch_sample00000 · trace.json · 1 violating row",
+		"error[RG090]: determinism check failed",
+	} {
+		if !strings.Contains(markdown, want) {
+			t.Fatalf("markdown missing %q:\n%s", want, markdown)
+		}
+	}
+	flaky := run
+	flaky.Flaky = true
+	flaky.Observation.Diagnostics = flaky.Observation.Diagnostics[1:]
+	if got := renderMarkdown(flaky); !strings.HasPrefix(got, "## weavegate: FLAKY (RG090)\n") {
+		t.Fatalf("flaky headline:\n%s", got)
+	}
+	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=rg090 render=single_source")
+}
+
 func testRerunIdentical(t *testing.T, base string) string {
 	t.Helper()
 
