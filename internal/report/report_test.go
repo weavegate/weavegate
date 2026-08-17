@@ -157,6 +157,24 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if string(traceDoc["events"]) == "null" || string(traceDoc["terminals"]) == "null" {
 		t.Fatalf("trace.json has null events/terminals, want []: %s", traceDoc)
 	}
+	var observationDoc map[string]json.RawMessage
+	if err := json.Unmarshal(mustRead(t, filepath.Join(dir, ObservationFile)), &observationDoc); err != nil {
+		t.Fatalf("parse observation.json: %v", err)
+	}
+	if string(observationDoc["diagnostics"]) != "[]" {
+		t.Fatalf("observation diagnostics = %s, want []", observationDoc["diagnostics"])
+	}
+	var mergedDoc struct {
+		Observation struct {
+			Diagnostics []Diagnostic `json:"diagnostics"`
+		} `json:"observation"`
+	}
+	if err := json.Unmarshal(mustRead(t, filepath.Join(dir, MergedFile)), &mergedDoc); err != nil {
+		t.Fatalf("parse report.json diagnostics: %v", err)
+	}
+	if mergedDoc.Observation.Diagnostics == nil {
+		t.Fatal("report.json observation diagnostics is null")
+	}
 
 	// A second run with an empty trace must still encode [] rather than null.
 	emptyRun := sampleRun(t, "run_20260816T120001.000Z_bbbbbbbb")
@@ -175,6 +193,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if strings.Contains(emptyObservationContent, "null") {
 		t.Fatalf("observation.json with empty slice encodes null: %s", emptyObservationContent)
 	}
+
+	t.Log("REPORT_DIAGNOSTIC_RESULT field=observation.diagnostics files=6 empty=json_array dto=report_owned merged=report_json deterministic=true")
 
 	replayLine := extractReplayLine(t, filepath.Join(dir, MarkdownFile))
 	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.Schedule.ID) || strings.Contains(replayLine, "--out") {

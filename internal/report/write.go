@@ -172,6 +172,14 @@ func normalizeRun(run Run) Run {
 	if run.Observation.AssertionViolations == nil {
 		run.Observation.AssertionViolations = []AssertionViolation{}
 	}
+	if run.Observation.Diagnostics == nil {
+		run.Observation.Diagnostics = []Diagnostic{}
+	}
+	for index := range run.Observation.Diagnostics {
+		if run.Observation.Diagnostics[index].Help == nil {
+			run.Observation.Diagnostics[index].Help = []string{}
+		}
+	}
 	if run.Observation.Oracles == nil {
 		run.Observation.Oracles = []OracleDeclaration{}
 	}
