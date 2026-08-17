@@ -34,18 +34,28 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 - **Compiler-style diagnostics** — violations render as `error[RG001]` with observed state, broken invariant, likely reason, and suggested fixes.
 - **CI gate** — exit codes, `report.json`/`report.md`, `trace.json`, a one-line GitHub Action, and a PR comment with the replay command.
 
-A designed diagnostic, end to end:
+A diagnostic produced by the matching-slice run, end to end:
 
 ```text
-error[RG001]: concurrent assignment not serialized
-  observed:  resource(id=42) assigned to owner 7 and 9
-  invariant: no active resource is assigned more than once
-  reason:    read-then-insert without lock or unique constraint allows interleaving
-  help:      add a unique constraint on (resource_id) where active,
-             or take a pessimistic lock (SELECT ... FOR UPDATE) before insert
-  evidence:  schedule sch_0001 · trace.json · 1 violating row
-  replay:    weavegate run --replay sch_0001
+## weavegate: FAIL (RG001)
+scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
+assertion: active-assignment-is-unique
+flaky: false (repeat=20)
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: concurrent write not serialized
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  help:      add a unique constraint on the active assignment key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
 ```
+
+See the full [RG001 reference](docs/reference/diagnostics/RG001.md), including
+what this code does not claim.
 
 After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying the **same schedule** passes — the gate verifies the fix itself, not just the happy path.
 
