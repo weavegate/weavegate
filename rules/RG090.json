@@ -4,7 +4,7 @@
   "triggers": ["engine.determinism"],
   "title": "determinism check failed",
   "invariant": "repeated executions of the same schedule must produce the same normalized result",
-  "reason": "replays diverged in normalized terminal state or timing classification",
+  "reason": "the discovery run or repeated replays diverged in normalized terminal state or timing classification",
   "help": [
     "compare the replay fingerprints and their counts",
     "check arrive_timeout_ms against the environment's scheduling behavior"

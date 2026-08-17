@@ -182,11 +182,13 @@ func runScenario(
 
 	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
 	diagnostics, err := diagnostic.Derive(diagnostic.Input{
-		Table:       plan.Resolved.Diagnostics,
-		Violations:  diagnosticViolations(violationEvidenceRuns(outcome)),
-		OracleOrder: oracleOrder(plan.Config.Oracle.Assertions),
-		Flaky:       outcome.Verdict.Flaky,
-		ScheduleRef: violatingScheduleID(outcome),
+		Table:                plan.Resolved.Diagnostics,
+		Violations:           diagnosticViolations(violationEvidenceRuns(outcome)),
+		OracleOrder:          oracleOrder(plan.Config.Oracle.Assertions),
+		Flaky:                outcome.Verdict.Flaky,
+		Fingerprints:         outcome.Replay.Fingerprints,
+		DiscoveryFingerprint: discoveryFingerprint(outcome),
+		ScheduleRef:          violatingScheduleID(outcome),
 	})
 	if err != nil {
 		return reportRunFailure(stderr, fmt.Errorf("run: derive diagnostics: %w", err))

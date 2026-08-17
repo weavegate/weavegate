@@ -10,11 +10,13 @@ import (
 )
 
 type Input struct {
-	Table       Table
-	Violations  []oracle.Violation
-	OracleOrder []string
-	Flaky       bool
-	ScheduleRef string
+	Table                Table
+	Violations           []oracle.Violation
+	OracleOrder          []string
+	Flaky                bool
+	Fingerprints         map[string]int
+	DiscoveryFingerprint string
+	ScheduleRef          string
 }
 
 type diagnosticGroup struct {
@@ -74,14 +76,35 @@ func Derive(input Input) ([]Diagnostic, error) {
 	}
 	if input.Flaky {
 		if rule, ok := input.Table.LookupTrigger(TriggerEngineDeterminism); ok {
+			observed, err := renderFlakyObserved(input.Fingerprints, input.DiscoveryFingerprint)
+			if err != nil {
+				return nil, fmt.Errorf("derive diagnostics: %w", err)
+			}
 			diagnostics = append(diagnostics, fromRule(
 				rule,
-				"repeated executions produced more than one normalized fingerprint",
+				observed,
 				"", input.ScheduleRef, 0,
 			))
 		}
 	}
 	return diagnostics, nil
+}
+
+func renderFlakyObserved(fingerprints map[string]int, discoveryFingerprint string) (string, error) {
+	if len(fingerprints) > 1 {
+		return fmt.Sprintf(
+			"repeated executions produced %d normalized fingerprints",
+			len(fingerprints),
+		), nil
+	}
+	if len(fingerprints) == 1 && discoveryFingerprint != "" {
+		for replayFingerprint := range fingerprints {
+			if replayFingerprint != discoveryFingerprint {
+				return "the discovery fingerprint differs from the replay fingerprint", nil
+			}
+		}
+	}
+	return "", fmt.Errorf("flaky verdict has no fingerprint divergence")
 }
 
 func fromRule(rule Rule, observed, assertion, scheduleRef string, rows int) Diagnostic {

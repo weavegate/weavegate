@@ -21,7 +21,8 @@ func TestDeriveContract(t *testing.T) {
 			{OracleID: "first", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"count": int64(2)}}},
 			{OracleID: "second", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"ignored_for_observed": int64(3)}}},
 		},
-		OracleOrder: []string{"first", "second"}, Flaky: true, ScheduleRef: "sch_test",
+		OracleOrder: []string{"first", "second"}, Flaky: true,
+		Fingerprints: map[string]int{"fp-a": 19, "fp-b": 1}, ScheduleRef: "sch_test",
 	}
 	got, err := Derive(input)
 	if err != nil {
@@ -36,6 +37,9 @@ func TestDeriveContract(t *testing.T) {
 	if got[2].Assertion != "" || got[2].Evidence.Rows != 0 {
 		t.Fatalf("engine diagnostic = %#v", got[2])
 	}
+	if got[2].Observed != "repeated executions produced 2 normalized fingerprints" {
+		t.Fatalf("flaky observed = %q", got[2].Observed)
+	}
 	want := got
 	for range 20 {
 		next, err := Derive(input)
@@ -47,6 +51,40 @@ func TestDeriveContract(t *testing.T) {
 		}
 	}
 	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=summed order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+}
+
+func TestDeriveDescribesDiscoveryReplayMismatch(t *testing.T) {
+	table, err := Load(shippedrules.FS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Derive(Input{
+		Table: table, Flaky: true,
+		Fingerprints:         map[string]int{"fp-replay": 20},
+		DiscoveryFingerprint: "fp-discovery",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Code != "RG090" ||
+		got[0].Observed != "the discovery fingerprint differs from the replay fingerprint" {
+		t.Fatalf("diagnostics = %#v", got)
+	}
+}
+
+func TestDeriveRejectsFlakyWithoutDivergence(t *testing.T) {
+	table, err := Load(shippedrules.FS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Derive(Input{
+		Table: table, Flaky: true,
+		Fingerprints:         map[string]int{"fp-same": 20},
+		DiscoveryFingerprint: "fp-same",
+	})
+	if err == nil {
+		t.Fatal("Derive succeeded")
+	}
 }
 
 func TestDeriveSkipsKnownTriggerWithoutRule(t *testing.T) {

@@ -6,7 +6,7 @@
   "invariant": "a declared state invariant must hold under every release schedule the database permits",
   "reason": "read-then-write without a lock or a unique constraint allows interleaving",
   "help": [
-    "add a unique constraint on the active assignment key",
+    "add a unique constraint on the contested key",
     "take a pessimistic lock (SELECT ... FOR UPDATE) before insert",
     "use an idempotency key on the write"
   ]
