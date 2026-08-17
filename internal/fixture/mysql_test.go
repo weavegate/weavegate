@@ -2,15 +2,56 @@ package fixture
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 )
+
+var blockingCloseDriverSequence atomic.Uint64
+
+type blockingCloseDriver struct {
+	closeStarted chan struct{}
+	release      chan struct{}
+}
+
+func (d *blockingCloseDriver) Open(string) (driver.Conn, error) {
+	return &blockingCloseConn{
+		closeStarted: d.closeStarted,
+		release:      d.release,
+	}, nil
+}
+
+type blockingCloseConn struct {
+	closeStarted chan struct{}
+	release      chan struct{}
+	closeOnce    sync.Once
+}
+
+func (*blockingCloseConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (c *blockingCloseConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closeStarted) })
+	<-c.release
+	return nil
+}
+
+func (*blockingCloseConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("transactions are not supported")
+}
+
+func (*blockingCloseConn) Ping(context.Context) error { return nil }
 
 func TestMySQLFixtureLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -301,7 +342,62 @@ func TestMySQLFixtureTeardownHonorsContextDeadline(t *testing.T) {
 		t.Fatal("deadline-exceeded teardown discarded retryable fixture state")
 	}
 
-	t.Log("FIXTURE_TEARDOWN_CONTEXT_RESULT deadline=honored calls=1 state=retryable")
+	assertMySQLFixtureBoundsPoolClose(t)
+
+	t.Log("FIXTURE_TEARDOWN_CONTEXT_RESULT deadline=honored calls=1 state=retryable pool_close=bounded")
+}
+
+func assertMySQLFixtureBoundsPoolClose(t *testing.T) {
+	t.Helper()
+
+	closeStarted := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	driverName := fmt.Sprintf("weavegate-blocking-close-%d", blockingCloseDriverSequence.Add(1))
+	sql.Register(driverName, &blockingCloseDriver{
+		closeStarted: closeStarted,
+		release:      release,
+	})
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open blocking-close database: %v", err)
+	}
+	if err := db.PingContext(context.Background()); err != nil {
+		t.Fatalf("ping blocking-close database: %v", err)
+	}
+
+	terminateCalls := 0
+	fixture := &mysqlFixture{
+		container:   &mysqlcontainer.MySQLContainer{},
+		db:          &DB{SQL: db},
+		prepared:    Prepared{image: "mysql:8.4", valid: true},
+		provisioned: true,
+		terminateContainer: func(context.Context, *mysqlcontainer.MySQLContainer) error {
+			terminateCalls++
+			return nil
+		},
+	}
+
+	started := time.Now()
+	err = fixture.Teardown(context.Background())
+	elapsed := time.Since(started)
+	if err == nil || !strings.Contains(err.Error(), "exceeded 5s teardown budget") {
+		t.Fatalf("teardown error = %v, want pool-close budget error", err)
+	}
+	if elapsed < poolCloseTimeout || elapsed > poolCloseTimeout+time.Second {
+		t.Fatalf("teardown elapsed = %v, want within [%v, %v]", elapsed, poolCloseTimeout, poolCloseTimeout+time.Second)
+	}
+	select {
+	case <-closeStarted:
+	default:
+		t.Fatal("database driver Close was not called")
+	}
+	if terminateCalls != 1 {
+		t.Fatalf("terminate calls = %d, want 1 after bounded pool close", terminateCalls)
+	}
+	if fixture.container != nil || fixture.provisioned {
+		t.Fatal("successful termination retained fixture state after pool-close timeout")
+	}
 }
 
 func itemCount(t *testing.T, ctx context.Context, db *DB) int {

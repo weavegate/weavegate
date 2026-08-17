@@ -90,6 +90,8 @@ created, weavegate requests `Teardown` exactly once with operation cancellation
 detached and an independent 30-second deadline. A deadline or teardown error
 is printed as a warning; for a completed run it is also stored as
 `manifest.cleanup_failed` and follows the exit-code rule above.
+Each application or administrative pool close receives at most five seconds
+of that budget, leaving the remainder for terminating the external container.
 
 This is a bounded cleanup request, not a guarantee that an uncooperative
 external library will return or that SIGKILL can be handled. No in-process

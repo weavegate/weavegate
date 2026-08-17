@@ -18,6 +18,10 @@ const (
 	fixtureUsername               = "weavegate"
 	fixturePassword               = "weavegate"
 	failedProvisionCleanupTimeout = 30 * time.Second
+	// Leave most of the cleanup deadline for terminating the external
+	// container: a local pool can be abandoned on process exit, while a
+	// leaked container remains an external resource.
+	poolCloseTimeout = 5 * time.Second
 )
 
 type mysqlFixture struct {
@@ -112,16 +116,16 @@ func (f *mysqlFixture) cleanupFailedProvision(
 	admin *sql.DB,
 	container *mysqlcontainer.MySQLContainer,
 ) error {
-	appErr := closeDatabase("application database", app)
-	adminErr := closeDatabase("administrative database", admin)
-	terminateErr := withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
-		return f.terminate(cleanupCtx, container)
-	})
-	if terminateErr != nil && container != nil {
-		f.container = container
-	}
+	return withProvisionCleanupContext(operationCtx, func(cleanupCtx context.Context) error {
+		appErr := closeDatabaseWithin(cleanupCtx, poolCloseTimeout, "application database", app)
+		adminErr := closeDatabaseWithin(cleanupCtx, poolCloseTimeout, "administrative database", admin)
+		terminateErr := f.terminate(cleanupCtx, container)
+		if terminateErr != nil && container != nil {
+			f.container = container
+		}
 
-	return errors.Join(appErr, adminErr, terminateErr)
+		return errors.Join(appErr, adminErr, terminateErr)
+	})
 }
 
 func withProvisionCleanupContext(
@@ -148,6 +152,8 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
 
+	// Reset runs only after every worker is terminal, so unlike teardown it
+	// does not need to abandon a pool close to preserve a cleanup deadline.
 	if err := closeDatabase("application database", f.db.SQL); err != nil {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
@@ -199,8 +205,8 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 		f.db.SQL = nil
 	}
 
-	appErr := closeDatabase("application database", app)
-	adminErr := closeDatabase("administrative database", f.admin)
+	appErr := closeDatabaseWithin(ctx, poolCloseTimeout, "application database", app)
+	adminErr := closeDatabaseWithin(ctx, poolCloseTimeout, "administrative database", f.admin)
 	terminateErr := f.terminate(ctx, f.container)
 	if terminateErr != nil {
 		terminateErr = fmt.Errorf("terminate MySQL container: %w", terminateErr)
@@ -292,6 +298,36 @@ func closeDatabase(name string, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+func closeDatabaseWithin(
+	ctx context.Context,
+	timeout time.Duration,
+	name string,
+	db *sql.DB,
+) error {
+	if db == nil {
+		return nil
+	}
+
+	closed := make(chan error, 1)
+	go func() {
+		closed <- db.Close()
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-closed:
+		if err != nil {
+			return fmt.Errorf("close %s: %w", name, err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("close %s: exceeded teardown budget: %w", name, ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("close %s: exceeded %v teardown budget", name, timeout)
+	}
 }
 
 func terminateContainer(
