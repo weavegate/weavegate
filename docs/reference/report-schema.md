@@ -100,7 +100,7 @@ field names or casing:
 | `timeouts` | object | The effective arrive timeout and its four derived orchestrator deadlines, in milliseconds: `arrive_timeout_ms` (config default or resolved value), `block_inference_timeout_ms` (equal to `arrive_timeout_ms`), `step_timeout_ms` (20×), `run_timeout_ms` (60×), `stop_timeout_ms` (20×) — see [Timing](config.md#timing) for how these are derived. These deadlines affect terminal timing classifications and normalized fingerprints, and therefore potentially the `flaky` verdict, so they are snapshotted here even after the referenced config is edited or deleted. |
 | `violation_runs` | int | How many of the `repeat` replay runs had at least one violation. |
 | `flaky` | bool | See [exit-codes.md](exit-codes.md#the-flaky-determination). |
-| `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky purely from this divergence (differing terminal states or timing classification) with zero assertion violations anywhere, so this is the only evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
+| `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky when Oracle results, normalized trace events, or terminal state diverge, including with zero assertion violations anywhere, so this is the evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
 | `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
 
 ```json
@@ -159,11 +159,11 @@ assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: concurrent write not serialized
+error[RG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
-  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  reason:    commonly a read-then-write path without a lock or a unique constraint
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write

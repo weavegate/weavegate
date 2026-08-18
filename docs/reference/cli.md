@@ -67,11 +67,11 @@ assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: concurrent write not serialized
+error[RG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
-  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  reason:    commonly a read-then-write path without a lock or a unique constraint
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write
@@ -124,11 +124,11 @@ assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: concurrent write not serialized
+error[RG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
-  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  reason:    commonly a read-then-write path without a lock or a unique constraint
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write

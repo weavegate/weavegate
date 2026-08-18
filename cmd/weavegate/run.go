@@ -261,10 +261,10 @@ func discoveryFingerprint(outcome runOutcome) string {
 //     found a violation, but every replay run passed) — otherwise a FLAKY
 //     verdict would have nothing to show for it at all.
 //  3. A replay run whose fingerprint diverged from the others (direct
-//     --replay can be flaky purely from execution-fingerprint divergence —
-//     differing terminal states or timing classification — with zero
-//     assertion violations anywhere; an arbitrary run shows nothing of
-//     that divergence, but a mismatching one does).
+//     --replay can be flaky when Oracle results, trace events, or terminal
+//     state diverge, including with zero assertion violations anywhere; an
+//     arbitrary run shows nothing of that divergence, but a mismatching one
+//     can provide a lead).
 //  4. The first replay run, when nothing above found anything to prefer.
 func runTrace(outcome runOutcome) report.Trace {
 	selected, ok := selectTraceRun(outcome)

@@ -184,10 +184,10 @@ type Observation struct {
 	Flaky               bool                 `json:"flaky"`
 
 	// Fingerprints counts, per distinct normalized execution fingerprint,
-	// how many of the repeat replay runs produced it. A run can be flaky
-	// purely from this divergence (differing terminal states or timing
-	// classification) with zero assertion violations anywhere, so this is
-	// the only evidence of *why* such a run is flaky.
+	// how many of the repeat replay runs produced it. A run can be flaky when
+	// Oracle results, normalized trace events, or terminal state diverge,
+	// including with zero assertion violations anywhere, so this is the
+	// evidence of *why* such a run is flaky.
 	Fingerprints map[string]int `json:"fingerprints"`
 
 	// DiscoveryFingerprint is present only when exploration produced a

@@ -290,11 +290,11 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	}
 	run.Observation.Diagnostics = []Diagnostic{
 		{
-			Code: "RG001", Severity: "error", Title: "concurrent write not serialized",
+			Code: "RG001", Severity: "error", Title: "invariant violated under a controlled schedule",
 			Observed:  "active-assignment-is-unique returned 1 row: active_count=2",
 			Assertion: "active-assignment-is-unique",
 			Invariant: "a declared state invariant must hold under every release schedule the database permits",
-			Reason:    "read-then-write without a lock or a unique constraint allows interleaving",
+			Reason:    "commonly a read-then-write path without a lock or a unique constraint",
 			Help:      []string{"add a unique constraint", "take a pessimistic lock"},
 			Evidence:  DiagnosticEvidence{ScheduleRef: "sch_sample00000", Rows: 1, Trace: "trace.json"},
 		},
@@ -308,7 +308,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	markdown := renderMarkdown(run)
 	for _, want := range []string{
 		"## weavegate: FAIL (RG001)",
-		"error[RG001]: concurrent write not serialized",
+		"error[RG001]: invariant violated under a controlled schedule",
 		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
 		"  assertion: active-assignment-is-unique",
 		"  help:      add a unique constraint\n             take a pessimistic lock",
