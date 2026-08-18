@@ -55,12 +55,15 @@ resolved in this order:
 Resolution stops at the first stage that finds at least one match. If more
 than one candidate shares the ID, their saved steps must be identical;
 otherwise the ID is rejected as ambiguous (exit 5) rather than guessed at.
+The `matching-slice` entrypoint registers only `sch_ba00582f9632`, so the
+example's discovered `sch_7dcb74b1e506` resolves only through its saved run
+directory in stage ①.
 
 ### `run` example
 
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
-    --scenario concurrent-assign --variant vulnerable --out /tmp/wg-doc
+    --scenario concurrent-assign --variant vulnerable
 ## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
@@ -76,7 +79,7 @@ error[RG001]: invariant violated under a controlled schedule
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write
   evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
-/tmp/wg-doc/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
+.weavegate/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
 $ echo $?
 2
 ```
@@ -88,10 +91,10 @@ shell minimal quoting, so whitespace, single quotes, and shell
 metacharacters are preserved as argument data rather than interpreted by the
 shell. `--out` is deliberately
 absent from it (see [`--replay` resolution order](#--replay-resolution-order)
-above): replaying from a different `--out` than the one shown here falls
-back to stage ②, which only resolves schedules the entrypoint has
-registered. See [report-schema.md](report-schema.md) for the full
-field-by-field contract.
+above). The example uses the default `.weavegate` output for both commands;
+replaying with a different `--out` falls back to stage ②, which only resolves
+schedules the entrypoint has registered. See
+[report-schema.md](report-schema.md) for the full field-by-field contract.
 
 ## `weavegate report`
 
@@ -117,7 +120,7 @@ invalid ID, or unknown format exits 5.
 ### `report` example
 
 ```console
-$ weavegate report --out /tmp/wg-doc --format md
+$ weavegate report --format md
 ## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
