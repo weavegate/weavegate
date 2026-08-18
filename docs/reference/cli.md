@@ -61,11 +61,21 @@ otherwise the ID is rejected as ambiguous (exit 5) rather than guessed at.
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
     --scenario concurrent-assign --variant vulnerable --out /tmp/wg-doc
-## weavegate: FAIL
+## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: concurrent write not serialized
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    read-then-write without a lock or a unique constraint allows interleaving
+  help:      add a unique constraint on the contested key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
 /tmp/wg-doc/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
 $ echo $?
 2
