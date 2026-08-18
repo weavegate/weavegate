@@ -143,9 +143,12 @@ written by `run`, not a second rendering. Longer explanations live under
 
 - `weavegate` with no arguments prints help and exits 0.
 - An unknown subcommand or an unknown flag exits 5 with a one-line message on
-  stderr; Cobra's usage dump is suppressed so the diagnostic stays short.
-- Results meant for a human or a script go to stdout; diagnostics go to
-  stderr.
+  stderr; Cobra's usage dump is suppressed so the error message stays short.
+- Verdict output goes to stdout. Both `run` and `report` stream the stored
+  `report.md` bytes there, including RG diagnostic blocks such as
+  `error[RG001]`; `run` then prints the run directory path as its final line.
+- Operational messages, including invalid input, fixture failures, and cleanup
+  warnings, go to stderr.
 - `weavegate --version` prints the build version and exits 0.
 - The first SIGINT or SIGTERM cancels the run and begins bounded cleanup; a
   repeated signal uses the operating system's default disposition so the
