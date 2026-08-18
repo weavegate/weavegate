@@ -19,6 +19,20 @@ Every JSON document written by the current CLI carries
 `schedule` field and the legacy v1 `violating_schedule` field; newly written
 artifacts are always v2.
 
+## Artifact version policy
+
+`artifact_version` changes for breaking schema changes: renaming or removing a
+field, or changing what an existing field means. The v1-to-v2 change is the
+precedent because `violating_schedule` was renamed to the neutral `schedule`
+field. Adding a field does not bump the version; consumers must ignore fields
+they do not know and tolerate their absence in older artifacts of the same
+pre-release version.
+
+Before 1.0, v2 is an in-progress format. The first release freezes its
+compatibility baseline: existing names and meanings then require a version
+bump to change, while additive fields remain compatible under the tolerance
+rule above. The legacy v1 `violating_schedule` reader remains supported.
+
 ## Volatile vs. deterministic
 
 Two files carry per-run identity and are expected to differ between two runs
