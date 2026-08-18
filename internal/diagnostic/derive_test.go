@@ -31,10 +31,12 @@ func TestDeriveContract(t *testing.T) {
 	if len(got) != 3 || got[0].Assertion != "first" || got[1].Assertion != "second" || got[2].Code != "RG090" {
 		t.Fatalf("diagnostics = %#v", got)
 	}
-	if got[1].Evidence.Rows != 2 || got[1].Observed != "second returned 1 row: a=1 z=2" {
+	if got[1].Evidence.Rows != 1 || got[1].Evidence.EvidenceSets != 2 ||
+		got[1].Observed != "second returned 1 row: a=1 z=2" {
 		t.Fatalf("merged diagnostic = %#v", got[1])
 	}
-	if got[0].Evidence.Trace != "trace.json" || got[0].Evidence.Observation != "" {
+	if got[0].Evidence.EvidenceSets != 0 || got[0].Evidence.Trace != "trace.json" ||
+		got[0].Evidence.Observation != "" {
 		t.Fatalf("Oracle diagnostic evidence = %#v", got[0].Evidence)
 	}
 	if got[2].Assertion != "" || got[2].Evidence.Rows != 0 ||
@@ -54,7 +56,7 @@ func TestDeriveContract(t *testing.T) {
 			t.Fatalf("unstable result:\nwant %#v\n got %#v", want, next)
 		}
 	}
-	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=summed order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
 }
 
 func TestDeriveDescribesDiscoveryReplayMismatch(t *testing.T) {

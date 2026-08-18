@@ -108,6 +108,12 @@ func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", diagnostic.Evidence.Rows, rowLabel))
 	}
+	if diagnostic.Evidence.EvidenceSets > 1 {
+		parts = append(parts, fmt.Sprintf(
+			"%d evidence sets in observation.json",
+			diagnostic.Evidence.EvidenceSets,
+		))
+	}
 	writeDiagnosticField(b, "evidence:", strings.Join(parts, " · "))
 }
 

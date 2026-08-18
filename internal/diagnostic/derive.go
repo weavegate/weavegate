@@ -20,11 +20,11 @@ type Input struct {
 }
 
 type diagnosticGroup struct {
-	rule       Rule
-	oracleID   string
-	firstRows  []oracle.Row
-	totalRows  int
-	orderIndex int
+	rule         Rule
+	oracleID     string
+	firstRows    []oracle.Row
+	evidenceSets int
+	orderIndex   int
 }
 
 func Derive(input Input) ([]Diagnostic, error) {
@@ -53,13 +53,13 @@ func Derive(input Input) ([]Diagnostic, error) {
 		}
 		key := string(rule.Code) + "\x00" + violation.OracleID
 		if groupIndex, exists := groupIndexes[key]; exists {
-			groups[groupIndex].totalRows += len(violation.Rows)
+			groups[groupIndex].evidenceSets++
 			continue
 		}
 		groupIndexes[key] = len(groups)
 		groups = append(groups, diagnosticGroup{
 			rule: rule, oracleID: violation.OracleID, firstRows: violation.Rows,
-			totalRows: len(violation.Rows), orderIndex: orderIndex,
+			evidenceSets: 1, orderIndex: orderIndex,
 		})
 	}
 	sort.SliceStable(groups, func(left, right int) bool {
@@ -76,7 +76,11 @@ func Derive(input Input) ([]Diagnostic, error) {
 			group.rule,
 			observed,
 			group.oracleID,
-			Evidence{ScheduleRef: input.ScheduleRef, Rows: group.totalRows, Trace: "trace.json"},
+			Evidence{
+				ScheduleRef: input.ScheduleRef,
+				Rows:        len(group.firstRows), EvidenceSets: optionalEvidenceSetCount(group.evidenceSets),
+				Trace: "trace.json",
+			},
 		))
 	}
 	if input.Flaky {
@@ -91,6 +95,13 @@ func Derive(input Input) ([]Diagnostic, error) {
 		}
 	}
 	return diagnostics, nil
+}
+
+func optionalEvidenceSetCount(count int) int {
+	if count > 1 {
+		return count
+	}
+	return 0
 }
 
 func renderFlakyObserved(fingerprints map[string]int, discoveryFingerprint string) string {

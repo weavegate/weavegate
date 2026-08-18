@@ -365,8 +365,8 @@ func assertionViolations(runs []orchestrator.RunResult) []report.AssertionViolat
 
 // diagnosticViolations preserves oracle.Kind until the diagnostic layer has
 // classified it, while applying the same evidence de-duplication used by the
-// report DTO. Repeated replays of identical evidence must not multiply the
-// number of violating rows in a single diagnostic.
+// report DTO. Repeated replays of identical evidence must not multiply either
+// the artifact entries or a diagnostic's evidence-set count.
 func diagnosticViolations(runs []orchestrator.RunResult) []oracle.Violation {
 	seen := make(map[string]struct{})
 	var violations []oracle.Violation
@@ -412,10 +412,11 @@ func reportDiagnostics(values []diagnostic.Diagnostic) []report.Diagnostic {
 			Observed: value.Observed, Assertion: value.Assertion, Invariant: value.Invariant,
 			Reason: value.Reason, Help: append([]string(nil), value.Help...),
 			Evidence: report.DiagnosticEvidence{
-				ScheduleRef: value.Evidence.ScheduleRef,
-				Rows:        value.Evidence.Rows,
-				Trace:       value.Evidence.Trace,
-				Observation: value.Evidence.Observation,
+				ScheduleRef:  value.Evidence.ScheduleRef,
+				Rows:         value.Evidence.Rows,
+				EvidenceSets: value.Evidence.EvidenceSets,
+				Trace:        value.Evidence.Trace,
+				Observation:  value.Evidence.Observation,
 			},
 		})
 	}

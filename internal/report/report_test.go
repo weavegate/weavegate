@@ -296,7 +296,10 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 			Invariant: "a declared state invariant must hold under every release schedule the database permits",
 			Reason:    "commonly a read-then-write path without a lock or a unique constraint",
 			Help:      []string{"add a unique constraint", "take a pessimistic lock"},
-			Evidence:  DiagnosticEvidence{ScheduleRef: "sch_sample00000", Rows: 1, Trace: "trace.json"},
+			Evidence: DiagnosticEvidence{
+				ScheduleRef: "sch_sample00000", Rows: 1,
+				EvidenceSets: 2, Trace: "trace.json",
+			},
 		},
 		{
 			Code: "RG090", Severity: "error", Title: "determinism check failed",
@@ -312,12 +315,18 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
 		"  assertion: active-assignment-is-unique",
 		"  help:      add a unique constraint\n             take a pessimistic lock",
-		"  evidence:  schedule sch_sample00000 · trace.json · 1 violating row",
+		"  evidence:  schedule sch_sample00000 · trace.json · 1 violating row · 2 evidence sets in observation.json",
 		"error[RG090]: determinism check failed",
 	} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}
+	}
+	singleSet := run
+	singleSet.Observation.Diagnostics = append([]Diagnostic(nil), run.Observation.Diagnostics...)
+	singleSet.Observation.Diagnostics[0].Evidence.EvidenceSets = 1
+	if got := renderMarkdown(singleSet); strings.Contains(got, "evidence sets") {
+		t.Fatalf("single-set diagnostic rendered an aggregate pointer:\n%s", got)
 	}
 	flaky := run
 	flaky.Flaky = true

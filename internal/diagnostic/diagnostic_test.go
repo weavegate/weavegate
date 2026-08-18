@@ -44,7 +44,7 @@ func TestDiagnosticTypeContract(t *testing.T) {
 	diagnostic := Diagnostic{
 		Code: "RG001", Severity: SeverityError, Title: "title", Observed: "observed",
 		Assertion: "check", Invariant: "invariant", Reason: "reason", Help: []string{"help"},
-		Evidence: Evidence{ScheduleRef: "sch_1", Rows: 1, Trace: "trace.json"},
+		Evidence: Evidence{ScheduleRef: "sch_1", Rows: 1, EvidenceSets: 2, Trace: "trace.json"},
 	}
 	encoded, err := json.Marshal(diagnostic)
 	if err != nil {
@@ -54,6 +54,9 @@ func TestDiagnosticTypeContract(t *testing.T) {
 		if !strings.Contains(string(encoded), field) {
 			t.Fatalf("JSON missing %s: %s", field, encoded)
 		}
+	}
+	if !strings.Contains(string(encoded), `"evidence_sets":2`) {
+		t.Fatalf("JSON missing evidence set count: %s", encoded)
 	}
 	fmt.Println("DIAGNOSTIC_TYPE_RESULT code_grammar=strict severity=error trigger_vocabulary=closed implemented_triggers=2 reserved_triggers=5 required_fields=enforced empty_help=error empty_triggers=error kind_mapping=oracle_kind json_shape=spec9")
 }
