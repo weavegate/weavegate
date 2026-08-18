@@ -54,6 +54,7 @@ type Evidence struct {
 	ScheduleRef string `json:"schedule_ref,omitempty"`
 	Rows        int    `json:"rows"`
 	Trace       string `json:"trace"`
+	Observation string `json:"observation,omitempty"`
 }
 
 func ValidateCode(code Code) error {

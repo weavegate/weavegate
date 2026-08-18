@@ -149,6 +149,7 @@ type DiagnosticEvidence struct {
 	ScheduleRef string `json:"schedule_ref,omitempty"`
 	Rows        int    `json:"rows"`
 	Trace       string `json:"trace"`
+	Observation string `json:"observation,omitempty"`
 }
 
 // Timeouts is the effective execution timeout configuration used for this

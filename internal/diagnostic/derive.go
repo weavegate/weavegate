@@ -72,7 +72,12 @@ func Derive(input Input) ([]Diagnostic, error) {
 		if err != nil {
 			return nil, fmt.Errorf("derive diagnostics for %q: %w", group.oracleID, err)
 		}
-		diagnostics = append(diagnostics, fromRule(group.rule, observed, group.oracleID, input.ScheduleRef, group.totalRows))
+		diagnostics = append(diagnostics, fromRule(
+			group.rule,
+			observed,
+			group.oracleID,
+			Evidence{ScheduleRef: input.ScheduleRef, Rows: group.totalRows, Trace: "trace.json"},
+		))
 	}
 	if input.Flaky {
 		if rule, ok := input.Table.LookupTrigger(TriggerEngineDeterminism); ok {
@@ -80,7 +85,8 @@ func Derive(input Input) ([]Diagnostic, error) {
 			diagnostics = append(diagnostics, fromRule(
 				rule,
 				observed,
-				"", input.ScheduleRef, 0,
+				"",
+				Evidence{ScheduleRef: input.ScheduleRef, Observation: "observation.json"},
 			))
 		}
 	}
@@ -104,12 +110,12 @@ func renderFlakyObserved(fingerprints map[string]int, discoveryFingerprint strin
 	return "the determinism check reported divergent normalized results"
 }
 
-func fromRule(rule Rule, observed, assertion, scheduleRef string, rows int) Diagnostic {
+func fromRule(rule Rule, observed, assertion string, evidence Evidence) Diagnostic {
 	return Diagnostic{
 		Code: rule.Code, Severity: rule.Severity, Title: rule.Title,
 		Observed: observed, Assertion: assertion, Invariant: rule.Invariant,
 		Reason: rule.Reason, Help: append([]string(nil), rule.Help...),
-		Evidence: Evidence{ScheduleRef: scheduleRef, Rows: rows, Trace: "trace.json"},
+		Evidence: evidence,
 	}
 }
 

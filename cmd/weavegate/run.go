@@ -415,6 +415,7 @@ func reportDiagnostics(values []diagnostic.Diagnostic) []report.Diagnostic {
 				ScheduleRef: value.Evidence.ScheduleRef,
 				Rows:        value.Evidence.Rows,
 				Trace:       value.Evidence.Trace,
+				Observation: value.Evidence.Observation,
 			},
 		})
 	}

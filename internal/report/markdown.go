@@ -98,6 +98,9 @@ func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
 	if diagnostic.Evidence.Trace != "" {
 		parts = append(parts, diagnostic.Evidence.Trace)
 	}
+	if diagnostic.Evidence.Observation != "" {
+		parts = append(parts, diagnostic.Evidence.Observation)
+	}
 	if diagnostic.Evidence.Rows > 0 {
 		rowLabel := "violating rows"
 		if diagnostic.Evidence.Rows == 1 {

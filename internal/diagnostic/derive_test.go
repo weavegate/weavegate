@@ -34,7 +34,11 @@ func TestDeriveContract(t *testing.T) {
 	if got[1].Evidence.Rows != 2 || got[1].Observed != "second returned 1 row: a=1 z=2" {
 		t.Fatalf("merged diagnostic = %#v", got[1])
 	}
-	if got[2].Assertion != "" || got[2].Evidence.Rows != 0 {
+	if got[0].Evidence.Trace != "trace.json" || got[0].Evidence.Observation != "" {
+		t.Fatalf("Oracle diagnostic evidence = %#v", got[0].Evidence)
+	}
+	if got[2].Assertion != "" || got[2].Evidence.Rows != 0 ||
+		got[2].Evidence.Trace != "" || got[2].Evidence.Observation != "observation.json" {
 		t.Fatalf("engine diagnostic = %#v", got[2])
 	}
 	if got[2].Observed != "repeated executions produced 2 normalized fingerprints" {
