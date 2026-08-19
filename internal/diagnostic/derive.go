@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/weavegate/weavegate/internal/oracle"
 )
@@ -158,7 +160,7 @@ func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("row[%d] key %q: %w", index, key, err)
 			}
-			values = append(values, key+"="+string(encoded))
+			values = append(values, escapeRowKey(key)+"="+string(encoded))
 		}
 		rendered = append(rendered, strings.Join(values, " "))
 	}
@@ -166,5 +168,19 @@ func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
 	if len(rendered) > 0 {
 		result += ": " + strings.Join(rendered, "; ")
 	}
+	if strings.ContainsFunc(result, func(r rune) bool { return !unicode.IsPrint(r) }) {
+		return "", fmt.Errorf("render observed: output contains a non-printable character")
+	}
 	return result, nil
+}
+
+// escapeRowKey renders a column name for the one-line observed field.
+// Printable keys render as-is so ordinary evidence stays unquoted; a key
+// holding a control character is Go-quoted so it cannot forge a report line
+// or emit a terminal escape.
+func escapeRowKey(key string) string {
+	if strings.ContainsFunc(key, func(r rune) bool { return !unicode.IsPrint(r) }) {
+		return strconv.Quote(key)
+	}
+	return key
 }
