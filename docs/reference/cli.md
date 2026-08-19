@@ -78,7 +78,7 @@ error[RG001]: invariant violated under a controlled schedule
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write
-  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 .weavegate/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
 $ echo $?
 2
@@ -135,7 +135,7 @@ error[RG001]: invariant violated under a controlled schedule
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write
-  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 ```
 
 Because `report` streams the stored artifact, this diagnostic is the same block

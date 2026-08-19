@@ -85,7 +85,6 @@ func Derive(input Input) ([]Diagnostic, error) {
 		}
 		if _, supported := traceOracles[group.oracleID]; supported {
 			evidence.Trace = "trace.json"
-			evidence.Observation = ""
 		}
 		diagnostics = append(diagnostics, fromRule(
 			group.rule,

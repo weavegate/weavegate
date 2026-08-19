@@ -21,11 +21,11 @@ import (
 
 func TestReportDiagnosticsPreservesEvidenceArtifact(t *testing.T) {
 	got := reportDiagnostics([]diagnostic.Diagnostic{
-		{Evidence: diagnostic.Evidence{EvidenceSets: 2, Trace: "trace.json"}},
+		{Evidence: diagnostic.Evidence{EvidenceSets: 2, Trace: "trace.json", Observation: "observation.json"}},
 		{Evidence: diagnostic.Evidence{Observation: "observation.json"}},
 	})
 	if len(got) != 2 || got[0].Evidence.EvidenceSets != 2 || got[0].Evidence.Trace != "trace.json" ||
-		got[0].Evidence.Observation != "" || got[1].Evidence.Trace != "" ||
+		got[0].Evidence.Observation != "observation.json" || got[1].Evidence.Trace != "" ||
 		got[1].Evidence.Observation != "observation.json" {
 		t.Fatalf("diagnostic evidence conversion = %#v", got)
 	}

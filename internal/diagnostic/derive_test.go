@@ -36,7 +36,7 @@ func TestDeriveContract(t *testing.T) {
 		t.Fatalf("merged diagnostic = %#v", got[1])
 	}
 	if got[0].Evidence.EvidenceSets != 0 || got[0].Evidence.Trace != "trace.json" ||
-		got[0].Evidence.Observation != "" {
+		got[0].Evidence.Observation != "observation.json" {
 		t.Fatalf("Oracle diagnostic evidence = %#v", got[0].Evidence)
 	}
 	if got[2].Assertion != "" || got[2].Evidence.Rows != 0 ||
@@ -56,7 +56,7 @@ func TestDeriveContract(t *testing.T) {
 			t.Fatalf("unstable result:\nwant %#v\n got %#v", want, next)
 		}
 	}
-	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted trace=corresponding_run_only order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted trace=corresponding_run_only observation=always order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
 }
 
 func TestDerivePointsOnlySupportedDiagnosticsAtTrace(t *testing.T) {
@@ -80,7 +80,7 @@ func TestDerivePointsOnlySupportedDiagnosticsAtTrace(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("diagnostics = %#v", got)
 	}
-	if got[0].Evidence.Trace != "trace.json" || got[0].Evidence.Observation != "" {
+	if got[0].Evidence.Trace != "trace.json" || got[0].Evidence.Observation != "observation.json" {
 		t.Fatalf("first evidence = %#v", got[0].Evidence)
 	}
 	if got[1].Evidence.Trace != "" || got[1].Evidence.Observation != "observation.json" {

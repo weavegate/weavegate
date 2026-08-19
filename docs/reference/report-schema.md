@@ -117,16 +117,19 @@ field names or casing:
 | `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky when Oracle results, normalized trace events, or terminal state diverge, including with zero assertion violations anywhere, so this is the evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
 | `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
 
-An assertion diagnostic points at `trace.json` only when the saved trace comes
-from a run where that assertion was violated. Otherwise it points at
-`observation.json`, where `assertion_violations` preserves the complete
-evidence. Engine-derived RG090 also points at `observation.json`, where
-`fingerprints` and `discovery_fingerprint` record the determinism comparison.
+Diagnostic evidence names every artifact that supports the diagnostic;
+`schedule_ref` identifies the executed schedule and is not an artifact pointer.
+An assertion diagnostic always points at `observation.json`, because its
+violating rows exist in `assertion_violations`. It additionally points at
+`trace.json` only when the saved trace comes from a run where that assertion
+was violated. Engine-derived RG090 points only at `observation.json`, where
+`fingerprints` and `discovery_fingerprint` record the determinism comparison;
+one trace cannot demonstrate that comparison.
 
 One assertion diagnostic represents one evidence set: its `observed` and
-`rows` describe that set, and its artifact pointer names evidence that supports
-that assertion. When `evidence_sets` is greater than one, the complete,
-individually auditable list remains in `assertion_violations`.
+`rows` describe that set, and its artifact pointers name all saved evidence
+that supports the assertion. When `evidence_sets` is greater than one, the
+complete, individually auditable list remains in `assertion_violations`.
 
 ```json
 "assertion_violations": [
@@ -192,7 +195,7 @@ error[RG001]: invariant violated under a controlled schedule
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write
-  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 ```
 
 The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three

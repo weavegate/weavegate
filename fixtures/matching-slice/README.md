@@ -164,7 +164,7 @@ error[RG001]: invariant violated under a controlled schedule
   help:      add a unique constraint on the contested key
              take a pessimistic lock (SELECT ... FOR UPDATE) before insert
              use an idempotency key on the write
-  evidence:  schedule sch_7dcb74b1e506 · trace.json · 1 violating row
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 ```
 
 Evaluation starts after both worker terminals, so command transactions have

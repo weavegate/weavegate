@@ -298,7 +298,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 			Help:      []string{"add a unique constraint", "take a pessimistic lock"},
 			Evidence: DiagnosticEvidence{
 				ScheduleRef: "sch_sample00000", Rows: 1,
-				EvidenceSets: 2, Trace: "trace.json",
+				EvidenceSets: 2, Trace: "trace.json", Observation: "observation.json",
 			},
 		},
 		{
@@ -315,7 +315,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
 		"  assertion: active-assignment-is-unique",
 		"  help:      add a unique constraint\n             take a pessimistic lock",
-		"  evidence:  schedule sch_sample00000 · trace.json · 1 violating row · 2 evidence sets in observation.json",
+		"  evidence:  schedule sch_sample00000 · trace.json · observation.json · 1 violating row · 2 evidence sets in observation.json",
 		"error[RG090]: determinism check failed",
 	} {
 		if !strings.Contains(markdown, want) {
