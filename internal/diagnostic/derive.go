@@ -10,9 +10,11 @@ import (
 )
 
 type Input struct {
-	Table                Table
-	Violations           []oracle.Violation
-	OracleOrder          []string
+	Table       Table
+	Violations  []oracle.Violation
+	OracleOrder []string
+	// TraceOracles names the assertions violated by the run saved in trace.json.
+	TraceOracles         []string
 	Flaky                bool
 	Fingerprints         map[string]int
 	DiscoveryFingerprint string
@@ -65,6 +67,10 @@ func Derive(input Input) ([]Diagnostic, error) {
 	sort.SliceStable(groups, func(left, right int) bool {
 		return groups[left].orderIndex < groups[right].orderIndex
 	})
+	traceOracles := make(map[string]struct{}, len(input.TraceOracles))
+	for _, oracleID := range input.TraceOracles {
+		traceOracles[oracleID] = struct{}{}
+	}
 
 	diagnostics := make([]Diagnostic, 0, len(groups)+1)
 	for _, group := range groups {
@@ -72,15 +78,20 @@ func Derive(input Input) ([]Diagnostic, error) {
 		if err != nil {
 			return nil, fmt.Errorf("derive diagnostics for %q: %w", group.oracleID, err)
 		}
+		evidence := Evidence{
+			ScheduleRef: input.ScheduleRef,
+			Rows:        len(group.firstRows), EvidenceSets: optionalEvidenceSetCount(group.evidenceSets),
+			Observation: "observation.json",
+		}
+		if _, supported := traceOracles[group.oracleID]; supported {
+			evidence.Trace = "trace.json"
+			evidence.Observation = ""
+		}
 		diagnostics = append(diagnostics, fromRule(
 			group.rule,
 			observed,
 			group.oracleID,
-			Evidence{
-				ScheduleRef: input.ScheduleRef,
-				Rows:        len(group.firstRows), EvidenceSets: optionalEvidenceSetCount(group.evidenceSets),
-				Trace: "trace.json",
-			},
+			evidence,
 		))
 	}
 	if input.Flaky {

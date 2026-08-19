@@ -641,6 +641,9 @@ func TestRunEvidenceSelection(t *testing.T) {
 		if len(violations[0].Rows) == 0 {
 			t.Fatalf("assertion_violations[0].Rows is empty, want the discovery run's evidence rows")
 		}
+		if got := traceOracleIDs(outcome); len(got) != 1 || got[0] != "active-assignment-is-unique" {
+			t.Fatalf("trace oracle IDs = %v, want the discovery run's violated assertion", got)
+		}
 	})
 
 	t.Run("violating_replay_run_preferred_over_discovery", func(t *testing.T) {
@@ -659,6 +662,9 @@ func TestRunEvidenceSelection(t *testing.T) {
 		trace := runTrace(outcome)
 		if trace.ScheduleRef != "sch_replayrun0001" {
 			t.Fatalf("trace.schedule_ref = %q, want the violating replay run, not the discovery run", trace.ScheduleRef)
+		}
+		if got := traceOracleIDs(outcome); len(got) != 1 || got[0] != "active-assignment-is-unique" {
+			t.Fatalf("trace oracle IDs = %v, want the selected replay run's violated assertion", got)
 		}
 	})
 
@@ -705,6 +711,9 @@ func TestRunEvidenceSelection(t *testing.T) {
 		trace := runTrace(runOutcome{})
 		if trace.ScheduleRef != "" || trace.Events != nil || trace.Terminals != nil {
 			t.Fatalf("trace = %+v, want zero value when there is nothing to report", trace)
+		}
+		if got := traceOracleIDs(runOutcome{}); len(got) != 0 {
+			t.Fatalf("trace oracle IDs = %v, want none when no trace is selected", got)
 		}
 	})
 }

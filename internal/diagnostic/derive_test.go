@@ -21,7 +21,7 @@ func TestDeriveContract(t *testing.T) {
 			{OracleID: "first", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"count": int64(2)}}},
 			{OracleID: "second", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"ignored_for_observed": int64(3)}}},
 		},
-		OracleOrder: []string{"first", "second"}, Flaky: true,
+		OracleOrder: []string{"first", "second"}, TraceOracles: []string{"first", "second"}, Flaky: true,
 		Fingerprints: map[string]int{"fp-a": 19, "fp-b": 1}, ScheduleRef: "sch_test",
 	}
 	got, err := Derive(input)
@@ -56,7 +56,36 @@ func TestDeriveContract(t *testing.T) {
 			t.Fatalf("unstable result:\nwant %#v\n got %#v", want, next)
 		}
 	}
-	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted trace=corresponding_run_only order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+}
+
+func TestDerivePointsOnlySupportedDiagnosticsAtTrace(t *testing.T) {
+	table, err := Load(shippedrules.FS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Derive(Input{
+		Table: table,
+		Violations: []oracle.Violation{
+			{OracleID: "first", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"n": int64(1)}}},
+			{OracleID: "second", Kind: oracle.KindAssertion, Rows: []oracle.Row{{"n": int64(2)}}},
+		},
+		OracleOrder:  []string{"first", "second"},
+		TraceOracles: []string{"first"},
+		ScheduleRef:  "sch_test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("diagnostics = %#v", got)
+	}
+	if got[0].Evidence.Trace != "trace.json" || got[0].Evidence.Observation != "" {
+		t.Fatalf("first evidence = %#v", got[0].Evidence)
+	}
+	if got[1].Evidence.Trace != "" || got[1].Evidence.Observation != "observation.json" {
+		t.Fatalf("second evidence = %#v", got[1].Evidence)
+	}
 }
 
 func TestDeriveDescribesDiscoveryReplayMismatch(t *testing.T) {

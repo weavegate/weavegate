@@ -117,13 +117,16 @@ field names or casing:
 | `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky when Oracle results, normalized trace events, or terminal state diverge, including with zero assertion violations anywhere, so this is the evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
 | `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
 
-Assertion diagnostics point evidence at `trace.json`; engine-derived RG090
-points at `observation.json`, where `fingerprints` and
-`discovery_fingerprint` record the determinism comparison.
+An assertion diagnostic points at `trace.json` only when the saved trace comes
+from a run where that assertion was violated. Otherwise it points at
+`observation.json`, where `assertion_violations` preserves the complete
+evidence. Engine-derived RG090 also points at `observation.json`, where
+`fingerprints` and `discovery_fingerprint` record the determinism comparison.
 
-One assertion diagnostic represents one evidence set: its `observed`, `rows`,
-and `trace` describe that set. When `evidence_sets` is greater than one, the
-complete, individually auditable list remains in `assertion_violations`.
+One assertion diagnostic represents one evidence set: its `observed` and
+`rows` describe that set, and its artifact pointer names evidence that supports
+that assertion. When `evidence_sets` is greater than one, the complete,
+individually auditable list remains in `assertion_violations`.
 
 ```json
 "assertion_violations": [

@@ -185,6 +185,7 @@ func runScenario(
 		Table:                plan.Resolved.Diagnostics,
 		Violations:           diagnosticViolations(violationEvidenceRuns(outcome)),
 		OracleOrder:          oracleOrder(plan.Config.Oracle.Assertions),
+		TraceOracles:         traceOracleIDs(outcome),
 		Flaky:                outcome.Verdict.Flaky,
 		Fingerprints:         outcome.Replay.Fingerprints,
 		DiscoveryFingerprint: discoveryFingerprint(outcome),
@@ -290,6 +291,23 @@ func selectTraceRun(outcome runOutcome) (orchestrator.RunResult, bool) {
 		return outcome.Replay.Runs[0], true
 	}
 	return orchestrator.RunResult{}, false
+}
+
+// traceOracleIDs reports exactly which assertions the run selected for
+// trace.json violated. It deliberately delegates selection to selectTraceRun
+// so diagnostic evidence cannot drift from the trace writer's choice.
+func traceOracleIDs(outcome runOutcome) []string {
+	selected, ok := selectTraceRun(outcome)
+	if !ok {
+		return nil
+	}
+	var ids []string
+	for _, result := range selected.Evaluation.Results {
+		if len(result.Violations) > 0 {
+			ids = append(ids, result.OracleID)
+		}
+	}
+	return ids
 }
 
 // firstMismatchRun returns the first replay run whose fingerprint diverged
