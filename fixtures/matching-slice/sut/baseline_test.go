@@ -16,8 +16,22 @@ import (
 
 const (
 	baselineIterations  = 100
-	baselineTestTimeout = 14 * time.Minute
+	baselineTestTimeout = 5 * time.Minute
 	baselineHintedDelay = 2 * time.Millisecond
+)
+
+var baselineStaggers = []time.Duration{
+	2 * time.Millisecond,
+	20 * time.Millisecond,
+	100 * time.Millisecond,
+}
+
+type launchMode int
+
+const (
+	launchConcurrent launchMode = iota
+	launchStaggered
+	launchSerial
 )
 
 type baselineEvidence struct {
@@ -50,9 +64,9 @@ func TestBaselineComparison(t *testing.T) {
 		t.Fatalf("provision matching baseline fixture: %v", err)
 	}
 
-	plain := measureMatchingBaseline(t, ctx, runner, db, nil)
+	plain := measureMatchingBaseline(t, ctx, runner, db, nil, launchConcurrent, 0)
 	t.Logf(
-		"MATCHING_BASELINE_RESULT arm=plain variant=vulnerable iterations=100 "+
+		"MATCHING_BASELINE_RESULT arm=plain variant=vulnerable iterations=100 launch=concurrent "+
 			"detections=%d worker_errors=%d deadlocks=%d elapsed=%s",
 		plain.detections,
 		plain.workerErrors,
@@ -63,15 +77,39 @@ func TestBaselineComparison(t *testing.T) {
 	hinted := measureMatchingBaseline(t, ctx, runner, db, delayingSyncPoint{
 		point: BeforeInsertAssignment,
 		delay: baselineHintedDelay,
-	})
+	}, launchConcurrent, 0)
 	t.Logf(
 		"MATCHING_BASELINE_RESULT arm=hinted_delay variant=vulnerable iterations=100 "+
-			"delay_ms=2 delay_point=before_insert_assignment detections=%d "+
+			"launch=concurrent delay_ms=2 delay_point=before_insert_assignment detections=%d "+
 			"worker_errors=%d deadlocks=%d elapsed=%s",
 		hinted.detections,
 		hinted.workerErrors,
 		hinted.deadlocks,
 		hinted.elapsed,
+	)
+
+	staggered := make([]baselineEvidence, len(baselineStaggers))
+	for index, stagger := range baselineStaggers {
+		staggered[index] = measureMatchingBaseline(t, ctx, runner, db, nil, launchStaggered, stagger)
+		t.Logf(
+			"MATCHING_BASELINE_RESULT arm=staggered_launch variant=vulnerable iterations=100 "+
+				"launch=staggered stagger_ms=%d detections=%d worker_errors=%d deadlocks=%d elapsed=%s",
+			stagger.Milliseconds(),
+			staggered[index].detections,
+			staggered[index].workerErrors,
+			staggered[index].deadlocks,
+			staggered[index].elapsed,
+		)
+	}
+
+	serial := measureMatchingBaseline(t, ctx, runner, db, nil, launchSerial, 0)
+	t.Logf(
+		"MATCHING_BASELINE_RESULT arm=control_serial variant=vulnerable iterations=100 "+
+			"launch=serial detections=%d worker_errors=%d deadlocks=%d elapsed=%s",
+		serial.detections,
+		serial.workerErrors,
+		serial.deadlocks,
+		serial.elapsed,
 	)
 
 	saved, err := scenario.LoadScheduleFile(
@@ -90,10 +128,16 @@ func TestBaselineComparison(t *testing.T) {
 	)
 	t.Logf(
 		"MATCHING_BASELINE_COMPARE baseline_plain=%d/100 baseline_hinted=%d/100 "+
+			"baseline_staggered_2ms=%d/100 baseline_staggered_20ms=%d/100 "+
+			"baseline_staggered_100ms=%d/100 control_serial=%d/100 "+
 			"schedule_replay=%d/20 schedule=sch_ba00582f9632 image=mysql:8.4 "+
 			"same_fixture=true replayable=schedule_only",
 		plain.detections,
 		hinted.detections,
+		staggered[0].detections,
+		staggered[1].detections,
+		staggered[2].detections,
+		serial.detections,
 		replay.violationRuns,
 	)
 }
@@ -124,6 +168,8 @@ func measureMatchingBaseline(
 	runner fixture.Fixture,
 	db *fixture.DB,
 	syncPoint SyncPoint,
+	mode launchMode,
+	stagger time.Duration,
 ) baselineEvidence {
 	t.Helper()
 
@@ -143,7 +189,7 @@ func measureMatchingBaseline(
 			string(variantVulnerable),
 			seededRequestID,
 		)
-		results := invokeAssignmentsConcurrently(t, ctx, handle, "w1", "w2")
+		results := invokeAssignments(t, ctx, handle, mode, stagger, "w1", "w2")
 		stopMatchingAdapter(t, adapter)
 
 		for _, result := range results {
@@ -173,10 +219,12 @@ func measureMatchingBaseline(
 	return evidence
 }
 
-func invokeAssignmentsConcurrently(
+func invokeAssignments(
 	t *testing.T,
 	ctx context.Context,
 	handle internalsut.Handle,
+	mode launchMode,
+	stagger time.Duration,
 	workerIDs ...string,
 ) []internalsut.WorkerResult {
 	t.Helper()
@@ -188,22 +236,49 @@ func invokeAssignmentsConcurrently(
 			t.Fatalf("invoke baseline assignment worker %q: %v", workerID, err)
 		}
 		channels[index] = results
+		if mode == launchSerial {
+			return append(
+				[]internalsut.WorkerResult{collectAssignmentResult(t, ctx, channels[index], workerID)},
+				invokeAssignments(t, ctx, handle, launchSerial, 0, workerIDs[index+1:]...)...,
+			)
+		}
+		if mode == launchStaggered && index < len(workerIDs)-1 {
+			timer := time.NewTimer(stagger)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				t.Fatalf("stagger baseline assignment workers: %v", ctx.Err())
+			}
+		}
 	}
 
 	results := make([]internalsut.WorkerResult, len(workerIDs))
 	for index, workerID := range workerIDs {
-		select {
-		case result, ok := <-channels[index]:
-			if !ok {
-				t.Fatalf("baseline assignment worker %q result channel closed without a result", workerID)
-			}
-			if result.WorkerID != workerID {
-				t.Fatalf("baseline assignment result worker ID = %q, want %q", result.WorkerID, workerID)
-			}
-			results[index] = result
-		case <-ctx.Done():
-			t.Fatalf("wait for baseline assignment worker %q: %v", workerID, ctx.Err())
-		}
+		results[index] = collectAssignmentResult(t, ctx, channels[index], workerID)
 	}
 	return results
+}
+
+func collectAssignmentResult(
+	t *testing.T,
+	ctx context.Context,
+	results <-chan internalsut.WorkerResult,
+	workerID string,
+) internalsut.WorkerResult {
+	t.Helper()
+
+	select {
+	case result, ok := <-results:
+		if !ok {
+			t.Fatalf("baseline assignment worker %q result channel closed without a result", workerID)
+		}
+		if result.WorkerID != workerID {
+			t.Fatalf("baseline assignment result worker ID = %q, want %q", result.WorkerID, workerID)
+		}
+		return result
+	case <-ctx.Done():
+		t.Fatalf("wait for baseline assignment worker %q: %v", workerID, ctx.Err())
+		return internalsut.WorkerResult{}
+	}
 }

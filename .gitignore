@@ -4,3 +4,6 @@ _workbench/*
 # Personal skills (agent-reference, not public)
 .agent/skills/weavegate-*
 .claude/skills/weavegate-*
+
+# Local baseline experiment output
+baseline*.log
