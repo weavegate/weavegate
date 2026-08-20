@@ -10,12 +10,14 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/oracle"
+	"github.com/weavegate/weavegate/internal/scenario"
 	internalsut "github.com/weavegate/weavegate/internal/sut"
 )
 
 const (
 	baselineIterations  = 100
 	baselineTestTimeout = 14 * time.Minute
+	baselineHintedDelay = 2 * time.Millisecond
 )
 
 type baselineEvidence struct {
@@ -57,6 +59,63 @@ func TestBaselineComparison(t *testing.T) {
 		plain.deadlocks,
 		plain.elapsed,
 	)
+
+	hinted := measureMatchingBaseline(t, ctx, runner, db, delayingSyncPoint{
+		point: BeforeInsertAssignment,
+		delay: baselineHintedDelay,
+	})
+	t.Logf(
+		"MATCHING_BASELINE_RESULT arm=hinted_delay variant=vulnerable iterations=100 "+
+			"delay_ms=2 delay_point=before_insert_assignment detections=%d "+
+			"worker_errors=%d deadlocks=%d elapsed=%s",
+		hinted.detections,
+		hinted.workerErrors,
+		hinted.deadlocks,
+		hinted.elapsed,
+	)
+
+	saved, err := scenario.LoadScheduleFile(
+		filepath.Join("..", "schedules", "concurrent-assign.json"),
+	)
+	if err != nil {
+		t.Fatalf("load matching baseline replay schedule: %v", err)
+	}
+	replay := replayMatchingVariant(
+		t,
+		ctx,
+		runner,
+		db,
+		saved,
+		string(variantVulnerable),
+	)
+	t.Logf(
+		"MATCHING_BASELINE_COMPARE baseline_plain=%d/100 baseline_hinted=%d/100 "+
+			"schedule_replay=%d/20 schedule=sch_ba00582f9632 image=mysql:8.4 "+
+			"same_fixture=true replayable=schedule_only",
+		plain.detections,
+		hinted.detections,
+		replay.violationRuns,
+	)
+}
+
+type delayingSyncPoint struct {
+	point string
+	delay time.Duration
+}
+
+func (s delayingSyncPoint) Arrive(ctx context.Context, _ string, point string) error {
+	if point != s.point {
+		return ctx.Err()
+	}
+
+	timer := time.NewTimer(s.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func measureMatchingBaseline(
