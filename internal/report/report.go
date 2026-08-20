@@ -130,6 +130,29 @@ type AssertionViolation struct {
 	Rows     []Row  `json:"rows"`
 }
 
+// Diagnostic is the report-owned serialization shape for one named verdict.
+// Keeping this DTO here prevents internal diagnostic implementation types
+// from becoming the artifact contract by accident.
+type Diagnostic struct {
+	Code      string             `json:"code"`
+	Severity  string             `json:"severity"`
+	Title     string             `json:"title"`
+	Observed  string             `json:"observed"`
+	Assertion string             `json:"assertion,omitempty"`
+	Invariant string             `json:"invariant"`
+	Reason    string             `json:"reason"`
+	Help      []string           `json:"help"`
+	Evidence  DiagnosticEvidence `json:"evidence"`
+}
+
+type DiagnosticEvidence struct {
+	ScheduleRef  string `json:"schedule_ref,omitempty"`
+	Rows         int    `json:"rows"`
+	EvidenceSets int    `json:"evidence_sets,omitempty"`
+	Trace        string `json:"trace"`
+	Observation  string `json:"observation,omitempty"`
+}
+
 // Timeouts is the effective execution timeout configuration used for this
 // run: the configured arrive timeout and the four orchestrator deadlines
 // derived from it (A-13). These deadlines affect terminal timing
@@ -155,6 +178,7 @@ type Observation struct {
 	SchedulesExplored   int                  `json:"schedules_explored"`
 	ExplorePasses       int                  `json:"explore_passes"`
 	AssertionViolations []AssertionViolation `json:"assertion_violations"`
+	Diagnostics         []Diagnostic         `json:"diagnostics"`
 	Oracles             []OracleDeclaration  `json:"oracles"`
 	Repeat              int                  `json:"repeat"`
 	Timeouts            Timeouts             `json:"timeouts"`
@@ -162,10 +186,10 @@ type Observation struct {
 	Flaky               bool                 `json:"flaky"`
 
 	// Fingerprints counts, per distinct normalized execution fingerprint,
-	// how many of the repeat replay runs produced it. A run can be flaky
-	// purely from this divergence (differing terminal states or timing
-	// classification) with zero assertion violations anywhere, so this is
-	// the only evidence of *why* such a run is flaky.
+	// how many of the repeat replay runs produced it. A run can be flaky when
+	// Oracle results, normalized trace events, or terminal state diverge,
+	// including with zero assertion violations anywhere, so this is the
+	// evidence of *why* such a run is flaky.
 	Fingerprints map[string]int `json:"fingerprints"`
 
 	// DiscoveryFingerprint is present only when exploration produced a

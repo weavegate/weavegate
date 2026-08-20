@@ -19,6 +19,20 @@ Every JSON document written by the current CLI carries
 `schedule` field and the legacy v1 `violating_schedule` field; newly written
 artifacts are always v2.
 
+## Artifact version policy
+
+`artifact_version` changes for breaking schema changes: renaming or removing a
+field, or changing what an existing field means. The v1-to-v2 change is the
+precedent because `violating_schedule` was renamed to the neutral `schedule`
+field. Adding a field does not bump the version; consumers must ignore fields
+they do not know and tolerate their absence in older artifacts of the same
+pre-release version.
+
+Before 1.0, v2 is an in-progress format. The first release freezes its
+compatibility baseline: existing names and meanings then require a version
+bump to change, while additive fields remain compatible under the tolerance
+rule above. The legacy v1 `violating_schedule` reader remains supported.
+
 ## Volatile vs. deterministic
 
 Two files carry per-run identity and are expected to differ between two runs
@@ -94,13 +108,36 @@ field names or casing:
 | `schedules_explored` | int | The number of candidates **actually evaluated**, not the total size of the candidate space. Explore mode stops at the first violation, so this is often smaller than the full candidate count. |
 | `explore_passes` | int | How many full sweeps ran before stopping — 1 if a violation was found on the first pass, up to `run.explore_passes` if every pass exhausted its candidates. `0` in replay mode, where no exploration happens. |
 | `assertion_violations` | array of objects | One entry per distinct violation found across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). Each entry is `{"oracle_id": "...", "rows": [...]}` — `oracle_id` names the assertion, and `rows` is that oracle's own evidence rows, so a saved verdict shows *which* rows violated it, not only that it did. Each row is a plain object keyed by the query's column names, restricted to deterministic, JSON-safe scalar values (no `NaN`/`Inf`, no non-UTF-8 strings). Two violations sharing an `oracle_id` are only collapsed into one entry when their rows are also identical; a later run reproducing the same assertion with different rows is kept as a separate entry so each stays individually auditable. `[]` when nothing violated. |
+| `diagnostics` | array of objects | Named verdict classifications derived from Oracle violation kinds and engine signals. Each entry contains `code`, `severity`, `title`, `observed`, optional `assertion`, `invariant`, `reason`, `help`, and `evidence` (`schedule_ref`, `rows`, optional `evidence_sets`, `trace`, optional `observation`). Declaration order is preserved and an engine-derived RG090 is last. Always emitted; `[]` means the run derived no diagnostic. See [diagnostic references](diagnostics/RG001.md). |
 | `oracles` | array of objects | Every configured assertion's effective `id`, `sql`, and `expect_rows` — the same fields as `oracle.assertions` in config, snapshotted here so a saved verdict stays auditable against the query that produced it even after the referenced config is edited or deleted. `[]` when the scenario declares none. |
 | `repeat` | int | The effective repeat count used (config default or `--repeat` override). |
 | `timeouts` | object | The effective arrive timeout and its four derived orchestrator deadlines, in milliseconds: `arrive_timeout_ms` (config default or resolved value), `block_inference_timeout_ms` (equal to `arrive_timeout_ms`), `step_timeout_ms` (20×), `run_timeout_ms` (60×), `stop_timeout_ms` (20×) — see [Timing](config.md#timing) for how these are derived. These deadlines affect terminal timing classifications and normalized fingerprints, and therefore potentially the `flaky` verdict, so they are snapshotted here even after the referenced config is edited or deleted. |
 | `violation_runs` | int | How many of the `repeat` replay runs had at least one violation. |
 | `flaky` | bool | See [exit-codes.md](exit-codes.md#the-flaky-determination). |
-| `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky purely from this divergence (differing terminal states or timing classification) with zero assertion violations anywhere, so this is the only evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
+| `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky when Oracle results, normalized trace events, or terminal state diverge, including with zero assertion violations anywhere, so this is the evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
 | `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
+
+`assertion_violations` preserves each original column name and value; JSON
+encoding escapes control characters in the artifact. In `report.md`, the
+`observed` field keeps printable column names unquoted and Go-quotes a name
+that contains a non-printable character. Values remain JSON-encoded, with any
+non-printable rune left by that encoding escaped in Go syntax, so neither a
+column name nor a value can forge another report line or emit a terminal
+escape.
+
+Diagnostic evidence names every artifact that supports the diagnostic;
+`schedule_ref` identifies the executed schedule and is not an artifact pointer.
+An assertion diagnostic always points at `observation.json`, because its
+violating rows exist in `assertion_violations`. It additionally points at
+`trace.json` only when the saved trace comes from a run where that assertion
+was violated. Engine-derived RG090 points only at `observation.json`, where
+`fingerprints` and `discovery_fingerprint` record the determinism comparison;
+one trace cannot demonstrate that comparison.
+
+One assertion diagnostic represents one evidence set: its `observed` and
+`rows` describe that set, and its artifact pointers name all saved evidence
+that supports the assertion. When `evidence_sets` is greater than one, the
+complete, individually auditable list remains in `assertion_violations`.
 
 ```json
 "assertion_violations": [
@@ -152,18 +189,31 @@ deterministic set even though `scenario` and `observation` alone would be.
 ## `report.md`
 
 ```text
-## weavegate: FAIL
+## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: invariant violated under a controlled schedule
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    commonly a read-then-write path without a lock or a unique constraint
+  help:      add a unique constraint on the contested key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 ```
 
 The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three
-verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). It does not
-include a diagnostic code yet; that is a future `RG`-code renderer, not part
-of this schema. An exhausted exploration has no `replay:` line because there
-is no schedule to reproduce:
+verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). A stable
+violation appends its first violation code to `FAIL`. A flaky run appends
+RG090 to `FLAKY`, even when an RG001 block precedes RG090 in the body, because
+the determinism failure takes verdict priority. Every diagnostic is rendered
+below the unchanged summary lines. An exhausted exploration with no diagnostic
+has the previous output shape and no `replay:` line because there is no
+schedule to reproduce:
 
 ```text
 ## weavegate: PASS

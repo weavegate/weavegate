@@ -1,0 +1,13 @@
+{
+  "code": "RG090",
+  "severity": "error",
+  "triggers": ["engine.determinism"],
+  "title": "determinism check failed",
+  "invariant": "repeated executions of the same schedule must produce the same normalized result",
+  "reason": "runs of the same schedule differed in Oracle results, trace events, or terminal state",
+  "help": [
+    "compare the replay fingerprints and their counts",
+    "check whether Oracle evidence differs between the runs",
+    "check arrive_timeout_ms against the environment's scheduling behavior"
+  ]
+}

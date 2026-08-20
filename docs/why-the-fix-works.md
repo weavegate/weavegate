@@ -8,7 +8,7 @@ repository contains an executable test and observable result for that stage.
 
 | Fixture | Anomaly | Fixture state | Controlled execution | Oracle | Fix evidence |
 | --- | --- | --- | --- | --- | --- |
-| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Six saved schedules explored | SQL assertion (20/20) | Six candidates x 5 PASS |
+| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Six saved schedules explored | SQL assertion + RG001 (20/20) | Six candidates x 5 PASS |
 
 ## Matching slice
 
@@ -79,6 +79,9 @@ another session or assignment.
 - The discovered schedule was saved, loaded through the ordinary loader, and
   replayed 20/20 times with a violation and the same fingerprint measured
   during discovery.
+- The CLI classified that assertion violation as
+  [RG001](reference/diagnostics/RG001.md), saved it in `observation.json`, and
+  rendered the same block in `report.md` without a fixture config change.
 - A non-stopping census ran all six vulnerable candidates three times and
   observed the same six violating candidates in each repeat.
 - The `FOR UPDATE` path exhausted all six candidates five times. All 30 runs
@@ -94,8 +97,7 @@ another session or assignment.
 The following evidence remains pending:
 
 - differential Oracle evidence remains pending;
-- schema constraint evidence remains pending;
-- rule `RG001` remains pending.
+- schema constraint evidence remains pending.
 
 The executable SQL assertion supplies an invariant-based verdict for the
 recorded vulnerable and locking paths and for the six candidates in this

@@ -16,6 +16,7 @@ import (
 
 	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/config"
+	"github.com/weavegate/weavegate/internal/diagnostic"
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/oracle"
 	"github.com/weavegate/weavegate/internal/orchestrator"
@@ -180,6 +181,19 @@ func runScenario(
 	}
 
 	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
+	diagnostics, err := diagnostic.Derive(diagnostic.Input{
+		Table:                plan.Resolved.Diagnostics,
+		Violations:           diagnosticViolations(violationEvidenceRuns(outcome)),
+		OracleOrder:          oracleOrder(plan.Config.Oracle.Assertions),
+		TraceOracles:         traceOracleIDs(outcome),
+		Flaky:                outcome.Verdict.Flaky,
+		Fingerprints:         outcome.Replay.Fingerprints,
+		DiscoveryFingerprint: discoveryFingerprint(outcome),
+		ScheduleRef:          violatingScheduleID(outcome),
+	})
+	if err != nil {
+		return reportRunFailure(stderr, fmt.Errorf("run: derive diagnostics: %w", err))
+	}
 
 	run := report.Run{
 		Manifest: manifest,
@@ -195,6 +209,7 @@ func runScenario(
 			SchedulesExplored:    outcome.SchedulesExplored,
 			ExplorePasses:        outcome.PassesExecuted,
 			AssertionViolations:  assertionViolations(violationEvidenceRuns(outcome)),
+			Diagnostics:          reportDiagnostics(diagnostics),
 			Oracles:              oracleDeclarations(plan.Config.Oracle.Assertions),
 			Repeat:               plan.Repeat,
 			Timeouts:             effectiveTimeouts(plan.Config, plan.Resolved),
@@ -247,10 +262,10 @@ func discoveryFingerprint(outcome runOutcome) string {
 //     found a violation, but every replay run passed) — otherwise a FLAKY
 //     verdict would have nothing to show for it at all.
 //  3. A replay run whose fingerprint diverged from the others (direct
-//     --replay can be flaky purely from execution-fingerprint divergence —
-//     differing terminal states or timing classification — with zero
-//     assertion violations anywhere; an arbitrary run shows nothing of
-//     that divergence, but a mismatching one does).
+//     --replay can be flaky when Oracle results, trace events, or terminal
+//     state diverge, including with zero assertion violations anywhere; an
+//     arbitrary run shows nothing of that divergence, but a mismatching one
+//     can provide a lead).
 //  4. The first replay run, when nothing above found anything to prefer.
 func runTrace(outcome runOutcome) report.Trace {
 	selected, ok := selectTraceRun(outcome)
@@ -276,6 +291,23 @@ func selectTraceRun(outcome runOutcome) (orchestrator.RunResult, bool) {
 		return outcome.Replay.Runs[0], true
 	}
 	return orchestrator.RunResult{}, false
+}
+
+// traceOracleIDs reports exactly which assertions the run selected for
+// trace.json violated. It deliberately delegates selection to selectTraceRun
+// so diagnostic evidence cannot drift from the trace writer's choice.
+func traceOracleIDs(outcome runOutcome) []string {
+	selected, ok := selectTraceRun(outcome)
+	if !ok {
+		return nil
+	}
+	var ids []string
+	for _, result := range selected.Evaluation.Results {
+		if len(result.Violations) > 0 {
+			ids = append(ids, result.OracleID)
+		}
+	}
+	return ids
 }
 
 // firstMismatchRun returns the first replay run whose fingerprint diverged
@@ -347,6 +379,66 @@ func assertionViolations(runs []orchestrator.RunResult) []report.AssertionViolat
 		}
 	}
 	return violations
+}
+
+// diagnosticViolations preserves oracle.Kind until the diagnostic layer has
+// classified it, while applying the same evidence de-duplication used by the
+// report DTO. Repeated replays of identical evidence must not multiply either
+// the artifact entries or a diagnostic's evidence-set count.
+func diagnosticViolations(runs []orchestrator.RunResult) []oracle.Violation {
+	seen := make(map[string]struct{})
+	var violations []oracle.Violation
+	for _, run := range runs {
+		for _, result := range run.Evaluation.Results {
+			for _, violation := range result.Violations {
+				encoded, err := json.Marshal(violation)
+				if err != nil {
+					continue
+				}
+				key := string(encoded)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				violations = append(violations, violation)
+			}
+		}
+	}
+	return violations
+}
+
+func oracleOrder(assertions []config.Assertion) []string {
+	order := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		order = append(order, assertion.ID)
+	}
+	return order
+}
+
+func violatingScheduleID(outcome runOutcome) string {
+	if outcome.ViolatingSchedule == nil {
+		return ""
+	}
+	return outcome.ViolatingSchedule.ID
+}
+
+func reportDiagnostics(values []diagnostic.Diagnostic) []report.Diagnostic {
+	converted := make([]report.Diagnostic, 0, len(values))
+	for _, value := range values {
+		converted = append(converted, report.Diagnostic{
+			Code: string(value.Code), Severity: string(value.Severity), Title: value.Title,
+			Observed: value.Observed, Assertion: value.Assertion, Invariant: value.Invariant,
+			Reason: value.Reason, Help: append([]string(nil), value.Help...),
+			Evidence: report.DiagnosticEvidence{
+				ScheduleRef:  value.Evidence.ScheduleRef,
+				Rows:         value.Evidence.Rows,
+				EvidenceSets: value.Evidence.EvidenceSets,
+				Trace:        value.Evidence.Trace,
+				Observation:  value.Evidence.Observation,
+			},
+		})
+	}
+	return converted
 }
 
 func convertRows(rows []oracle.Row) []report.Row {

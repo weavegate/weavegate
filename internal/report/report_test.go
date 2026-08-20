@@ -157,6 +157,24 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if string(traceDoc["events"]) == "null" || string(traceDoc["terminals"]) == "null" {
 		t.Fatalf("trace.json has null events/terminals, want []: %s", traceDoc)
 	}
+	var observationDoc map[string]json.RawMessage
+	if err := json.Unmarshal(mustRead(t, filepath.Join(dir, ObservationFile)), &observationDoc); err != nil {
+		t.Fatalf("parse observation.json: %v", err)
+	}
+	if string(observationDoc["diagnostics"]) != "[]" {
+		t.Fatalf("observation diagnostics = %s, want []", observationDoc["diagnostics"])
+	}
+	var mergedDoc struct {
+		Observation struct {
+			Diagnostics []Diagnostic `json:"diagnostics"`
+		} `json:"observation"`
+	}
+	if err := json.Unmarshal(mustRead(t, filepath.Join(dir, MergedFile)), &mergedDoc); err != nil {
+		t.Fatalf("parse report.json diagnostics: %v", err)
+	}
+	if mergedDoc.Observation.Diagnostics == nil {
+		t.Fatal("report.json observation diagnostics is null")
+	}
 
 	// A second run with an empty trace must still encode [] rather than null.
 	emptyRun := sampleRun(t, "run_20260816T120001.000Z_bbbbbbbb")
@@ -175,6 +193,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if strings.Contains(emptyObservationContent, "null") {
 		t.Fatalf("observation.json with empty slice encodes null: %s", emptyObservationContent)
 	}
+
+	t.Log("REPORT_DIAGNOSTIC_RESULT field=observation.diagnostics files=6 empty=json_array dto=report_owned merged=report_json deterministic=true")
 
 	replayLine := extractReplayLine(t, filepath.Join(dir, MarkdownFile))
 	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.Schedule.ID) || strings.Contains(replayLine, "--out") {
@@ -255,6 +275,74 @@ func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {
 	}
 
 	t.Log("ARTIFACT_V2_RESULT files=6 writer=v2 schedule=neutral mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
+}
+
+func TestRenderMarkdownDiagnostics(t *testing.T) {
+	run := sampleRun(t, "run_20260816T120004.000Z_ffffffff")
+	without := renderMarkdown(run)
+	wantWithout := "## weavegate: FAIL\n" +
+		"scenario: concurrent-assign | schedules explored: 2 | violating: sch_sample00000\n" +
+		"assertion: active-assignment-is-unique\n" +
+		"flaky: false (repeat=20)\n" +
+		"replay: weavegate run --config .weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_sample00000 --repeat 20\n"
+	if without != wantWithout {
+		t.Fatalf("no-diagnostic markdown changed:\n%s", without)
+	}
+	run.Observation.Diagnostics = []Diagnostic{
+		{
+			Code: "RG001", Severity: "error", Title: "invariant violated under a controlled schedule",
+			Observed:  "active-assignment-is-unique returned 1 row: active_count=2",
+			Assertion: "active-assignment-is-unique",
+			Invariant: "a declared state invariant must hold under every release schedule the database permits",
+			Reason:    "commonly a read-then-write path without a lock or a unique constraint",
+			Help:      []string{"add a unique constraint", "take a pessimistic lock"},
+			Evidence: DiagnosticEvidence{
+				ScheduleRef: "sch_sample00000", Rows: 1,
+				EvidenceSets: 2, Trace: "trace.json", Observation: "observation.json",
+			},
+		},
+		{
+			Code: "RG090", Severity: "error", Title: "determinism check failed",
+			Observed: "repeated executions diverged", Invariant: "same schedule, same result",
+			Reason: "fingerprints differ", Help: []string{"compare fingerprints"},
+			Evidence: DiagnosticEvidence{Rows: 0, Observation: "observation.json"},
+		},
+	}
+	markdown := renderMarkdown(run)
+	for _, want := range []string{
+		"## weavegate: FAIL (RG001)",
+		"error[RG001]: invariant violated under a controlled schedule",
+		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
+		"  assertion: active-assignment-is-unique",
+		"  help:      add a unique constraint\n             take a pessimistic lock",
+		"  evidence:  schedule sch_sample00000 · trace.json · observation.json · 1 violating row · 2 evidence sets in observation.json",
+		"error[RG090]: determinism check failed",
+	} {
+		if !strings.Contains(markdown, want) {
+			t.Fatalf("markdown missing %q:\n%s", want, markdown)
+		}
+	}
+	singleSet := run
+	singleSet.Observation.Diagnostics = append([]Diagnostic(nil), run.Observation.Diagnostics...)
+	singleSet.Observation.Diagnostics[0].Evidence.EvidenceSets = 1
+	if got := renderMarkdown(singleSet); strings.Contains(got, "evidence sets") {
+		t.Fatalf("single-set diagnostic rendered an aggregate pointer:\n%s", got)
+	}
+	flaky := run
+	flaky.Flaky = true
+	got := renderMarkdown(flaky)
+	if !strings.HasPrefix(got, "## weavegate: FLAKY (RG090)\n") {
+		t.Fatalf("flaky headline:\n%s", got)
+	}
+	if strings.Index(got, "error[RG001]") >= strings.Index(got, "error[RG090]") {
+		t.Fatalf("flaky diagnostic order changed:\n%s", got)
+	}
+	rg090Block := got[strings.Index(got, "error[RG090]"):]
+	if strings.Contains(rg090Block, "violating row") || strings.Contains(rg090Block, "trace.json") ||
+		!strings.Contains(rg090Block, "  evidence:  observation.json\n") {
+		t.Fatalf("RG090 row-independent evidence rendered incorrectly:\n%s", rg090Block)
+	}
+	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=rg090 render=single_source")
 }
 
 func testRerunIdentical(t *testing.T, base string) string {

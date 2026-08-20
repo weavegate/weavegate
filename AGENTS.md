@@ -65,6 +65,10 @@ explicitly as planned rather than writing about it as if it already ran.
   without a reference page does not merge.
 - A design decision that cannot be inferred from the code alone gets a short
   note, not left implicit.
+- Example output blocks in public documentation are real tool output. Volatile
+  identifiers such as run IDs, timestamps, and temporary paths may be replaced;
+  a block that is not captured output must be explicitly labeled illustrative
+  or constructed.
 
 ## Before proposing a change
 

@@ -12,11 +12,24 @@ import (
 	"testing"
 
 	"github.com/weavegate/weavegate/internal/ci"
+	"github.com/weavegate/weavegate/internal/diagnostic"
 	"github.com/weavegate/weavegate/internal/fixture"
 	"github.com/weavegate/weavegate/internal/orchestrator"
 	"github.com/weavegate/weavegate/internal/report"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
+
+func TestReportDiagnosticsPreservesEvidenceArtifact(t *testing.T) {
+	got := reportDiagnostics([]diagnostic.Diagnostic{
+		{Evidence: diagnostic.Evidence{EvidenceSets: 2, Trace: "trace.json", Observation: "observation.json"}},
+		{Evidence: diagnostic.Evidence{Observation: "observation.json"}},
+	})
+	if len(got) != 2 || got[0].Evidence.EvidenceSets != 2 || got[0].Evidence.Trace != "trace.json" ||
+		got[0].Evidence.Observation != "observation.json" || got[1].Evidence.Trace != "" ||
+		got[1].Evidence.Observation != "observation.json" {
+		t.Fatalf("diagnostic evidence conversion = %#v", got)
+	}
+}
 
 func requireDocker(t *testing.T) {
 	t.Helper()
@@ -259,14 +272,17 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint == "" {
 			t.Fatalf("vulnerable observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
-		if !strings.Contains(stdout, "## weavegate: FAIL") {
-			t.Fatalf("vulnerable stdout = %q, want the report.md headline", stdout)
+		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "RG001" {
+			t.Fatalf("vulnerable diagnostics = %+v, want RG001", obs.Diagnostics)
+		}
+		if !strings.Contains(stdout, "## weavegate: FAIL (RG001)") || !strings.Contains(stdout, "error[RG001]:") {
+			t.Fatalf("vulnerable stdout = %q, want the RG001 report", stdout)
 		}
 
 		vulnerableDir = dir
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=RG001 artifacts=%d exit=%d",
 			obs.ExplorePasses, obs.SchedulesExplored, doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
@@ -299,11 +315,14 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint != "" {
 			t.Fatalf("fixed observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
+		if len(obs.Diagnostics) != 0 {
+			t.Fatalf("fixed diagnostics = %+v, want none", obs.Diagnostics)
+		}
 
 		observed["artifacts_written_on_pass"] = "true"
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=explore variant=fixed passes=%d evaluated=%d violating=none exhausted=true flaky=%t artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=explore variant=fixed passes=%d evaluated=%d violating=none exhausted=true flaky=%t diagnostic=none artifacts=%d exit=%d",
 			obs.ExplorePasses, obs.SchedulesExplored, obs.Flaky, len(entries), exit,
 		)
 	})
@@ -332,9 +351,12 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeReplay) || obs.DiscoveryFingerprint != "" {
 			t.Fatalf("replay observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
+		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "RG001" {
+			t.Fatalf("replay diagnostics = %+v, want RG001", obs.Diagnostics)
+		}
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=RG001 artifacts=%d exit=%d",
 			doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
@@ -619,6 +641,9 @@ func TestRunEvidenceSelection(t *testing.T) {
 		if len(violations[0].Rows) == 0 {
 			t.Fatalf("assertion_violations[0].Rows is empty, want the discovery run's evidence rows")
 		}
+		if got := traceOracleIDs(outcome); len(got) != 1 || got[0] != "active-assignment-is-unique" {
+			t.Fatalf("trace oracle IDs = %v, want the discovery run's violated assertion", got)
+		}
 	})
 
 	t.Run("violating_replay_run_preferred_over_discovery", func(t *testing.T) {
@@ -637,6 +662,9 @@ func TestRunEvidenceSelection(t *testing.T) {
 		trace := runTrace(outcome)
 		if trace.ScheduleRef != "sch_replayrun0001" {
 			t.Fatalf("trace.schedule_ref = %q, want the violating replay run, not the discovery run", trace.ScheduleRef)
+		}
+		if got := traceOracleIDs(outcome); len(got) != 1 || got[0] != "active-assignment-is-unique" {
+			t.Fatalf("trace oracle IDs = %v, want the selected replay run's violated assertion", got)
 		}
 	})
 
@@ -683,6 +711,9 @@ func TestRunEvidenceSelection(t *testing.T) {
 		trace := runTrace(runOutcome{})
 		if trace.ScheduleRef != "" || trace.Events != nil || trace.Terminals != nil {
 			t.Fatalf("trace = %+v, want zero value when there is nothing to report", trace)
+		}
+		if got := traceOracleIDs(runOutcome{}); len(got) != 0 {
+			t.Fatalf("trace oracle IDs = %v, want none when no trace is selected", got)
 		}
 	})
 }

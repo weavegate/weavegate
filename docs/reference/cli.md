@@ -55,18 +55,31 @@ resolved in this order:
 Resolution stops at the first stage that finds at least one match. If more
 than one candidate shares the ID, their saved steps must be identical;
 otherwise the ID is rejected as ambiguous (exit 5) rather than guessed at.
+The `matching-slice` entrypoint registers only `sch_ba00582f9632`, so the
+example's discovered `sch_7dcb74b1e506` resolves only through its saved run
+directory in stage ①.
 
 ### `run` example
 
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
-    --scenario concurrent-assign --variant vulnerable --out /tmp/wg-doc
-## weavegate: FAIL
+    --scenario concurrent-assign --variant vulnerable
+## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
-/tmp/wg-doc/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
+
+error[RG001]: invariant violated under a controlled schedule
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    commonly a read-then-write path without a lock or a unique constraint
+  help:      add a unique constraint on the contested key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
+.weavegate/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
 $ echo $?
 2
 ```
@@ -78,10 +91,10 @@ shell minimal quoting, so whitespace, single quotes, and shell
 metacharacters are preserved as argument data rather than interpreted by the
 shell. `--out` is deliberately
 absent from it (see [`--replay` resolution order](#--replay-resolution-order)
-above): replaying from a different `--out` than the one shown here falls
-back to stage ②, which only resolves schedules the entrypoint has
-registered. See [report-schema.md](report-schema.md) for the full
-field-by-field contract.
+above). The example uses the default `.weavegate` output for both commands;
+replaying with a different `--out` falls back to stage ②, which only resolves
+schedules the entrypoint has registered. See
+[report-schema.md](report-schema.md) for the full field-by-field contract.
 
 ## `weavegate report`
 
@@ -107,21 +120,40 @@ invalid ID, or unknown format exits 5.
 ### `report` example
 
 ```console
-$ weavegate report --out /tmp/wg-doc --format md
-## weavegate: FAIL
+$ weavegate report --format md
+## weavegate: FAIL (RG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: invariant violated under a controlled schedule
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    commonly a read-then-write path without a lock or a unique constraint
+  help:      add a unique constraint on the contested key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 ```
+
+Because `report` streams the stored artifact, this diagnostic is the same block
+written by `run`, not a second rendering. Longer explanations live under
+[`docs/reference/diagnostics/`](diagnostics/RG001.md).
 
 ## Global behavior
 
 - `weavegate` with no arguments prints help and exits 0.
 - An unknown subcommand or an unknown flag exits 5 with a one-line message on
-  stderr; Cobra's usage dump is suppressed so the diagnostic stays short.
-- Results meant for a human or a script go to stdout; diagnostics go to
-  stderr.
+  stderr; Cobra's usage dump is suppressed so the error message stays short.
+- Verdict output goes to stdout. `run` streams the stored `report.md` bytes,
+  including RG diagnostic blocks such as `error[RG001]`, then prints the run
+  directory path as its final line. `report` streams the artifact selected by
+  `--format`: `report.json` by default, or `report.md` with `--format md`; RG
+  diagnostic blocks are part of its Markdown output.
+- Operational messages, including invalid input, fixture failures, and cleanup
+  warnings, go to stderr.
 - `weavegate --version` prints the build version and exits 0.
 - The first SIGINT or SIGTERM cancels the run and begins bounded cleanup; a
   repeated signal uses the operating system's default disposition so the

@@ -1,0 +1,203 @@
+package diagnostic
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"unicode"
+
+	"github.com/weavegate/weavegate/internal/oracle"
+)
+
+type Input struct {
+	Table       Table
+	Violations  []oracle.Violation
+	OracleOrder []string
+	// TraceOracles names the assertions violated by the run saved in trace.json.
+	TraceOracles         []string
+	Flaky                bool
+	Fingerprints         map[string]int
+	DiscoveryFingerprint string
+	ScheduleRef          string
+}
+
+type diagnosticGroup struct {
+	rule         Rule
+	oracleID     string
+	firstRows    []oracle.Row
+	evidenceSets int
+	orderIndex   int
+}
+
+func Derive(input Input) ([]Diagnostic, error) {
+	order := make(map[string]int, len(input.OracleOrder))
+	for index, id := range input.OracleOrder {
+		if _, exists := order[id]; exists {
+			return nil, fmt.Errorf("derive diagnostics: duplicate oracle order ID %q", id)
+		}
+		order[id] = index
+	}
+
+	groups := make([]diagnosticGroup, 0, len(input.Violations))
+	groupIndexes := make(map[string]int, len(input.Violations))
+	for index, violation := range input.Violations {
+		trigger, known := TriggerForKind(violation.Kind)
+		if !known {
+			return nil, fmt.Errorf("derive diagnostics: violation[%d]: unknown kind %q", index, violation.Kind)
+		}
+		rule, implemented := input.Table.LookupTrigger(trigger)
+		if !implemented {
+			continue
+		}
+		orderIndex, declared := order[violation.OracleID]
+		if !declared {
+			return nil, fmt.Errorf("derive diagnostics: violation[%d]: oracle %q is absent from declaration order", index, violation.OracleID)
+		}
+		key := string(rule.Code) + "\x00" + violation.OracleID
+		if groupIndex, exists := groupIndexes[key]; exists {
+			groups[groupIndex].evidenceSets++
+			continue
+		}
+		groupIndexes[key] = len(groups)
+		groups = append(groups, diagnosticGroup{
+			rule: rule, oracleID: violation.OracleID, firstRows: violation.Rows,
+			evidenceSets: 1, orderIndex: orderIndex,
+		})
+	}
+	sort.SliceStable(groups, func(left, right int) bool {
+		return groups[left].orderIndex < groups[right].orderIndex
+	})
+	traceOracles := make(map[string]struct{}, len(input.TraceOracles))
+	for _, oracleID := range input.TraceOracles {
+		traceOracles[oracleID] = struct{}{}
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(groups)+1)
+	for _, group := range groups {
+		observed, err := renderObserved(group.oracleID, group.firstRows)
+		if err != nil {
+			return nil, fmt.Errorf("derive diagnostics for %q: %w", group.oracleID, err)
+		}
+		evidence := Evidence{
+			ScheduleRef: input.ScheduleRef,
+			Rows:        len(group.firstRows), EvidenceSets: optionalEvidenceSetCount(group.evidenceSets),
+			Observation: "observation.json",
+		}
+		if _, supported := traceOracles[group.oracleID]; supported {
+			evidence.Trace = "trace.json"
+		}
+		diagnostics = append(diagnostics, fromRule(
+			group.rule,
+			observed,
+			group.oracleID,
+			evidence,
+		))
+	}
+	if input.Flaky {
+		if rule, ok := input.Table.LookupTrigger(TriggerEngineDeterminism); ok {
+			observed := renderFlakyObserved(input.Fingerprints, input.DiscoveryFingerprint)
+			diagnostics = append(diagnostics, fromRule(
+				rule,
+				observed,
+				"",
+				Evidence{ScheduleRef: input.ScheduleRef, Observation: "observation.json"},
+			))
+		}
+	}
+	return diagnostics, nil
+}
+
+func optionalEvidenceSetCount(count int) int {
+	if count > 1 {
+		return count
+	}
+	return 0
+}
+
+func renderFlakyObserved(fingerprints map[string]int, discoveryFingerprint string) string {
+	if len(fingerprints) > 1 {
+		return fmt.Sprintf(
+			"repeated executions produced %d normalized fingerprints",
+			len(fingerprints),
+		)
+	}
+	if len(fingerprints) == 1 && discoveryFingerprint != "" {
+		for replayFingerprint := range fingerprints {
+			if replayFingerprint != discoveryFingerprint {
+				return "the discovery fingerprint differs from the replay fingerprint"
+			}
+		}
+	}
+	return "the determinism check reported divergent normalized results"
+}
+
+func fromRule(rule Rule, observed, assertion string, evidence Evidence) Diagnostic {
+	return Diagnostic{
+		Code: rule.Code, Severity: rule.Severity, Title: rule.Title,
+		Observed: observed, Assertion: assertion, Invariant: rule.Invariant,
+		Reason: rule.Reason, Help: append([]string(nil), rule.Help...),
+		Evidence: evidence,
+	}
+}
+
+func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
+	rowLabel := "rows"
+	if len(rows) == 1 {
+		rowLabel = "row"
+	}
+	var rendered []string
+	for index, row := range rows {
+		keys := make([]string, 0, len(row))
+		for key := range row {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		values := make([]string, 0, len(keys))
+		for _, key := range keys {
+			encoded, err := json.Marshal(row[key])
+			if err != nil {
+				return "", fmt.Errorf("row[%d] key %q: %w", index, key, err)
+			}
+			values = append(values, escapeRowKey(key)+"="+escapeNonPrintable(string(encoded)))
+		}
+		rendered = append(rendered, strings.Join(values, " "))
+	}
+	result := fmt.Sprintf("%s returned %d %s", oracleID, len(rows), rowLabel)
+	if len(rendered) > 0 {
+		result += ": " + strings.Join(rendered, "; ")
+	}
+	// Row keys and values are escaped above, so this guard is an invariant
+	// backstop for trusted fields such as the config-validated Oracle ID.
+	if strings.ContainsFunc(result, func(r rune) bool { return !unicode.IsPrint(r) }) {
+		return "", fmt.Errorf("render observed: output contains a non-printable character")
+	}
+	return result, nil
+}
+
+// escapeRowKey renders a column name for the one-line observed field.
+// Printable keys render as-is so ordinary evidence stays unquoted; a key
+// holding a control character is Go-quoted so it cannot forge a report line
+// or emit a terminal escape.
+func escapeRowKey(key string) string {
+	if strings.ContainsFunc(key, func(r rune) bool { return !unicode.IsPrint(r) }) {
+		return strconv.Quote(key)
+	}
+	return key
+}
+
+// escapeNonPrintable keeps printable text intact and renders each
+// non-printable rune with Go escape syntax for safe one-line output.
+func escapeNonPrintable(value string) string {
+	var escaped strings.Builder
+	for _, r := range value {
+		if unicode.IsPrint(r) {
+			escaped.WriteRune(r)
+			continue
+		}
+		quoted := strconv.QuoteRune(r)
+		escaped.WriteString(quoted[1 : len(quoted)-1])
+	}
+	return escaped.String()
+}
