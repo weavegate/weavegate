@@ -160,7 +160,7 @@ func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("row[%d] key %q: %w", index, key, err)
 			}
-			values = append(values, escapeRowKey(key)+"="+string(encoded))
+			values = append(values, escapeRowKey(key)+"="+escapeNonPrintable(string(encoded)))
 		}
 		rendered = append(rendered, strings.Join(values, " "))
 	}
@@ -168,6 +168,8 @@ func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
 	if len(rendered) > 0 {
 		result += ": " + strings.Join(rendered, "; ")
 	}
+	// Row keys and values are escaped above, so this guard is an invariant
+	// backstop for trusted fields such as the config-validated Oracle ID.
 	if strings.ContainsFunc(result, func(r rune) bool { return !unicode.IsPrint(r) }) {
 		return "", fmt.Errorf("render observed: output contains a non-printable character")
 	}
@@ -183,4 +185,19 @@ func escapeRowKey(key string) string {
 		return strconv.Quote(key)
 	}
 	return key
+}
+
+// escapeNonPrintable keeps printable text intact and renders each
+// non-printable rune with Go escape syntax for safe one-line output.
+func escapeNonPrintable(value string) string {
+	var escaped strings.Builder
+	for _, r := range value {
+		if unicode.IsPrint(r) {
+			escaped.WriteRune(r)
+			continue
+		}
+		quoted := strconv.QuoteRune(r)
+		escaped.WriteString(quoted[1 : len(quoted)-1])
+	}
+	return escaped.String()
 }

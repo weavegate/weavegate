@@ -117,11 +117,13 @@ field names or casing:
 | `fingerprints` | object (string → int) | How many of the `repeat` replay runs produced each distinct normalized execution fingerprint. A run can be flaky when Oracle results, normalized trace events, or terminal state diverge, including with zero assertion violations anywhere, so this is the evidence of *why* such a run is flaky. One entry, equal to `repeat`, when every run agreed. |
 | `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
 
-`assertion_violations` preserves each original column name; JSON encoding
-escapes any control characters in the artifact. The `observed` field rendered
-in `report.md` keeps printable column names unquoted but Go-quotes a name that
-contains a non-printable character, so one row cannot forge another report
-line or emit a terminal escape.
+`assertion_violations` preserves each original column name and value; JSON
+encoding escapes control characters in the artifact. In `report.md`, the
+`observed` field keeps printable column names unquoted and Go-quotes a name
+that contains a non-printable character. Values remain JSON-encoded, with any
+non-printable rune left by that encoding escaped in Go syntax, so neither a
+column name nor a value can forge another report line or emit a terminal
+escape.
 
 Diagnostic evidence names every artifact that supports the diagnostic;
 `schedule_ref` identifies the executed schedule and is not an artifact pointer.

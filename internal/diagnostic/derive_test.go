@@ -58,7 +58,7 @@ func TestDeriveContract(t *testing.T) {
 			t.Fatalf("unstable result:\nwant %#v\n got %#v", want, next)
 		}
 	}
-	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted keys=printable_or_quoted trace=corresponding_run_only observation=always order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted keys=printable_or_quoted values=escaped trace=corresponding_run_only observation=always order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
 }
 
 func TestRenderObservedEscapesNonPrintableRowKeys(t *testing.T) {
@@ -113,6 +113,34 @@ func TestRenderObservedRejectsNonPrintableOutput(t *testing.T) {
 	_, err := renderObserved("check\nforged", nil)
 	if err == nil || !strings.Contains(err.Error(), "non-printable character") {
 		t.Fatalf("renderObserved error = %v", err)
+	}
+}
+
+func TestRenderObservedEscapesNonPrintableRowValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "zero_width_space", value: "a\u200bb", want: `check returned 1 row: k="a\u200bb"`},
+		{name: "next_line", value: "a\u0085b", want: `check returned 1 row: k="a\u0085b"`},
+		{name: "soft_hyphen", value: "a\u00adb", want: `check returned 1 row: k="a\u00adb"`},
+		{name: "right_to_left_override", value: "a\u202eb", want: `check returned 1 row: k="a\u202eb"`},
+		{name: "language_tag", value: "a\U000e0001b", want: `check returned 1 row: k="a\U000e0001b"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := renderObserved("check", []oracle.Row{{"k": test.value}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("renderObserved = %q, want %q", got, test.want)
+			}
+			if strings.ContainsFunc(got, func(r rune) bool { return !unicode.IsPrint(r) }) {
+				t.Fatalf("renderObserved contains a non-printable character: %q", got)
+			}
+		})
 	}
 }
 
