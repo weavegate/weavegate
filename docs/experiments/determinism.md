@@ -83,10 +83,11 @@ version, or the absence of other concurrency defects. The
 `timeout-inferred` event remains an orchestration observation; the separate
 InnoDB status check supplies the lock-wait evidence for this fixture.
 
-The trace used here is an ordered, in-memory draft of control events. It does
-not define a public `trace.json` schema. The MySQL `1213` category is covered by
-unit-level failure-classifier evidence, but this fixture did not observe an
-actual deadlock. The reusable SQL assertions now provide the invariant and
-exact-count verdicts for this saved schedule. Clean-run differential evidence,
-schema-constraint evidence, a public report schema, and rule `RG001` remain
-pending.
+The trace used here is an ordered, in-memory draft of control events. This
+fixture-test path does not write run artifacts; the CLI artifact's public
+[`trace.json`](../reference/report-schema.md#tracejson) schema is documented
+separately. The MySQL `1213` category is covered by unit-level
+failure-classifier evidence, but this fixture did not observe an actual
+deadlock. The reusable SQL assertions now provide the invariant and exact-count
+verdicts for this saved schedule. Clean-run differential evidence and
+schema-constraint evidence remain pending.
