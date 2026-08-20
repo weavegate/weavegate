@@ -106,6 +106,12 @@ jobs:
           grep -F 'SUT_ASSIGN_ERROR_RESULT case=missing_request err=propagated sessions=0 assignments=0' fixture.log
           grep -F 'SUT_ASSIGN_ERROR_RESULT case=inactive_request err=propagated sessions=0 assignments=0' fixture.log
 
+      - name: Assert the baseline comparison invariants
+        run: |
+          grep -E 'MATCHING_BASELINE_RESULT arm=plain variant=vulnerable iterations=100 detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_RESULT arm=hinted_delay variant=vulnerable iterations=100 delay_ms=2 delay_point=before_insert_assignment detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_COMPARE baseline_plain=[0-9]+/100 baseline_hinted=[0-9]+/100 schedule_replay=20/20 schedule=sch_ba00582f9632 image=mysql:8.4 same_fixture=true replayable=schedule_only' fixture.log
+
       - name: Assert the matching exploration invariants
         run: |
           grep -E 'MATCHING_EXPLORE_RESULT variant=vulnerable candidates=6 repeats=20 evaluated=[1-9][0-9]* distinct_schedules=1 distinct_indices=1 distinct_fingerprints=1 violating_index=[1-6] schedule=sch_[0-9a-f]{12} saved=reloaded replay_repeat=20 violation_runs=20 fingerprint_match=true worker_errors=0 deadlocks=0 flaky=false' fixture.log
