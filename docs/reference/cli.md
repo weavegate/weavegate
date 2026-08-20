@@ -147,9 +147,11 @@ written by `run`, not a second rendering. Longer explanations live under
 - `weavegate` with no arguments prints help and exits 0.
 - An unknown subcommand or an unknown flag exits 5 with a one-line message on
   stderr; Cobra's usage dump is suppressed so the error message stays short.
-- Verdict output goes to stdout. Both `run` and `report` stream the stored
-  `report.md` bytes there, including RG diagnostic blocks such as
-  `error[RG001]`; `run` then prints the run directory path as its final line.
+- Verdict output goes to stdout. `run` streams the stored `report.md` bytes,
+  including RG diagnostic blocks such as `error[RG001]`, then prints the run
+  directory path as its final line. `report` streams the artifact selected by
+  `--format`: `report.json` by default, or `report.md` with `--format md`; RG
+  diagnostic blocks are part of its Markdown output.
 - Operational messages, including invalid input, fixture failures, and cleanup
   warnings, go to stderr.
 - `weavegate --version` prints the build version and exits 0.
