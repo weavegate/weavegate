@@ -42,6 +42,14 @@ type baselineEvidence struct {
 }
 
 func TestBaselineComparison(t *testing.T) {
+	// Baseline markers and smoke assertions encode this denominator literally.
+	if baselineIterations != 100 {
+		t.Fatalf(
+			"baseline iterations = %d, want 100; marker literals and smoke.yml assertions must be updated in the same PR",
+			baselineIterations,
+		)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), baselineTestTimeout)
 	defer cancel()
 
