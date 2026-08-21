@@ -73,6 +73,7 @@ func TestBaselineComparison(t *testing.T) {
 		plain.deadlocks,
 		plain.elapsed,
 	)
+	requireCleanBaselineArm(t, "plain", plain)
 
 	hinted := measureMatchingBaseline(t, ctx, runner, db, delayingSyncPoint{
 		point: BeforeInsertAssignment,
@@ -87,6 +88,7 @@ func TestBaselineComparison(t *testing.T) {
 		hinted.deadlocks,
 		hinted.elapsed,
 	)
+	requireCleanBaselineArm(t, "hinted_delay", hinted)
 
 	staggered := make([]baselineEvidence, len(baselineStaggers))
 	for index, stagger := range baselineStaggers {
@@ -100,6 +102,7 @@ func TestBaselineComparison(t *testing.T) {
 			staggered[index].deadlocks,
 			staggered[index].elapsed,
 		)
+		requireCleanBaselineArm(t, "staggered_launch_"+stagger.String(), staggered[index])
 	}
 
 	serial := measureMatchingBaseline(t, ctx, runner, db, nil, launchSerial, 0)
@@ -111,6 +114,7 @@ func TestBaselineComparison(t *testing.T) {
 		serial.deadlocks,
 		serial.elapsed,
 	)
+	requireCleanBaselineArm(t, "control_serial", serial)
 
 	saved, err := scenario.LoadScheduleFile(
 		filepath.Join("..", "schedules", "concurrent-assign.json"),
@@ -140,6 +144,19 @@ func TestBaselineComparison(t *testing.T) {
 		serial.detections,
 		replay.violationRuns,
 	)
+}
+
+func requireCleanBaselineArm(t *testing.T, arm string, evidence baselineEvidence) {
+	t.Helper()
+
+	if evidence.workerErrors != 0 || evidence.deadlocks != 0 {
+		t.Errorf(
+			"matching baseline arm %q recorded terminal failures: worker_errors=%d deadlocks=%d",
+			arm,
+			evidence.workerErrors,
+			evidence.deadlocks,
+		)
+	}
 }
 
 type delayingSyncPoint struct {
