@@ -115,6 +115,12 @@ func TestBaselineComparison(t *testing.T) {
 		serial.elapsed,
 	)
 	requireCleanBaselineArm(t, "control_serial", serial)
+	if serial.detections != 0 {
+		t.Errorf(
+			"matching baseline serial control is structurally non-overlapping: detections=%d, want 0",
+			serial.detections,
+		)
+	}
 
 	saved, err := scenario.LoadScheduleFile(
 		filepath.Join("..", "schedules", "concurrent-assign.json"),
