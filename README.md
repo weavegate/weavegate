@@ -2,7 +2,7 @@
 
 > Deterministically replay the DB race, gate the deploy.
 
-**weavegate** is a CI gate for schedule-dependent database bugs. It plants test-only sync-points into the `read -> decide -> write` paths of a Spring Boot + MySQL/InnoDB workflow, deterministically reproduces the exact execution orders (schedules) that break your state invariants, and turns violations into evidence — a saved schedule, a step trace, and the offending rows — right in your pull request.
+Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate ships today with a Go-native reference SUT; a Spring Boot adapter is planned for the next release.
 
 ![status](https://img.shields.io/badge/status-in%20design-orange)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -65,6 +65,9 @@ After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying
 - It is **not** a database engine tester (that's Hermitage/Jepsen territory) — it tests whether **your workflow** survives the anomalies your database legitimately permits, and whether your fix closes them.
 - It does **not** verify ACID — it trusts the DB's ACID and isolation guarantees, and checks your invariants on top of them.
 - There is **no AI verdict** — judgments are rule-based (SQL oracles + differential + trace), so every failure is deterministic and reproducible by anyone with one command.
+
+See the documented [limitations](docs/limitations.md) for the exact boundaries
+of these claims.
 
 ## Roadmap
 

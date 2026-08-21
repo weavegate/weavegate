@@ -73,6 +73,9 @@ expected result, letting it assert precise interleaving behavior.
 structures by generating thread interleavings and checking linearizability,
 including a mode that deterministically replays a failing interleaving.
 
+Lincheck is a prior-art reference only: weavegate does not depend on Lincheck
+or incorporate its code.
+
 - **What we borrow:** bounded exploration of interleavings plus deterministic
   replay of the specific one that failed, reported back to the developer as a
   reproducible artifact rather than a flaky failure.
@@ -93,9 +96,9 @@ and can be replayed bit-for-bit.
   result.** That is why a violating schedule is a saved, re-runnable file, not a
   log line.
 - **How weavegate differs:** those systems are *built* for full-world
-  simulation from day one. weavegate retrofits deterministic replay onto an
-  existing Spring Boot + MySQL workflow at a handful of sync-points — narrower in
-  scope, but adoptable without rewriting your application.
+  simulation from day one. weavegate's current Go-native reference SUT applies
+  deterministic replay at a handful of sync-points; a Spring Boot adapter is
+  planned for the next release. This is narrower than full-world simulation.
 
 ## Infrastructure we run on
 
