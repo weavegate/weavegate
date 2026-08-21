@@ -50,7 +50,7 @@ jobs:
           ./fixtures/matching-slice/...
           ./cmd/weavegate/... ./internal/config/... ./internal/ci/...
           ./internal/diagnostic/... ./internal/report/...
-          -v -count=1 | tee fixture.log
+          -v -count=1 -timeout 12m | tee fixture.log
 
       - name: Assert the fixture invariants
         run: |
@@ -105,6 +105,16 @@ jobs:
           grep -F 'SUT_ROLLBACK_RESULT variant=vulnerable failed_point=before_insert_assignment sessions=0 assignments=0 err=propagated' fixture.log
           grep -F 'SUT_ASSIGN_ERROR_RESULT case=missing_request err=propagated sessions=0 assignments=0' fixture.log
           grep -F 'SUT_ASSIGN_ERROR_RESULT case=inactive_request err=propagated sessions=0 assignments=0' fixture.log
+
+      - name: Assert the baseline comparison invariants
+        run: |
+          grep -E 'MATCHING_BASELINE_RESULT arm=plain variant=vulnerable iterations=100 launch=concurrent detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_RESULT arm=hinted_delay variant=vulnerable iterations=100 launch=concurrent delay_ms=2 delay_point=before_insert_assignment detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_RESULT arm=staggered_launch variant=vulnerable iterations=100 launch=staggered stagger_ms=2 detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_RESULT arm=staggered_launch variant=vulnerable iterations=100 launch=staggered stagger_ms=20 detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_RESULT arm=staggered_launch variant=vulnerable iterations=100 launch=staggered stagger_ms=100 detections=[0-9]+ worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_RESULT arm=control_serial variant=vulnerable iterations=100 launch=serial detections=0 worker_errors=0 deadlocks=0 elapsed=' fixture.log
+          grep -E 'MATCHING_BASELINE_COMPARE baseline_plain=[0-9]+/100 baseline_hinted=[0-9]+/100 baseline_staggered_2ms=[0-9]+/100 baseline_staggered_20ms=[0-9]+/100 baseline_staggered_100ms=[0-9]+/100 control_serial=0/100 schedule_replay=20/20 schedule=sch_ba00582f9632 image=mysql:8.4 same_fixture=true replayable=schedule_only' fixture.log
 
       - name: Assert the matching exploration invariants
         run: |
