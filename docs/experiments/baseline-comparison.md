@@ -63,8 +63,10 @@ three invocations; counts are not rounded.
     [the determinism experiment](determinism.md).
 
 Every measured arm completed with zero worker errors and zero MySQL 1213
-deadlocks. The two concurrent arms and the 2 ms stagger detected 300 violations
-in 300 iterations; each violation implies that the two transactions overlapped.
+deadlocks. The test fails if any arm records either condition, so the table
+includes only measurements without worker errors or deadlocks. The two
+concurrent arms and the 2 ms stagger detected 300 violations in 300 iterations;
+each violation implies that the two transactions overlapped.
 The 20 ms and 100 ms staggers detected none in 200 iterations, and the serial
 control detected none in 100 iterations. The harness does not observe the
 first transaction's commit relative to the second transaction's start, so the
