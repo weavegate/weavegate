@@ -37,6 +37,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Record runner environment
+        continue-on-error: true
         run: |
           printf 'RUNNER_HOST kernel=%s architecture=%s logical_cpus=%s\n' "$(uname -sr)" "$(uname -m)" "$(nproc)"
           awk -F ': ' '/^model name/ { print "RUNNER_CPU model=" $2; exit }' /proc/cpuinfo
