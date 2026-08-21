@@ -90,12 +90,15 @@ invocations.
 
 On recorded runner `32457121871`, the two concurrent arms detected 200/200,
 the 2 ms stagger detected 35/100, the 20 ms and 100 ms staggers detected 0/200,
-and the serial control detected 0/100. The earlier runner observations do not
-support a runner-wide transition point: the 2 ms stagger detected 62/100,
-36/100, 52/100, and 27/100, while the 20 ms stagger detected 0/100, 0/100,
-1/100, and 1/100. The harness does not observe the first transaction's commit
-relative to the second transaction's start, so launch-offset results are not a
-direct transaction-duration benchmark.
+and the serial control detected 0/100. Across all eight tabled invocations, the
+2 ms stagger detected more violations than the 20 ms stagger. This supports the
+direction of a detection transition between the two declared offsets in every
+invocation. What did not reproduce was the transition's sharpness or a specific
+threshold: the development host changed from 100/100 to 0/100, while the runner
+changed from 27-62/100 to 0-1/100, with 2 ms already in its partial-detection
+region. Neither environment directly measured a threshold. The harness does
+not observe the first transaction's commit relative to the second transaction's
+start, so launch-offset results are not a direct transaction-duration benchmark.
 
 The test emits comparison-marker payloads such as these, shown without the
 `go test -v` source-location prefix. The first came from development-host
