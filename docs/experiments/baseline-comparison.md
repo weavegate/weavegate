@@ -176,13 +176,18 @@ least one runner invocation. The measurements do not isolate host hardware
 from runner load, image build, or any other environment difference, and they
 do not establish a general detection rate or timing threshold.
 
-The results that reproduced across both recorded environments are the
-schedule-independent serial control at 0/100 in every invocation and the saved
-schedule at 20/20 in every invocation. The hinted 2 ms arm happened to detect
-100/100 and the 100 ms stagger happened to detect 0/100 in every tabled
+The cross-environment results that the reproducibility argument relies on are
+the schedule-independent serial control at 0/100 in every invocation and the
+saved schedule at 20/20 in every invocation. The hinted 2 ms arm happened to
+detect 100/100 and the 100 ms stagger happened to detect 0/100 in every tabled
 invocation, but those hand-placed timing observations are not promoted to
-cross-host guarantees. A saved schedule does not need to estimate transaction
-duration because it controls declared ordering directly.
+cross-host guarantees. A hand-placed launch delay must exceed the transaction's
+effective length to change detection, but that length varies by environment and
+is not something a developer normally measures. Because the harness does not
+observe the first transaction's commit relative to the second transaction's
+start, the length is inferred rather than measured directly. The development
+host bounded it only on that host, between 2 ms and 20 ms. A saved schedule does
+not need to estimate that length because it controls declared ordering directly.
 
 Within the measured fixture, `control_serial=0/100` is empirical evidence that
 overlap is necessary for this violation. The development host's 300/300 across
