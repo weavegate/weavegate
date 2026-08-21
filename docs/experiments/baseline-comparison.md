@@ -1,7 +1,7 @@
 # Baseline detection compared with a saved schedule
 
 This experiment measures how often the matching-slice invariant is violated
-under overlapping, non-overlapping, and schedule-controlled executions. The
+under concurrent, staggered, serial, and schedule-controlled executions. The
 measurement is about detection frequency and reproducibility, not throughput
 or latency.
 
@@ -47,15 +47,15 @@ The representative values below are the first invocation in the recorded
 `-count=3` run. The range is the minimum and maximum detection count across all
 three invocations; counts are not rounded.
 
-| Execution | Arm | Runs | Detected violations | `-count=3` range | Saved-command replay? |
+| Launch | Arm | Runs | Detected violations | `-count=3` range | Saved-command replay? |
 | --- | --- | ---: | ---: | ---: | --- |
-| Overlapping | Plain | 100 | 100/100 | 100-100/100 | No |
-| Overlapping | Hinted delay 2 ms | 100 | 100/100 | 100-100/100 | No |
-| Overlapping | Staggered launch 2 ms | 100 | 100/100 | 100-100/100 | No |
-| Non-overlapping | Staggered launch 20 ms | 100 | 0/100 | 0-0/100 | No |
-| Non-overlapping | Staggered launch 100 ms | 100 | 0/100 | 0-0/100 | No |
-| Non-overlapping | `control_serial` | 100 | 0/100 | 0-0/100 | No |
-| Controlled | Saved schedule[^replay-assertion] | 20 | 20/20 | 20-20/20 | Yes |
+| Concurrent | Plain | 100 | 100/100 | 100-100/100 | No |
+| Concurrent | Hinted delay 2 ms | 100 | 100/100 | 100-100/100 | No |
+| Staggered | Staggered launch 2 ms | 100 | 100/100 | 100-100/100 | No |
+| Staggered | Staggered launch 20 ms | 100 | 0/100 | 0-0/100 | No |
+| Staggered | Staggered launch 100 ms | 100 | 0/100 | 0-0/100 | No |
+| Serial | `control_serial` | 100 | 0/100 | 0-0/100 | No |
+| Schedule-controlled | Saved schedule[^replay-assertion] | 20 | 20/20 | 20-20/20 | Yes |
 
 [^replay-assertion]: The replay helper fails the test unless all 20 runs
     violate the invariant. This row is a regression assertion, not a sampled
@@ -63,13 +63,18 @@ three invocations; counts are not rounded.
     [the determinism experiment](determinism.md).
 
 Every measured arm completed with zero worker errors and zero MySQL 1213
-deadlocks. The three conditions that still overlapped detected 300 violations
-in 300 iterations. The three conditions without overlap detected none in 300
-iterations. On this host, the transition occurred between the declared 2 ms
+deadlocks. The two concurrent arms and the 2 ms stagger detected 300 violations
+in 300 iterations; each violation implies that the two transactions overlapped.
+The 20 ms and 100 ms staggers detected none in 200 iterations, and the serial
+control detected none in 100 iterations. The harness does not observe the
+first transaction's commit relative to the second transaction's start, so the
+20 ms and 100 ms results are compatible with non-overlap but do not establish
+it. On this host, the detection transition occurred between the declared 2 ms
 and 20 ms launch offsets. That interval estimates the offset needed to let the
 first transaction finish; it is not a direct transaction-duration benchmark.
 
-One raw comparison marker from the representative invocation is:
+The test emits this stable comparison-marker payload for the representative
+invocation, shown without the `go test -v` source-location prefix:
 
 ```text
 MATCHING_BASELINE_COMPARE baseline_plain=100/100 baseline_hinted=100/100 baseline_staggered_2ms=100/100 baseline_staggered_20ms=0/100 baseline_staggered_100ms=0/100 control_serial=0/100 schedule_replay=20/20 schedule=sch_ba00582f9632 image=mysql:8.4 same_fixture=true replayable=schedule_only
@@ -108,12 +113,13 @@ command.
 ## Evidence boundary
 
 This experiment does not show that an ordinary integration test can never find
-the defect. In this fixture, the measured discriminator was whether the two
-transactions overlapped, not where a delay was placed: plain, hinted delay,
-and a 2 ms stagger all detected 100/100, while 20 ms, 100 ms, and serial launch
-detected 0/100. A hand-placed launch delay must exceed the transaction's
-effective length to change that outcome. This experiment located that threshold
-on one host only; it is a property of how long the transaction takes, which the
+the defect. In this fixture, the measured discriminator was launch offset:
+plain, hinted delay, and a 2 ms stagger all detected 100/100, while 20 ms,
+100 ms, and serial launch detected 0/100. Transaction overlap is the mechanism
+inferred from those results, not a boundary the harness directly measured. A
+hand-placed launch delay must exceed the transaction's effective length to
+change that outcome. This experiment located that detection threshold on one
+host only; it is a property of how long the transaction takes, which the
 developer does not normally measure. A saved schedule does not need to know the
 duration because it controls declared ordering directly.
 
