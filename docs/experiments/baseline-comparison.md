@@ -38,6 +38,8 @@ The vulnerable read is non-locking, the `assignment` table has no uniqueness
 constraint for this invariant, and `BeginTx(ctx, nil)` leaves MySQL 8.4 at its
 default `REPEATABLE READ` isolation. If both transactions establish their
 snapshots before either commits, both can observe `EXISTS=false` and insert.
+Under `REPEATABLE READ`, the consistent snapshot is established by the first
+non-locking read, not by `BeginTx`, so launch offset is not snapshot offset.
 The mechanism is not attributed to host timing. The counts below are bounded
 to the environment and invocation that produced them.
 
@@ -97,8 +99,11 @@ invocation. What did not reproduce was the transition's sharpness or a specific
 threshold: the development host changed from 100/100 to 0/100, while the runner
 changed from 27-62/100 to 0-1/100, with 2 ms already in its partial-detection
 region. Neither environment directly measured a threshold. The harness does
-not observe the first transaction's commit relative to the second transaction's
-start, so launch-offset results are not a direct transaction-duration benchmark.
+not record the first transaction's commit or the second transaction's snapshot.
+The 20 ms and 100 ms results are compatible with non-overlap but do not
+establish it: the transaction lifetimes can overlap even when the second
+snapshot follows the first commit. Launch-offset results are therefore not a
+direct transaction-duration benchmark.
 
 The test emits comparison-marker payloads such as these, shown without the
 `go test -v` source-location prefix. The first came from development-host
@@ -181,17 +186,17 @@ the schedule-independent serial control at 0/100 in every invocation and the
 saved schedule at 20/20 in every invocation. The hinted 2 ms arm happened to
 detect 100/100 and the 100 ms stagger happened to detect 0/100 in every tabled
 invocation, but those hand-placed timing observations are not promoted to
-cross-host guarantees. A delay shorter than the transaction's effective length
-can still shift detection unpredictably across environments: the 2 ms stagger
-remained at 100/100 on the development host but fell to 27-62/100 on the runner.
-To suppress detection, driving it to the observed 0-1/100, a hand-placed delay
-must exceed that effective length. There is therefore no safe delay for a
-developer to choose: the suppression threshold varies by environment and is not
-something normally measured. Because the harness does not observe the first
-transaction's commit relative to the second transaction's start, the length is
-inferred rather than measured directly. The development host bounded it only on
-that host, between 2 ms and 20 ms. A saved schedule does not need to estimate
-that length because it controls declared ordering directly.
+cross-host guarantees. A shorter hand-placed delay can still shift detection
+unpredictably across environments: the 2 ms stagger remained at 100/100 on the
+development host but fell to 27-62/100 on the runner. In the measured arms,
+suppressing detection required longer launch offsets, which drove it to the
+observed 0-1/100. There is therefore no safe delay for a developer to choose:
+suppression depends on the unobserved relationship between the first
+transaction's commit and the second transaction's snapshot, which varies by
+environment and is not something normally measured. The experiment manipulated
+launch offset but did not observe or bound transaction length. A saved schedule
+does not need to estimate that timing relationship because it controls declared
+ordering directly.
 
 Within the measured fixture, `control_serial=0/100` is empirical evidence that
 overlap is necessary for this violation. The development host's 300/300 across
