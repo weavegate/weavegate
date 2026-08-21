@@ -36,6 +36,18 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Record runner environment
+        continue-on-error: true
+        run: |
+          printf 'RUNNER_HOST kernel=%s architecture=%s logical_cpus=%s\n' "$(uname -sr)" "$(uname -m)" "$(nproc)"
+          awk -F ': ' '/^model name/ { print "RUNNER_CPU model=" $2; exit }' /proc/cpuinfo
+          awk '/^MemTotal:/ { print "RUNNER_MEMORY " $0 }' /proc/meminfo
+          printf 'RUNNER_IMAGE os=%s version=%s\n' "${ImageOS:-not-recorded}" "${ImageVersion:-not-recorded}"
+          go version
+          docker version
+          docker pull mysql:8.4
+          docker image inspect mysql:8.4 --format 'RUNNER_MYSQL_IMAGE id={{.Id}} repo_digests={{json .RepoDigests}}'
+
       - name: Vet Go packages
         run: go vet ./...
 

@@ -38,24 +38,41 @@ The vulnerable read is non-locking, the `assignment` table has no uniqueness
 constraint for this invariant, and `BeginTx(ctx, nil)` leaves MySQL 8.4 at its
 default `REPEATABLE READ` isolation. If both transactions establish their
 snapshots before either commits, both can observe `EXISTS=false` and insert.
-The measurement was made on one host, but this mechanism is not attributed to
-host timing.
+Under `REPEATABLE READ`, the consistent snapshot is established by the first
+non-locking read, not by `BeginTx`, so launch offset is not snapshot offset.
+The mechanism is not attributed to host timing. The counts below are bounded
+to the environment and invocation that produced them.
 
 ## Measured result
 
-The representative values below are the first invocation in the recorded
-`-count=3` run. The range is the minimum and maximum detection count across all
-three invocations; counts are not rounded.
+The development-host measurement is one `-count=3` command. Each result below
+is one invocation on that host; these columns are not a cross-host range.
 
-| Launch | Arm | Runs | Detected violations | `-count=3` range | Saved-command replay? |
+| Launch | Arm | Invocation 1 | Invocation 2 | Invocation 3 | Saved-command replay? |
 | --- | --- | ---: | ---: | ---: | --- |
-| Concurrent | Plain | 100 | 100/100 | 100-100/100 | No |
-| Concurrent | Hinted delay 2 ms | 100 | 100/100 | 100-100/100 | No |
-| Staggered | Staggered launch 2 ms | 100 | 100/100 | 100-100/100 | No |
-| Staggered | Staggered launch 20 ms | 100 | 0/100 | 0-0/100 | No |
-| Staggered | Staggered launch 100 ms | 100 | 0/100 | 0-0/100 | No |
-| Serial | `control_serial` | 100 | 0/100 | 0-0/100 | No |
-| Schedule-controlled | Saved schedule[^replay-assertion] | 20 | 20/20 | 20-20/20 | Yes |
+| Concurrent | Plain | 100/100 | 100/100 | 100/100 | No |
+| Concurrent | Hinted delay 2 ms | 100/100 | 100/100 | 100/100 | No |
+| Staggered | Staggered launch 2 ms | 100/100 | 100/100 | 100/100 | No |
+| Staggered | Staggered launch 20 ms | 0/100 | 0/100 | 0/100 | No |
+| Staggered | Staggered launch 100 ms | 0/100 | 0/100 | 0/100 | No |
+| Serial | `control_serial` | 0/100 | 0/100 | 0/100 | No |
+| Schedule-controlled | Saved schedule[^replay-assertion] | 20/20 | 20/20 | 20/20 | Yes |
+
+The GitHub-hosted-runner measurements are independent `-count=1` smoke
+executions. Run `32457121871` recorded the runner environment shown below;
+the other four runs are earlier observations from the same `ubuntu-latest`
+workflow configuration, for which detailed host facts were not recorded.
+Counts are newest first and are neither rounded nor replaced by a range.
+
+| Arm | `32457121871` | `32456259979` (`main`) | `32455314019` | `32454451061` | `32453078867` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Plain | 100/100 | 100/100 | 98/100 | 100/100 | 99/100 |
+| Hinted delay 2 ms | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 |
+| Staggered launch 2 ms | 35/100 | 62/100 | 36/100 | 52/100 | 27/100 |
+| Staggered launch 20 ms | 0/100 | 0/100 | 0/100 | 1/100 | 1/100 |
+| Staggered launch 100 ms | 0/100 | 0/100 | 0/100 | 0/100 | 0/100 |
+| `control_serial` | 0/100 | 0/100 | 0/100 | 0/100 | 0/100 |
+| Saved schedule[^replay-assertion] | 20/20 | 20/20 | 20/20 | 20/20 | 20/20 |
 
 [^replay-assertion]: The replay helper fails the test unless all 20 runs
     violate the invariant. This row is a regression assertion, not a sampled
@@ -63,23 +80,38 @@ three invocations; counts are not rounded.
     [the determinism experiment](determinism.md).
 
 Every measured arm completed with zero worker errors and zero MySQL 1213
-deadlocks. The test fails if any arm records either condition, so the table
-includes only measurements without worker errors or deadlocks. The two
-concurrent arms and the 2 ms stagger detected 300 violations in 300 iterations;
-each violation implies that the two transactions overlapped.
-The 20 ms and 100 ms staggers detected none in 200 iterations, and the serial
-control detected none in 100 iterations. The harness does not observe the
-first transaction's commit relative to the second transaction's start, so the
-20 ms and 100 ms results are compatible with non-overlap but do not establish
-it. On this host, the detection transition occurred between the declared 2 ms
-and 20 ms launch offsets. That interval estimates the offset needed to let the
-first transaction finish; it is not a direct transaction-duration benchmark.
+deadlocks. The test fails if any arm records either condition, so the tables
+include only measurements without worker errors or deadlocks.
 
-The test emits this stable comparison-marker payload for the representative
-invocation, shown without the `go test -v` source-location prefix:
+On the development host, each of the three invocations detected 300 violations
+in the 300 iterations across the two concurrent arms and the 2 ms stagger. In
+each invocation on that host, the 20 ms and 100 ms staggers detected 0/200 and
+the serial control detected 0/100. The detection transition on that host was
+therefore between the declared 2 ms and 20 ms launch offsets in all three
+invocations.
+
+On recorded runner `32457121871`, the two concurrent arms detected 200/200,
+the 2 ms stagger detected 35/100, the 20 ms and 100 ms staggers detected 0/200,
+and the serial control detected 0/100. Across all eight tabled invocations, the
+2 ms stagger detected more violations than the 20 ms stagger. This supports the
+direction of a detection transition between the two declared offsets in every
+invocation. What did not reproduce was the transition's sharpness or a specific
+threshold: the development host changed from 100/100 to 0/100, while the runner
+changed from 27-62/100 to 0-1/100, with 2 ms already in its partial-detection
+region. Neither environment directly measured a threshold. The harness does
+not record the first transaction's commit or the second transaction's snapshot.
+The 20 ms and 100 ms results are compatible with non-overlap but do not
+establish it: the transaction lifetimes can overlap even when the second
+snapshot follows the first commit. Launch-offset results are therefore not a
+direct transaction-duration benchmark.
+
+The test emits comparison-marker payloads such as these, shown without the
+`go test -v` source-location prefix. The first came from development-host
+invocation 1; the second came from runner `32457121871`:
 
 ```text
 MATCHING_BASELINE_COMPARE baseline_plain=100/100 baseline_hinted=100/100 baseline_staggered_2ms=100/100 baseline_staggered_20ms=0/100 baseline_staggered_100ms=0/100 control_serial=0/100 schedule_replay=20/20 schedule=sch_ba00582f9632 image=mysql:8.4 same_fixture=true replayable=schedule_only
+MATCHING_BASELINE_COMPARE baseline_plain=100/100 baseline_hinted=100/100 baseline_staggered_2ms=35/100 baseline_staggered_20ms=0/100 baseline_staggered_100ms=0/100 control_serial=0/100 schedule_replay=20/20 schedule=sch_ba00582f9632 image=mysql:8.4 same_fixture=true replayable=schedule_only
 ```
 
 ## Timing, environment, and reproduction
@@ -90,7 +122,7 @@ Across the recorded `-count=3` run, loop timings were 7.32-7.61 s for plain,
 6.93-7.99 s for `control_serial`. These ranges exclude container provisioning
 and saved-schedule replay. They are descriptive, not benchmark results.
 
-This measurement was recorded on:
+The development-host `-count=3` measurement was recorded on:
 
 - Linux `6.18.33.2-microsoft-standard-WSL2`, x86-64;
 - Intel Core Ultra 5 125H, 18 logical CPUs;
@@ -100,6 +132,25 @@ This measurement was recorded on:
   and
 - Go `1.25.0`.
 
+GitHub Actions run `32457121871`, at commit `46fd73b`, recorded its
+`ubuntu-latest` runner as:
+
+- Linux `6.17.0-1022-azure`, x86-64;
+- AMD EPYC 9V74 80-Core Processor, 2 logical CPUs available to the runner;
+- `8128880 kB` total memory;
+- GitHub runner image OS `ubuntu24`, image version `20260816.277.1`;
+- Docker server `28.0.4`;
+- MySQL image `mysql:8.4`, repository digest
+  `sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb`;
+  and
+- Go `1.25.0`.
+
+The runner log did not record the MySQL patch version, so none is inferred
+from the tag or digest. The environment facts above apply only to run
+`32457121871`; the earlier four runner logs record the workflow configuration
+and comparison marker, but not the allocated hardware, runner image version,
+Docker version, or image digest.
+
 Run the complete comparison with Docker available:
 
 ```bash
@@ -107,33 +158,64 @@ go test ./fixtures/matching-slice/sut/ \
   -run '^TestBaselineComparison$' -v -count=1
 ```
 
-Use `-count=3` instead of `-count=1` to reproduce the repeated measurement
-shape used for the ranges above. The baseline and control arms produce new
+Use `-count=3` instead of `-count=1` to reproduce the development-host
+three-invocation shape above. The baseline and control arms produce new
 outcomes; only the saved-schedule arm has a schedule ID and a replayable
-command.
+command. The runner observations can be extracted from each smoke log with:
+
+```bash
+gh run view <run-id> --log \
+  | grep -o 'MATCHING_BASELINE_COMPARE.*'
+```
+
+The workflow assertion step also prints its regular expression. Only the
+marker emitted by `TestBaselineComparison` is a measured result.
 
 ## Evidence boundary
 
 This experiment does not show that an ordinary integration test can never find
-the defect. In this fixture, the measured discriminator was launch offset:
-plain, hinted delay, and a 2 ms stagger all detected 100/100, while 20 ms,
-100 ms, and serial launch detected 0/100. Transaction overlap is the mechanism
-inferred from those results, not a boundary the harness directly measured. A
-hand-placed launch delay must exceed the transaction's effective length to
-change that outcome. This experiment located that detection threshold on one
-host only; it is a property of how long the transaction takes, which the
-developer does not normally measure. A saved schedule does not need to know the
-duration because it controls declared ordering directly.
+the defect. The hand-placed arms are intentionally offered as cross-environment
+evidence only for the measured variation: `plain`, the 2 ms stagger, and the
+20 ms stagger produced different counts between the development host and at
+least one runner invocation. The measurements do not isolate host hardware
+from runner load, image build, or any other environment difference, and they
+do not establish a general detection rate or timing threshold.
 
-The `control_serial=0/100` result establishes overlap as a necessary condition
-for this violation in the measured fixture. The overlapping arms' 300/300 is
-empirical support, not proof that overlap under `REPEATABLE READ` is sufficient
-in isolation. Such a claim requires an isolation-level control such as READ
-COMMITTED versus REPEATABLE READ, which is outside this experiment.
+The cross-environment results that the reproducibility argument relies on are
+the schedule-independent serial control at 0/100 in every invocation and the
+saved schedule at 20/20 in every invocation. The hinted 2 ms arm happened to
+detect 100/100 and the 100 ms stagger happened to detect 0/100 in every tabled
+invocation, but those hand-placed timing observations are not promoted to
+cross-host guarantees. A shorter hand-placed delay can still shift detection
+unpredictably across environments: the 2 ms stagger remained at 100/100 on the
+development host but fell to 27-62/100 on the runner. In the measured arms,
+suppressing detection required longer launch offsets, which drove it to the
+observed 0-1/100. There is therefore no safe delay for a developer to choose:
+suppression depends on the unobserved relationship between the first
+transaction's commit and the second transaction's snapshot, which varies by
+environment and is not something normally measured. The experiment manipulated
+launch offset but did not observe or bound transaction length. A saved schedule
+does not need to estimate that timing relationship because it controls declared
+ordering directly.
+
+Within the measured fixture, `control_serial=0/100` is empirical evidence that
+overlap is necessary for this violation. The development host's 300/300 across
+the two concurrent arms and 2 ms stagger is bounded to that host. Across those
+same arms, runner `32457121871` detected 100/100 for plain, 100/100 for hinted
+delay, and 35/100 for the 2 ms stagger. Neither result proves that overlap under
+`REPEATABLE READ` is sufficient in isolation. Such a claim requires an
+isolation-level control such as READ COMMITTED versus REPEATABLE READ, which is
+outside this experiment.
+
+Smoke continues to accept `[0-9]+` for counts in the timing-sensitive arms.
+An exact count or tolerance would turn environment-dependent observations into
+a regression contract. The Go test fixes each denominator at 100 and fails on
+worker errors or deadlocks; smoke checks the marker shape and fixed
+denominators, while retaining hard assertions for `control_serial=0/100` and
+`schedule_replay=20/20`.
 
 The baseline arms do not leave a schedule ID, a replay command for the observed
-ordering, or verdict artifacts. This experiment measures detection frequency
-and reproducibility on one host only. The weavegate distinction measured here
-is that the committed schedule controls and repeats the same execution and can
-be used by the CLI to retain evidence; it is not a claim that only weavegate
-can detect the violation. Measurements on other hosts remain future work.
+ordering, or verdict artifacts. The weavegate distinction measured here is
+that the committed schedule controlled and repeated the same execution in both
+recorded environments and can be used by the CLI to retain evidence; it is not
+a claim that only weavegate can detect the violation.
