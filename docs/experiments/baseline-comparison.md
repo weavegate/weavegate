@@ -112,10 +112,10 @@ the defect. In this fixture, the measured discriminator was whether the two
 transactions overlapped, not where a delay was placed: plain, hinted delay,
 and a 2 ms stagger all detected 100/100, while 20 ms, 100 ms, and serial launch
 detected 0/100. A hand-placed launch delay must exceed the transaction's
-effective length to change that outcome. That threshold varies with the host
-and database state and is not normally measured by the developer. A saved
-schedule does not need to know the duration because it controls declared
-ordering directly.
+effective length to change that outcome. This experiment located that threshold
+on one host only; it is a property of how long the transaction takes, which the
+developer does not normally measure. A saved schedule does not need to know the
+duration because it controls declared ordering directly.
 
 The `control_serial=0/100` result establishes overlap as a necessary condition
 for this violation in the measured fixture. The overlapping arms' 300/300 is
