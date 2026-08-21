@@ -181,13 +181,17 @@ the schedule-independent serial control at 0/100 in every invocation and the
 saved schedule at 20/20 in every invocation. The hinted 2 ms arm happened to
 detect 100/100 and the 100 ms stagger happened to detect 0/100 in every tabled
 invocation, but those hand-placed timing observations are not promoted to
-cross-host guarantees. A hand-placed launch delay must exceed the transaction's
-effective length to change detection, but that length varies by environment and
-is not something a developer normally measures. Because the harness does not
-observe the first transaction's commit relative to the second transaction's
-start, the length is inferred rather than measured directly. The development
-host bounded it only on that host, between 2 ms and 20 ms. A saved schedule does
-not need to estimate that length because it controls declared ordering directly.
+cross-host guarantees. A delay shorter than the transaction's effective length
+can still shift detection unpredictably across environments: the 2 ms stagger
+remained at 100/100 on the development host but fell to 27-62/100 on the runner.
+To suppress detection, driving it to the observed 0-1/100, a hand-placed delay
+must exceed that effective length. There is therefore no safe delay for a
+developer to choose: the suppression threshold varies by environment and is not
+something normally measured. Because the harness does not observe the first
+transaction's commit relative to the second transaction's start, the length is
+inferred rather than measured directly. The development host bounded it only on
+that host, between 2 ms and 20 ms. A saved schedule does not need to estimate
+that length because it controls declared ordering directly.
 
 Within the measured fixture, `control_serial=0/100` is empirical evidence that
 overlap is necessary for this violation. The development host's 300/300 across
