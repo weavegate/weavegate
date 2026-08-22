@@ -88,7 +88,7 @@ After you fix the path with `SELECT ... FOR UPDATE`, replaying the **same
 schedule** recorded in the
 [baseline comparison](docs/experiments/baseline-comparison.md#measured-result)
 passes in the
-[fixed-variant measurement](docs/experiments/determinism.md#measured-result) —
+[fixed-variant measurement](docs/experiments/determinism.md#repeated-result) —
 the gate verifies your implemented fix, not just the happy path.
 
 ## What weavegate is (and is not)
