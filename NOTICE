@@ -1,14 +1,16 @@
 weavegate
 Copyright 2026 weavegate contributors
 
-This product includes the following third-party runtime dependencies. Regenerate
-this inventory from the repository root with:
+This product includes the union of third-party runtime dependencies for
+linux/amd64, linux/arm64, darwin/amd64, and darwin/arm64. Regenerate this
+inventory from the repository root with:
 
-go list std | sed 's#^#--ignore=#' | xargs go run github.com/google/go-licenses@v1.6.0 report --template .go-licenses-notice.tpl --ignore=github.com/weavegate/weavegate ./cmd/weavegate > NOTICE
+./scripts/gen-notice.sh
 
 Go standard library packages and the weavegate module itself are excluded.
 
 Package,License,License source
+
 dario.cat/mergo,BSD-3-Clause,https://github.com/imdario/mergo/blob/v1.0.1/LICENSE
 filippo.io/edwards25519,BSD-3-Clause,https://github.com/FiloSottile/edwards25519/blob/v1.1.1/LICENSE
 github.com/cenkalti/backoff/v4,MIT,https://github.com/cenkalti/backoff/blob/v4.2.1/LICENSE
@@ -23,6 +25,7 @@ github.com/distribution/reference,Apache-2.0,https://github.com/distribution/ref
 github.com/docker/docker,Apache-2.0,https://github.com/docker/docker/blob/v28.2.2/LICENSE
 github.com/docker/go-connections,Apache-2.0,https://github.com/docker/go-connections/blob/v0.5.0/LICENSE
 github.com/docker/go-units,Apache-2.0,https://github.com/docker/go-units/blob/v0.5.0/LICENSE
+github.com/ebitengine/purego,Apache-2.0,https://github.com/ebitengine/purego/blob/v0.8.4/LICENSE
 github.com/felixge/httpsnoop,MIT,https://github.com/felixge/httpsnoop/blob/v1.1.0/LICENSE.txt
 github.com/go-logr/logr,Apache-2.0,https://github.com/go-logr/logr/blob/v1.4.4/LICENSE
 github.com/go-logr/stdr,Apache-2.0,https://github.com/go-logr/stdr/blob/v1.2.2/LICENSE

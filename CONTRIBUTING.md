@@ -183,9 +183,9 @@ decision requires a human to inspect the complete behavior.
 3. Replay that same schedule against the `SELECT ... FOR UPDATE` variant and
    confirm PASS with exit 0. This is the required vulnerable → diagnostic → fix
    → PASS inspection.
-4. Regenerate `NOTICE` with the command recorded in its header. If the file
-   changes, commit the updated inventory in the same pull request; otherwise,
-   continue with the existing inventory.
+4. Regenerate `NOTICE` with `./scripts/gen-notice.sh`, as recorded in its
+   header. If the file changes, commit the updated inventory in the same pull
+   request; otherwise, continue with the existing inventory.
 5. Replace the `YYYY-MM-DD` placeholder in the matching
    [`CHANGELOG.md`](CHANGELOG.md) release heading with the actual tag date, then
    verify that the section contains only changes already merged into the tag.
