@@ -19,7 +19,7 @@ immediately before tagging `v0.1.0-alpha`.
 
 - A deterministic sync-point runtime for coordinating worker execution.
 - Exhaustive saved-schedule exploration and repeated replay.
-- SQL assertion Oracles that retain violating rows as evidence.
+- SQL assertion oracles that retain violating rows as evidence.
 - `weavegate run` and `weavegate report` CLI commands.
 - Six run artifacts: manifest, scenario, observation, trace, JSON report, and
   Markdown report.
