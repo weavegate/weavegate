@@ -2,7 +2,7 @@
 
 > Deterministically replay the DB race, gate the deploy.
 
-Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate currently runs against a Go-native reference SUT; a Spring Boot adapter is planned for the next release.
+Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate currently runs against a Go-native reference SUT; a Spring Boot adapter is planned for `v0.2.0`.
 
 [![smoke](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
