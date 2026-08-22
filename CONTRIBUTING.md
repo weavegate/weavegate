@@ -171,6 +171,28 @@ Rules:
   for a worked example of the domain and invariant description this layout
   expects.
 
+## Releasing
+
+Before tagging a release, the person creating it must complete this checklist
+manually. These checks are intentionally not automated because the release
+decision requires a human to inspect the complete behavior.
+
+1. Build the CLI from the exact commit to be tagged.
+2. Replay the vulnerable matching-slice schedule and confirm the expected
+   `RG001` diagnostic, violating rows, trace, and exit 2.
+3. Replay that same schedule against the `SELECT ... FOR UPDATE` variant and
+   confirm PASS with exit 0. This is the required vulnerable → diagnostic → fix
+   → PASS inspection.
+4. Replace the `YYYY-MM-DD` placeholder in the matching
+   [`CHANGELOG.md`](CHANGELOG.md) release heading with the actual tag date, then
+   verify that the section contains only changes already merged into the tag.
+5. Confirm that the release workflow will use that CHANGELOG section as its
+   release notes, then create the tag manually. Do not tag if any earlier item
+   is incomplete.
+6. After the tag and release artifacts exist, add the release badge and
+   CHANGELOG link to the README. Never advertise a release that has not been
+   published.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the
