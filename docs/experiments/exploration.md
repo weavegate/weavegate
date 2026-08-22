@@ -132,8 +132,11 @@ the exhaustive strategy rejects plans above its configured bound.
 The discovered candidate is not minimized. The normalized trace and run
 fingerprint capture the execution realized under current database locks, but
 the saved schedule remains coordination intent. Non-exhaustive strategies,
-trace-based realized-order coverage, schedule minimization, CLI wiring, and
-public report artifacts remain future work. The design boundary is recorded in
+trace-based realized-order coverage, and schedule minimization remain future
+work. This fixture-test path does not write run artifacts; the
+[CLI](../reference/cli.md) and public
+[run artifact schema](../reference/report-schema.md) are documented separately.
+The design boundary is recorded in
 [ADR 0004](../adr/0004-schedule-exploration-boundary.md); the older committed
 schedule's replay evidence remains in
 [Matching-slice replay determinism](determinism.md).

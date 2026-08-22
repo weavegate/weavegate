@@ -64,14 +64,17 @@ expected result, letting it assert precise interleaving behavior.
   own test suite and into your application's hot spots.
 - **How weavegate differs:** the isolation tester validates PostgreSQL's own
   behavior against golden output. weavegate has no golden output for your
-  workflow — it derives correctness from your SQL oracles, a clean-run
-  differential, and schema constraints.
+  workflow — it derives correctness from your SQL assertion oracles and retains
+  the supporting execution trace.
 
 ### Lincheck
 
 [Lincheck](https://github.com/JetBrains/lincheck) verifies concurrent JVM data
 structures by generating thread interleavings and checking linearizability,
 including a mode that deterministically replays a failing interleaving.
+
+Lincheck is a prior-art reference only: weavegate does not depend on Lincheck
+or incorporate its code.
 
 - **What we borrow:** bounded exploration of interleavings plus deterministic
   replay of the specific one that failed, reported back to the developer as a
@@ -93,9 +96,9 @@ and can be replayed bit-for-bit.
   result.** That is why a violating schedule is a saved, re-runnable file, not a
   log line.
 - **How weavegate differs:** those systems are *built* for full-world
-  simulation from day one. weavegate retrofits deterministic replay onto an
-  existing Spring Boot + MySQL workflow at a handful of sync-points — narrower in
-  scope, but adoptable without rewriting your application.
+  simulation from day one. weavegate's current Go-native reference SUT applies
+  deterministic replay at a handful of sync-points; a Spring Boot adapter is
+  planned for the next release. This is narrower than full-world simulation.
 
 ## Infrastructure we run on
 

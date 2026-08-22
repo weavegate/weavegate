@@ -2,13 +2,59 @@
 
 > Deterministically replay the DB race, gate the deploy.
 
-**weavegate** is a CI gate for schedule-dependent database bugs. It plants test-only sync-points into the `read -> decide -> write` paths of a Spring Boot + MySQL/InnoDB workflow, deterministically reproduces the exact execution orders (schedules) that break your state invariants, and turns violations into evidence — a saved schedule, a step trace, and the offending rows — right in your pull request.
+Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate currently runs against a Go-native reference SUT; a Spring Boot adapter is planned for `v0.2.0`.
 
-![status](https://img.shields.io/badge/status-in%20design-orange)
+[![smoke](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![db](https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey)
 
-> ⚠️ **Pre-release.** weavegate is under active development. The first runnable release (`v0.1.0-alpha`) is targeted for August 2026. Everything below describes the designed behavior; interfaces may change until then.
+> ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands work
+> now when built from a source checkout. There is no tagged release yet, and
+> interfaces may change before `v0.1.0-alpha`.
+
+## Prerequisites
+
+- Go 1.25 or later, as declared in [`go.mod`](go.mod).
+- A running Docker daemon; Testcontainers starts a real MySQL 8.4 container.
+- Allow roughly 35 seconds for the
+  [documented exploration test](docs/experiments/exploration.md#reproduction)
+  on the measured development host; an initial image pull can add time. See
+  [Contributing](CONTRIBUTING.md#running-checks) for the build and test commands.
+
+Build the CLI and put the checkout-local binary on `PATH`:
+
+```bash
+go build -o weavegate ./cmd/weavegate
+export PATH="$PWD:$PATH"
+```
+
+The vulnerable variant intentionally ends with exit 2 because the SQL assertion
+finds and reproduces the invariant violation.
+
+Run the current CLI from a source checkout:
+
+```console
+$ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
+    --scenario concurrent-assign --variant vulnerable
+## weavegate: FAIL (RG001)
+scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
+assertion: active-assignment-is-unique
+flaky: false (repeat=20)
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: invariant violated under a controlled schedule
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    commonly a read-then-write path without a lock or a unique constraint
+  help:      add a unique constraint on the contested key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
+.weavegate/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
+$ echo $?
+2
+```
 
 ## The problem
 
@@ -30,53 +76,42 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 ```
 
 - **Controlled replay** — named sync-points let weavegate control worker execution order. A violating schedule is saved as an artifact and can be re-run exactly: same schema, same seed, same schedule, same result (`repeat=20`, `flaky=false`).
-- **SQL oracles** — you declare domain invariants as plain SQL assertions; a clean-run differential and schema constraints back them up. No DSL to learn.
+- **SQL assertion oracles** — you declare domain invariants as plain SQL assertions and retain the violating rows with the execution trace. No DSL to learn.
 - **Compiler-style diagnostics** — violations render as `error[RG001]` with observed state, broken invariant, likely reason, and suggested fixes.
-- **CI gate** — exit codes, `report.json`/`report.md`, `trace.json`, a one-line GitHub Action, and a PR comment with the replay command.
-
-A diagnostic produced by the matching-slice run, end to end:
-
-```text
-## weavegate: FAIL (RG001)
-scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
-assertion: active-assignment-is-unique
-flaky: false (repeat=20)
-replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
-
-error[RG001]: invariant violated under a controlled schedule
-  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
-  assertion: active-assignment-is-unique
-  invariant: a declared state invariant must hold under every release schedule the database permits
-  reason:    commonly a read-then-write path without a lock or a unique constraint
-  help:      add a unique constraint on the contested key
-             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
-             use an idempotency key on the write
-  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
-```
+- **CI evidence** — exit codes, `report.json`/`report.md`, and `trace.json` provide the verdict and its supporting artifacts today.
+- **Planned CI integration** — the `v0.2.0` roadmap adds a one-line GitHub Action and a PR comment with the replay command.
 
 See the full [RG001 reference](docs/reference/diagnostics/RG001.md), including
 what this code does not claim.
 
-After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying the **same schedule** passes — the gate verifies the fix itself, not just the happy path.
+After you fix the path with `SELECT ... FOR UPDATE`, replaying the **same
+schedule** recorded in the
+[baseline comparison](docs/experiments/baseline-comparison.md#measured-result)
+passes in the
+[fixed-variant measurement](docs/experiments/determinism.md#repeated-result) —
+the gate verifies your implemented fix, not just the happy path.
 
 ## What weavegate is (and is not)
 
 - It is **not** a fuzzer that finds every race automatically — it explores interleavings between sync-points *you* place at suspicious `read -> decide -> write` hot spots.
 - It is **not** a database engine tester (that's Hermitage/Jepsen territory) — it tests whether **your workflow** survives the anomalies your database legitimately permits, and whether your fix closes them.
 - It does **not** verify ACID — it trusts the DB's ACID and isolation guarantees, and checks your invariants on top of them.
-- There is **no AI verdict** — judgments are rule-based (SQL oracles + differential + trace), so every failure is deterministic and reproducible by anyone with one command.
+- There is **no AI verdict** — judgments are rule-based (SQL assertion oracles + trace), so every failure is deterministic and reproducible by anyone with one command.
+
+See the documented [limitations](docs/limitations.md) for the exact boundaries
+of these claims.
 
 ## Roadmap
 
 | Milestone | Scope | Target |
 | --- | --- | --- |
-| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL/differential/schema oracles, `RG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
-| `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Aug 2026 |
+| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `RG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
+| `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Sep 2026 |
 | later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection | Q3–Q4 2026 |
 
 ## Built on / related work
 
-weavegate runs on [Testcontainers](https://testcontainers.com/) (real MySQL 8/InnoDB, not mocks) and draws design ideas from the PostgreSQL isolation tester, [Hermitage](https://github.com/ept/hermitage), [Lincheck](https://github.com/JetBrains/lincheck), and the replay thinking of deterministic-simulation testing (FoundationDB, TigerBeetle). It applies none of them as-is: those tools ask *"does the DB permit this anomaly?"* — weavegate asks *"does your application code survive the anomalies the DB permits, and does your fix close them?"* A full attribution list will ship in `docs/related-work.md`.
+weavegate runs on [Testcontainers](https://testcontainers.com/) (real MySQL 8/InnoDB, not mocks) and draws design ideas from the PostgreSQL isolation tester, [Hermitage](https://github.com/ept/hermitage), [Lincheck](https://github.com/JetBrains/lincheck), and the replay thinking of deterministic-simulation testing (FoundationDB, TigerBeetle). It applies none of them as-is: those tools ask *"does the DB permit this anomaly?"* — weavegate asks *"does your application code survive the anomalies the DB permits, and does your fix close them?"* See the full [related-work and attribution](docs/related-work.md).
 
 ## Contributing
 
