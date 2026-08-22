@@ -194,7 +194,10 @@ decision requires a human to inspect the complete behavior.
 7. Confirm that the release workflow will use that CHANGELOG section as its
    release notes, then create the tag manually. Do not tag if any earlier item
    is incomplete.
-8. After the tag and release artifacts exist, add the release badge and
+8. After the tag and release exist, remove their two temporary entries from
+   `.lycheeignore` so the compare and release URLs return to external-link
+   validation.
+9. After the tag and release artifacts exist, add the release badge and
    CHANGELOG link to the README. Never advertise a release that has not been
    published.
 
