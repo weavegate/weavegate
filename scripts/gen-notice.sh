@@ -21,8 +21,10 @@ for target in "${targets[@]}"; do
 
   GOOS="$goos" GOARCH="$goarch" "$license_tool" report \
     --template "$repo_root/.go-licenses-notice.tpl" \
-    "${ignore_args[@]}" ./cmd/weavegate > "$work_dir/$goos-$goarch.csv"
+    "${ignore_args[@]}" ./cmd/weavegate > "$work_dir/$goos-$goarch.tsv"
 done
+
+grep -h -v '^$' "$work_dir"/*.tsv | sort -u > "$work_dir/dependencies.tsv"
 
 {
   printf '%s\n' \
@@ -38,5 +40,35 @@ done
     'Go standard library packages and the weavegate module itself are excluded.' \
     '' \
     'Package,License,License source'
-  sort -u "$work_dir"/*.csv
+  while IFS=$'\t' read -r name version spdx url license_path; do
+    printf '%s,%s,%s\n' "$name" "$spdx" "$url"
+  done < "$work_dir/dependencies.tsv"
+
+  printf '\nFull license texts\n'
+  while IFS=$'\t' read -r name version spdx url license_path; do
+    printf '\n------------------------------------------------------------------------\n'
+    printf 'Package: %s\n' "$name"
+    printf 'Version: %s\n' "$version"
+    printf 'License: %s\n' "$spdx"
+    printf 'Upstream: %s\n' "$url"
+    if [[ "$name" == github.com/go-sql-driver/mysql ]]; then
+      printf 'The corresponding MPL-2.0 source code is available from https://github.com/go-sql-driver/mysql.\n'
+    fi
+    printf '\n'
+    awk '
+      {
+        sub(/[[:space:]]+$/, "")
+        lines[NR] = $0
+      }
+      END {
+        last = NR
+        while (last > 0 && lines[last] == "") {
+          last--
+        }
+        for (line = 1; line <= last; line++) {
+          print lines[line]
+        }
+      }
+    ' "$license_path"
+  done < "$work_dir/dependencies.tsv"
 } > "$repo_root/NOTICE"
