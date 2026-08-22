@@ -1,0 +1,57 @@
+name: release
+
+"on":
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Read release notes from CHANGELOG
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md"
+
+      - name: Publish release artifacts
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: >-
+            release
+            --clean
+            --release-notes=${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt

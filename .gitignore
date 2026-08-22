@@ -11,3 +11,4 @@ baseline*.log
 # Checkout-local CLI and default run output
 /weavegate
 /.weavegate/
+/dist/
