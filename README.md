@@ -28,10 +28,10 @@ go build -o weavegate ./cmd/weavegate
 export PATH="$PWD:$PATH"
 ```
 
-Run the current CLI from a source checkout:
-
 The vulnerable variant intentionally ends with exit 2 because the SQL assertion
 finds and reproduces the invariant violation.
+
+Run the current CLI from a source checkout:
 
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
@@ -81,12 +81,15 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 - **CI evidence** — exit codes, `report.json`/`report.md`, and `trace.json` provide the verdict and its supporting artifacts today.
 - **Planned CI integration** — the `v0.2.0` roadmap adds a one-line GitHub Action and a PR comment with the replay command.
 
-The complete run above shows the matching-slice diagnostic end to end.
-
 See the full [RG001 reference](docs/reference/diagnostics/RG001.md), including
 what this code does not claim.
 
-After the reference SUT fixes the path with `SELECT ... FOR UPDATE`, replaying the **same schedule** passes — the gate verifies the implemented fix itself, not just the happy path.
+After you fix the path with `SELECT ... FOR UPDATE`, replaying the **same
+schedule** recorded in the
+[baseline comparison](docs/experiments/baseline-comparison.md#measured-result)
+passes in the
+[fixed-variant measurement](docs/experiments/determinism.md#measured-result) —
+the gate verifies your implemented fix, not just the happy path.
 
 ## What weavegate is (and is not)
 
