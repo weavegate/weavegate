@@ -78,14 +78,15 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 - **Controlled replay** — named sync-points let weavegate control worker execution order. A violating schedule is saved as an artifact and can be re-run exactly: same schema, same seed, same schedule, same result (`repeat=20`, `flaky=false`).
 - **SQL assertion oracles** — you declare domain invariants as plain SQL assertions and retain the violating rows with the execution trace. No DSL to learn.
 - **Compiler-style diagnostics** — violations render as `error[RG001]` with observed state, broken invariant, likely reason, and suggested fixes.
-- **CI gate** — exit codes, `report.json`/`report.md`, `trace.json`, a one-line GitHub Action, and a PR comment with the replay command.
+- **CI evidence** — exit codes, `report.json`/`report.md`, and `trace.json` provide the verdict and its supporting artifacts today.
+- **Planned CI integration** — the `v0.2.0` roadmap adds a one-line GitHub Action and a PR comment with the replay command.
 
 The complete run above shows the matching-slice diagnostic end to end.
 
 See the full [RG001 reference](docs/reference/diagnostics/RG001.md), including
 what this code does not claim.
 
-After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying the **same schedule** passes — the gate verifies the fix itself, not just the happy path.
+After the reference SUT fixes the path with `SELECT ... FOR UPDATE`, replaying the **same schedule** passes — the gate verifies the implemented fix itself, not just the happy path.
 
 ## What weavegate is (and is not)
 
