@@ -2,13 +2,59 @@
 
 > Deterministically replay the DB race, gate the deploy.
 
-Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate ships today with a Go-native reference SUT; a Spring Boot adapter is planned for the next release.
+Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate currently runs against a Go-native reference SUT; a Spring Boot adapter is planned for the next release.
 
-![status](https://img.shields.io/badge/status-in%20design-orange)
+[![smoke](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![db](https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey)
 
-> ⚠️ **Pre-release.** weavegate is under active development. The first runnable release (`v0.1.0-alpha`) is targeted for August 2026. Everything below describes the designed behavior; interfaces may change until then.
+> ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands work
+> now when built from a source checkout. There is no tagged release yet, and
+> interfaces may change before `v0.1.0-alpha`.
+
+## Prerequisites
+
+- Go 1.25 or later, as declared in [`go.mod`](go.mod).
+- A running Docker daemon; Testcontainers starts a real MySQL 8.4 container.
+- Allow roughly 35 seconds for the
+  [documented exploration test](docs/experiments/exploration.md#reproduction)
+  on the measured development host; an initial image pull can add time. See
+  [Contributing](CONTRIBUTING.md#running-checks) for the build and test commands.
+
+Build the CLI and put the checkout-local binary on `PATH`:
+
+```bash
+go build -o weavegate ./cmd/weavegate
+export PATH="$PWD:$PATH"
+```
+
+Run the current CLI from a source checkout:
+
+The vulnerable variant intentionally ends with exit 2 because the SQL assertion
+finds and reproduces the invariant violation.
+
+```console
+$ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
+    --scenario concurrent-assign --variant vulnerable
+## weavegate: FAIL (RG001)
+scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
+assertion: active-assignment-is-unique
+flaky: false (repeat=20)
+replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
+
+error[RG001]: invariant violated under a controlled schedule
+  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
+  assertion: active-assignment-is-unique
+  invariant: a declared state invariant must hold under every release schedule the database permits
+  reason:    commonly a read-then-write path without a lock or a unique constraint
+  help:      add a unique constraint on the contested key
+             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
+             use an idempotency key on the write
+  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
+.weavegate/runs/run_20260815T172917.706000000Z_bc391ac51234567890abcdef12345678
+$ echo $?
+2
+```
 
 ## The problem
 
@@ -34,25 +80,7 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 - **Compiler-style diagnostics** — violations render as `error[RG001]` with observed state, broken invariant, likely reason, and suggested fixes.
 - **CI gate** — exit codes, `report.json`/`report.md`, `trace.json`, a one-line GitHub Action, and a PR comment with the replay command.
 
-A diagnostic produced by the matching-slice run, end to end:
-
-```text
-## weavegate: FAIL (RG001)
-scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
-assertion: active-assignment-is-unique
-flaky: false (repeat=20)
-replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
-
-error[RG001]: invariant violated under a controlled schedule
-  observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
-  assertion: active-assignment-is-unique
-  invariant: a declared state invariant must hold under every release schedule the database permits
-  reason:    commonly a read-then-write path without a lock or a unique constraint
-  help:      add a unique constraint on the contested key
-             take a pessimistic lock (SELECT ... FOR UPDATE) before insert
-             use an idempotency key on the write
-  evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
-```
+The complete run above shows the matching-slice diagnostic end to end.
 
 See the full [RG001 reference](docs/reference/diagnostics/RG001.md), including
 what this code does not claim.
