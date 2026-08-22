@@ -5,12 +5,16 @@ codes.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | No violation. See [PASS's limit](#pass-is-not-a-proof) below. |
+| `0` | For `run`, no violation; for `report`, the artifact was printed successfully. See [PASS's limit](#pass-is-not-a-proof) below. |
 | `2` | An invariant violation was detected and reproduced. A SQL assertion violation is named [RG001](diagnostics/RG001.md). |
 | `3` | The determinism check failed (`flaky`) and is named [RG090](diagnostics/RG090.md) — a judgment could not be trusted, not a clean pass or a clean violation. |
 | `4` | Fixture provisioning, database operation, or cleanup failed. |
 | `5` | A configuration, adapter, assertion, schedule, or artifact I/O error. |
 | `130` | The run was interrupted by SIGINT or SIGTERM. |
+
+`weavegate report` streams a stored artifact and does not recalculate its
+verdict. Its exit 0 reports successful output, so a stored FAIL report can also
+be printed with exit 0.
 
 ## Priority: error beats verdict, flaky beats violation
 
@@ -54,13 +58,17 @@ as a determinism failure (exit 3), never a pass.
 
 ## PASS is not a proof
 
-Exit 0 means: **no violation was observed across `run.explore_passes` full
-sweeps of the candidate schedule set.** It is not a proof that no
+In explore mode, exit 0 means: **no violation was observed across
+`run.explore_passes` full sweeps of the candidate schedule set.** It is not a
+proof that no
 interleaving of this scenario can violate the invariant — a database's
 realized release order under contention, retry, and timing can diverge from
 the saved candidate space (see [report-schema.md](report-schema.md) for what
 a saved schedule does and does not capture). Raising `run.explore_passes`
 narrows this gap; it cannot close it.
+
+In replay mode, exit 0 is limited to the one schedule repeated by that command.
+Replay mode does not sweep or make a claim about any other schedule.
 
 ## Cleanup failures never mask a verdict
 

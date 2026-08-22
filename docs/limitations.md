@@ -34,10 +34,19 @@ shape are documented under
 
 ## Exit 0 is bounded evidence, not proof of safety
 
-Exit 0 does not claim that the workflow has no concurrency defect. It means no
-configured Oracle observed a violation across the full candidate sweeps that
-were actually run. Candidate bounds, declared sync points, configured Oracles,
-and the selected fixture limit that evidence. See
+Exit 0 does not claim that the workflow has no concurrency defect. Its meaning
+depends on the command and mode:
+
+- An explore-mode PASS means no configured Oracle observed a violation across
+  the candidate sweeps that actually ran. Candidate bounds, declared sync
+  points, configured Oracles, and the selected fixture limit that evidence.
+- A replay-mode PASS means no violation was observed while repeating one saved
+  schedule. Replay mode does not sweep or make a claim about other schedules.
+- Exit 0 from `weavegate report` means the saved artifact was printed
+  successfully. It is not a verdict; a stored FAIL report also prints with exit
+  0.
+
+See
 [PASS is not a proof](reference/exit-codes.md#pass-is-not-a-proof) for the exact
 exit-code contract.
 
