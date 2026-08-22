@@ -30,7 +30,7 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 ```
 
 - **Controlled replay** — named sync-points let weavegate control worker execution order. A violating schedule is saved as an artifact and can be re-run exactly: same schema, same seed, same schedule, same result (`repeat=20`, `flaky=false`).
-- **SQL oracles** — you declare domain invariants as plain SQL assertions; a clean-run differential and schema constraints back them up. No DSL to learn.
+- **SQL assertion oracles** — you declare domain invariants as plain SQL assertions and retain the violating rows with the execution trace. No DSL to learn.
 - **Compiler-style diagnostics** — violations render as `error[RG001]` with observed state, broken invariant, likely reason, and suggested fixes.
 - **CI gate** — exit codes, `report.json`/`report.md`, `trace.json`, a one-line GitHub Action, and a PR comment with the replay command.
 
@@ -64,7 +64,7 @@ After you fix the code (unique constraint or `SELECT ... FOR UPDATE`), replaying
 - It is **not** a fuzzer that finds every race automatically — it explores interleavings between sync-points *you* place at suspicious `read -> decide -> write` hot spots.
 - It is **not** a database engine tester (that's Hermitage/Jepsen territory) — it tests whether **your workflow** survives the anomalies your database legitimately permits, and whether your fix closes them.
 - It does **not** verify ACID — it trusts the DB's ACID and isolation guarantees, and checks your invariants on top of them.
-- There is **no AI verdict** — judgments are rule-based (SQL oracles + differential + trace), so every failure is deterministic and reproducible by anyone with one command.
+- There is **no AI verdict** — judgments are rule-based (SQL assertion oracles + trace), so every failure is deterministic and reproducible by anyone with one command.
 
 See the documented [limitations](docs/limitations.md) for the exact boundaries
 of these claims.
@@ -73,13 +73,13 @@ of these claims.
 
 | Milestone | Scope | Target |
 | --- | --- | --- |
-| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL/differential/schema oracles, `RG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
-| `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Aug 2026 |
+| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `RG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
+| `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Sep 2026 |
 | later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection | Q3–Q4 2026 |
 
 ## Built on / related work
 
-weavegate runs on [Testcontainers](https://testcontainers.com/) (real MySQL 8/InnoDB, not mocks) and draws design ideas from the PostgreSQL isolation tester, [Hermitage](https://github.com/ept/hermitage), [Lincheck](https://github.com/JetBrains/lincheck), and the replay thinking of deterministic-simulation testing (FoundationDB, TigerBeetle). It applies none of them as-is: those tools ask *"does the DB permit this anomaly?"* — weavegate asks *"does your application code survive the anomalies the DB permits, and does your fix close them?"* A full attribution list will ship in `docs/related-work.md`.
+weavegate runs on [Testcontainers](https://testcontainers.com/) (real MySQL 8/InnoDB, not mocks) and draws design ideas from the PostgreSQL isolation tester, [Hermitage](https://github.com/ept/hermitage), [Lincheck](https://github.com/JetBrains/lincheck), and the replay thinking of deterministic-simulation testing (FoundationDB, TigerBeetle). It applies none of them as-is: those tools ask *"does the DB permit this anomaly?"* — weavegate asks *"does your application code survive the anomalies the DB permits, and does your fix close them?"* See the full [related-work and attribution](docs/related-work.md).
 
 ## Contributing
 

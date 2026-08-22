@@ -64,8 +64,8 @@ expected result, letting it assert precise interleaving behavior.
   own test suite and into your application's hot spots.
 - **How weavegate differs:** the isolation tester validates PostgreSQL's own
   behavior against golden output. weavegate has no golden output for your
-  workflow — it derives correctness from your SQL oracles, a clean-run
-  differential, and schema constraints.
+  workflow — it derives correctness from your SQL assertion oracles and retains
+  the supporting execution trace.
 
 ### Lincheck
 
