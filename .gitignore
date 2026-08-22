@@ -7,3 +7,7 @@ _workbench/*
 
 # Local baseline experiment output
 baseline*.log
+
+# Checkout-local CLI and default run output
+/weavegate
+/.weavegate/
