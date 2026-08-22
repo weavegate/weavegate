@@ -31,11 +31,11 @@ jobs:
         run: |
           version="${RELEASE_VERSION#v}"
           awk -v version="$version" '
-            $0 ~ "^## \\[" version "\\]" { capture = 1; next }
-            capture && /^## \[/ { exit }
+            index($0, "## [" version "]") == 1 { capture = 1; next }
+            capture && index($0, "## [") == 1 { exit }
             capture { print }
           ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
-          test -s "$RUNNER_TEMP/release-notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"
 
       - name: Publish release artifacts
         uses: goreleaser/goreleaser-action@v6
