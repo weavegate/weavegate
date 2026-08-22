@@ -8,9 +8,9 @@ Your integration tests hit this bug by luck. **weavegate** hits it every time �
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![db](https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey)
 
-> ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands work
-> now when built from a source checkout. There is no tagged release yet, and
-> interfaces may change before `v0.1.0-alpha`.
+> ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands can be
+> run from a source checkout or a release archive that includes the reference
+> fixture data. Interfaces may change throughout the pre-1.0 series.
 
 ## Prerequisites
 

@@ -189,10 +189,12 @@ decision requires a human to inspect the complete behavior.
 5. Replace the `YYYY-MM-DD` placeholder in the matching
    [`CHANGELOG.md`](CHANGELOG.md) release heading with the actual tag date, then
    verify that the section contains only changes already merged into the tag.
-6. Confirm that the release workflow will use that CHANGELOG section as its
+6. Read the README as it will appear in the tagged archive and confirm that
+   every release-status statement remains true after the tag is published.
+7. Confirm that the release workflow will use that CHANGELOG section as its
    release notes, then create the tag manually. Do not tag if any earlier item
    is incomplete.
-7. After the tag and release artifacts exist, add the release badge and
+8. After the tag and release artifacts exist, add the release badge and
    CHANGELOG link to the README. Never advertise a release that has not been
    published.
 
