@@ -45,8 +45,8 @@ of the same config: `manifest.json` (run ID, start time) and `report.json`
 (a merge of manifest, scenario, and observation, so it inherits manifest's
 volatile fields). The remaining five files, including `schedule.json` when a
 schedule is present, are **byte-identical** for two runs given the same config
-content and the same CLI flags. Two identical
-runs with different volatile fields but identical deterministic files is the
+content and the same CLI flags. Two identical runs with different volatile
+fields but identical deterministic files is the
 expected, correct outcome — see
 [docs/adr/0005-volatile-run-metadata-boundary.md](../adr/0005-volatile-run-metadata-boundary.md)
 for why the boundary sits here rather than, say, keeping every file
@@ -261,9 +261,12 @@ produce byte-identical `report.md`), so pasting the replay line uses `--out`'s
 default (or whatever `--out` the paste is run with) rather than the value the
 original run happened to use. A reader replaying from the same directory as
 the original run — the common case — still finds the schedule through stage
-① of `--replay` resolution (see [cli.md](cli.md#--replay-resolution-order));
-replaying from a different `--out` falls back to stage ②, which only
-resolves schedules the entrypoint has registered.
+① of `--replay` resolution. A reader without the original run directory can
+place its `schedule.json` in `.weavegate/schedules/` and paste the same line
+unchanged. When replay uses a different `--out`, lookup examines that output's
+`runs/` and `schedules/` before falling back to schedules embedded in the
+entrypoint. See [cli.md](cli.md#--replay-resolution-order) for the canonical
+resolution order.
 
 ## File and directory modes
 
@@ -273,4 +276,4 @@ not widen the resulting permissions afterward. Writing uses a same-filesystem
 temporary directory under `<out>/runs/` and an atomic rename, so a partial
 failure during writing never leaves a half-written run directory behind. A
 pre-existing destination run directory is an output error and is preserved;
-on success, all six files appear together.
+on success, every artifact written for the run appears together.

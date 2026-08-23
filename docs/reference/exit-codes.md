@@ -81,11 +81,12 @@ Concretely:
 - Verdict was 0 (PASS): the code becomes 4.
 
 The scenario's own outcome — the verdict itself, and everything in
-`scenario.json`/`observation.json`/`trace.json`/`report.md` — is decided
-before teardown runs and is never changed by a cleanup failure: whether
-teardown happens to succeed is a fact about this run's environment, not
-about the scenario, and those four files stay byte-identical for identical
-config regardless of it (see
+`scenario.json`/`observation.json`/`trace.json`/`report.md`, plus
+`schedule.json` when present — is decided before teardown runs and is never
+changed by a cleanup failure: whether teardown happens to succeed is a fact
+about this run's environment, not about the scenario, and those five
+deterministic files stay byte-identical for identical config regardless of it
+(see
 [report-schema.md](report-schema.md#volatile-vs-deterministic)). Teardown
 itself runs, and the exit code above is decided, before the report is
 written and printed — not only in a deferred cleanup step afterward — so
@@ -122,7 +123,8 @@ syntax:
 - a malformed or duplicate assertion
 - an unresolvable or ambiguous `--replay` schedule ID (see [cli.md](cli.md))
 - a run-directory write failure — permission, disk, or rename — writing the
-  six run artifacts (see [report-schema.md](report-schema.md))
+  six base artifacts and the schedule artifact when present (see
+  [report-schema.md](report-schema.md))
 - an existing destination run directory or a short stdout write from `run`
   or `report`
 

@@ -24,9 +24,10 @@ document is rejected rather than silently ignored.
 | `run.explore_passes` | int | no | `3` | How many full candidate sweeps explore mode runs before declaring PASS. See [exit-codes.md](exit-codes.md) for what a PASS across N passes actually claims. |
 
 `report:` is not a supported section yet — it is reserved for a future
-PR-comment feature. This CLI's artifact contract is fixed (six files, always
-written — see [report-schema.md](report-schema.md)), so a `report:` key is
-rejected the same way any other unknown key is.
+PR-comment feature. Strict decoding therefore rejects a `report:` key the same
+way it rejects any other unknown key, independently of the artifact count. Run
+directories contain six base artifacts and a seventh `schedule.json` when a
+schedule is present (see [report-schema.md](report-schema.md)).
 
 Diagnostic codes are not declared by configuration. Weavegate derives them
 from the Oracle kind or engine signal that produced the verdict and loads their

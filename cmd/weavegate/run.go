@@ -498,8 +498,8 @@ func effectiveTimeouts(cfg config.Config, resolved Resolved) report.Timeouts {
 // value here would make report.md vary with where a run happened to write
 // its evidence rather than with what was actually run. Pasting the line from
 // the same directory uses the default --out: stage ① finds evidence written
-// there, while a different or non-default output relies on the entrypoint's
-// embedded stage ② schedule; see cli.md for the two-stage resolution order.
+// there; see cli.md for the complete three-stage resolution order used for
+// other locations.
 func buildReplayCommand(flags runFlags, variant string, repeat int, schedule *scenario.Schedule) string {
 	if schedule == nil {
 		return ""
