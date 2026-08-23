@@ -1,7 +1,8 @@
-// Package report writes the six run directory artifacts a weavegate run
-// leaves behind, and renders the human-readable summary. Two files are
-// volatile per run (manifest.json, report.json); the remaining four are
-// deterministic — the same inputs produce byte-identical output. See
+// Package report writes the six or seven run directory artifacts a weavegate
+// run leaves behind, and renders the human-readable summary. Two files are
+// volatile per run (manifest.json, report.json); the remaining five are
+// deterministic when a schedule is present — the same inputs produce
+// byte-identical output. See
 // docs/adr/0005-volatile-run-metadata-boundary.md.
 package report
 

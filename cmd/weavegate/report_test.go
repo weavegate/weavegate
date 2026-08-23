@@ -25,7 +25,7 @@ func (shortWriter) Write(content []byte) (int, error) {
 func sampleReportRunAt(t *testing.T, runID string, startedAt time.Time) report.Run {
 	t.Helper()
 
-	schedule := report.Schedule{ID: "sch_sample00000", Steps: []report.CoordinationStep{{Worker: "w1", Point: "p1"}}}
+	schedule := report.Schedule{ID: "sch_303f1b7b6aab", Steps: []report.CoordinationStep{{Worker: "w1", Point: "p1"}}}
 	return report.Run{
 		Manifest: report.Manifest{
 			RunID:            runID,

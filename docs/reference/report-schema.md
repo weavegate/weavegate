@@ -1,7 +1,9 @@
 # Report schema reference
 
-Every `weavegate run` — pass or violation — writes six files to
-`<out>/runs/<run_id>/`:
+Every `weavegate run` — pass or violation — writes six base files to
+`<out>/runs/<run_id>/`. A run that discovered or replayed a schedule writes a
+seventh file, `schedule.json`; an exhausted exploration with no selected
+schedule omits it.
 
 ```text
 <out>/runs/<run_id>/
@@ -10,14 +12,17 @@ Every `weavegate run` — pass or violation — writes six files to
 ├── observation.json    (deterministic)
 ├── trace.json          (deterministic)
 ├── report.json         (volatile)
-└── report.md           (deterministic)
+├── report.md           (deterministic)
+└── schedule.json       (deterministic; present only when scheduled)
 ```
 
-Every JSON document written by the current CLI carries
-`"artifact_version": 2`. The database schema identity remains the separate
+Every run-scoped JSON document written by the current CLI carries
+`"artifact_version": 2`. The portable `schedule.json` instead uses the
+standalone schedule contract accepted by `--replay`, with only `id` and
+`steps`. The database schema identity remains the separate
 `manifest.schema_version` field. Replay lookup reads both the v2 neutral
 `schedule` field and the legacy v1 `violating_schedule` field; newly written
-artifacts are always v2.
+run-scoped artifacts are always v2.
 
 ## Artifact version policy
 
@@ -38,8 +43,9 @@ rule above. The legacy v1 `violating_schedule` reader remains supported.
 Two files carry per-run identity and are expected to differ between two runs
 of the same config: `manifest.json` (run ID, start time) and `report.json`
 (a merge of manifest, scenario, and observation, so it inherits manifest's
-volatile fields). The remaining four files are **byte-identical** for two
-runs given the same config content and the same CLI flags. Two identical
+volatile fields). The remaining five files, including `schedule.json` when a
+schedule is present, are **byte-identical** for two runs given the same config
+content and the same CLI flags. Two identical
 runs with different volatile fields but identical deterministic files is the
 expected, correct outcome — see
 [docs/adr/0005-volatile-run-metadata-boundary.md](../adr/0005-volatile-run-metadata-boundary.md)
@@ -98,6 +104,14 @@ field names or casing:
   }
 }
 ```
+
+## `schedule.json`
+
+When `scenario.json` has a `schedule`, the run directory also contains that
+schedule in the canonical standalone `{"id","steps"}` format accepted by
+`weavegate run --replay <path>`. Its content-derived ID is verified while the
+file is written. The file can therefore be copied on its own without carrying
+the run-scoped `artifact_version` or the rest of `scenario.json`.
 
 ## `observation.json`
 

@@ -3,12 +3,22 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/weavegate/weavegate/internal/ci"
 	"github.com/weavegate/weavegate/internal/scenario"
 )
+
+type unreadableSchedulesFS struct{}
+
+func (unreadableSchedulesFS) Open(string) (fs.File, error) {
+	return nil, errors.New("embedded schedules must not be read")
+}
 
 func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	configPath := filepath.Join(repoRoot(t), "fixtures", "matching-slice", ".weavegate", "config.yaml")
@@ -40,6 +50,52 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	if resolved.ID != saved.ID {
 		t.Fatalf("literal output schedule ID = %q, want %q", resolved.ID, saved.ID)
 	}
+	malformedSchedulesDir := filepath.Join(literalOut, "schedules")
+	if err := os.MkdirAll(malformedSchedulesDir, 0o755); err != nil {
+		t.Fatalf("create later-stage schedules directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(malformedSchedulesDir, "malformed.json"), []byte("{"), 0o644); err != nil {
+		t.Fatalf("write malformed later-stage schedule: %v", err)
+	}
+	resolved, err = resolveReplaySchedule(saved.ID, literalOut, unreadableSchedulesFS{})
+	if err != nil || resolved.ID != saved.ID {
+		t.Fatalf("run evidence did not take priority = %q, %v", resolved.ID, err)
+	}
+
+	portableOut := t.TempDir()
+	portableDir := filepath.Join(portableOut, "schedules")
+	if err := os.MkdirAll(portableDir, 0o755); err != nil {
+		t.Fatalf("create portable schedules directory: %v", err)
+	}
+	if err := scenario.WriteScheduleFile(filepath.Join(portableDir, "schedule.json"), saved); err != nil {
+		t.Fatalf("write portable schedule: %v", err)
+	}
+	resolved, err = resolveReplaySchedule(saved.ID, portableOut, unreadableSchedulesFS{})
+	if err != nil || resolved.ID != saved.ID {
+		t.Fatalf("resolve portable schedule before embedded = %q, %v", resolved.ID, err)
+	}
+
+	malformedOut := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(malformedOut, "schedules"), 0o755); err != nil {
+		t.Fatalf("create malformed schedules directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(malformedOut, "schedules", "bad.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write malformed schedule: %v", err)
+	}
+	if _, err := resolveReplaySchedule(saved.ID, malformedOut, nil); err == nil || ci.ExitCode(err, ci.Verdict{}) != ci.ExitInput {
+		t.Fatalf("malformed schedules file error = %v, want input error", err)
+	}
+
+	unresolvedOut := t.TempDir()
+	_, err = resolveReplaySchedule("sch_000000000000", unresolvedOut, nil)
+	if err == nil {
+		t.Fatal("resolve missing schedule: want error")
+	}
+	for _, location := range []string{unresolvedOut, filepath.Join(unresolvedOut, "schedules"), "embedded schedules"} {
+		if !strings.Contains(err.Error(), location) {
+			t.Fatalf("unresolved error %q does not name %q", err, location)
+		}
+	}
 
 	pathWithoutExtension := filepath.Join(t.TempDir(), "custom-schedule")
 	var encoded bytes.Buffer
@@ -54,7 +110,7 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 		t.Fatalf("resolve extensionless schedule = %q, %v", resolved.ID, err)
 	}
 
-	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true outside_repo=true literal_out=true id_grammar=strict reader=v1+v2")
+	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
 }
 
 func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {

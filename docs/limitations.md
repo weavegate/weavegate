@@ -16,6 +16,20 @@ The baseline comparison likewise limits its result to reproducibility rather
 than claiming a general detection-rate advantage; see its
 [Evidence boundary](experiments/baseline-comparison.md#evidence-boundary).
 
+## Replay IDs do not carry schedule content
+
+A schedule ID identifies canonical coordination steps; it is not a network
+locator and does not transfer those steps to another machine. A replay command
+is portable only when its schedule content moves with it. Copy the producing
+run's `schedule.json` into the reader's `.weavegate/schedules/` directory, then
+paste the `replay:` line unchanged. Moving the ID alone leaves replay
+unresolved and exits 5.
+
+The complete lookup order and strict file contract are documented under
+[`--replay` resolution order](reference/cli.md#--replay-resolution-order), and
+the emitted portable file is documented in the
+[report schema reference](reference/report-schema.md#schedulejson).
+
 ## The CLI runs built-in entrypoints only
 
 The current CLI does not load an arbitrary application workflow or external
