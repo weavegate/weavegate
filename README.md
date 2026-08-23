@@ -45,6 +45,8 @@ The archive contains the quick-start fixture. Full documentation and the
 sources for relative references remain in the
 [weavegate repository](https://github.com/weavegate/weavegate).
 
+### Run the CLI
+
 The vulnerable variant intentionally ends with exit 2 because the SQL assertion
 finds and reproduces the invariant violation.
 
