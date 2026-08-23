@@ -99,6 +99,15 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	if err != nil || resolved.ID != saved.ID {
 		t.Fatalf("staging-only evidence did not fall through = %q, %v", resolved.ID, err)
 	}
+	stagingUnresolvedOut := t.TempDir()
+	stagingUnresolvedRunDir := filepath.Join(stagingUnresolvedOut, "runs", ".tmp-"+runID)
+	if err := os.MkdirAll(stagingUnresolvedRunDir, 0o755); err != nil {
+		t.Fatalf("create unresolved staging-only output run: %v", err)
+	}
+	writeV2ScenarioDoc(t, filepath.Join(stagingUnresolvedRunDir, "scenario.json"), saved)
+	if _, err := resolveReplaySchedule(saved.ID, stagingUnresolvedOut, nil); err == nil || ci.ExitCode(err, ci.Verdict{}) != ci.ExitInput {
+		t.Fatalf("staging-only schedule error = %v, want unresolved input error", err)
+	}
 	unverifiedOut := t.TempDir()
 	unverifiedRunDir := filepath.Join(unverifiedOut, "runs", runID)
 	if err := os.MkdirAll(unverifiedRunDir, 0o755); err != nil {
