@@ -262,7 +262,7 @@ default (or whatever `--out` the paste is run with) rather than the value the
 original run happened to use. A reader replaying from the same directory as
 the original run — the common case — still finds the schedule through stage
 ① of `--replay` resolution. A reader without the original run directory can
-place its `schedule.json` under `<out>/schedules/` and paste the same line
+place its `schedule.json` in `.weavegate/schedules/` and paste the same line
 unchanged. When replay uses a different `--out`, lookup examines that output's
 `runs/` and `schedules/` before falling back to schedules embedded in the
 entrypoint. See [cli.md](cli.md#--replay-resolution-order) for the canonical
