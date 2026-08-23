@@ -21,6 +21,10 @@ immediately before tagging `v0.1.0-alpha`.
 - Exhaustive saved-schedule exploration and repeated replay.
 - SQL assertion oracles that retain violating rows as evidence.
 - `weavegate run` and `weavegate report` CLI commands.
-- Six run artifacts: manifest, scenario, observation, trace, JSON report, and
-  Markdown report.
+- Six base run artifacts: manifest, scenario, observation, trace, JSON report,
+  and Markdown report, plus a portable `schedule.json` when a run executes a
+  saved or explored schedule.
+- Three-step replay lookup across saved run evidence, portable files under
+  `<out>/schedules/`, and schedules built into the selected entrypoint, so an
+  unchanged replay line can travel without its original run directory.
 - `RG001` assertion-violation and `RG090` determinism diagnostics.
