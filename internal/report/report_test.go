@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/ci"
+	"github.com/weavegate/weavegate/internal/scenario"
 )
 
 func sampleSchedule(t *testing.T) Schedule {
 	t.Helper()
 
 	return Schedule{
-		ID: "sch_sample00000",
+		ID: "sch_fbf6b1dfaae2",
 		Steps: []CoordinationStep{
 			{Worker: "w1", Point: "after_read_request"},
 			{Worker: "w2", Point: "after_read_request"},
@@ -104,8 +105,8 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read run directory: %v", err)
 	}
-	if len(entries) != 6 {
-		t.Fatalf("run directory has %d entries, want 6", len(entries))
+	if len(entries) != 7 {
+		t.Fatalf("run directory has %d entries, want 7", len(entries))
 	}
 
 	info, err := os.Stat(dir)
@@ -148,6 +149,13 @@ func TestWriteRunArtifacts(t *testing.T) {
 	scenarioContent := string(mustRead(t, filepath.Join(dir, ScenarioFile)))
 	if strings.Contains(scenarioContent, "violating_schedule") || !strings.Contains(scenarioContent, `"schedule"`) {
 		t.Fatalf("scenario.json is not v2 neutral schedule output: %s", scenarioContent)
+	}
+	loadedSchedule, err := scenario.LoadScheduleFile(filepath.Join(dir, ScheduleFile))
+	if err != nil {
+		t.Fatalf("load portable schedule: %v", err)
+	}
+	if loadedSchedule.ID != run.Scenario.Schedule.ID {
+		t.Fatalf("portable schedule ID = %q, want %q", loadedSchedule.ID, run.Scenario.Schedule.ID)
 	}
 
 	var traceDoc map[string]json.RawMessage
@@ -194,7 +202,25 @@ func TestWriteRunArtifacts(t *testing.T) {
 		t.Fatalf("observation.json with empty slice encodes null: %s", emptyObservationContent)
 	}
 
-	t.Log("REPORT_DIAGNOSTIC_RESULT field=observation.diagnostics files=6 empty=json_array dto=report_owned merged=report_json deterministic=true")
+	withoutSchedule := sampleRun(t, "run_20260816T120002.000Z_eeeeeeee")
+	withoutSchedule.Scenario.Schedule = nil
+	withoutSchedule.Trace.ScheduleRef = ""
+	withoutScheduleDir, err := WriteRun(base, withoutSchedule)
+	if err != nil {
+		t.Fatalf("write run without schedule: %v", err)
+	}
+	withoutScheduleEntries, err := os.ReadDir(withoutScheduleDir)
+	if err != nil {
+		t.Fatalf("read run without schedule: %v", err)
+	}
+	if len(withoutScheduleEntries) != 6 {
+		t.Fatalf("run without schedule has %d entries, want 6", len(withoutScheduleEntries))
+	}
+	if _, err := os.Stat(filepath.Join(withoutScheduleDir, ScheduleFile)); !os.IsNotExist(err) {
+		t.Fatalf("run without schedule has schedule.json: %v", err)
+	}
+
+	t.Log("REPORT_DIAGNOSTIC_RESULT field=observation.diagnostics files=6_or_7 empty=json_array dto=report_owned merged=report_json deterministic=true")
 
 	replayLine := extractReplayLine(t, filepath.Join(dir, MarkdownFile))
 	if !strings.HasPrefix(replayLine, "weavegate run ") || !strings.Contains(replayLine, run.Scenario.Schedule.ID) || strings.Contains(replayLine, "--out") {
@@ -204,11 +230,10 @@ func TestWriteRunArtifacts(t *testing.T) {
 	rerunIdentical := testRerunIdentical(t, base)
 
 	t.Logf(
-		"RUN_ARTIFACT_RESULT files=%d umask=0077 dir_mode=0%o file_mode=0%o key_order=canonical "+
+		"RUN_ARTIFACT_RESULT files=6_or_7 schedule_file=present_when_scheduled umask=0077 dir_mode=0%o file_mode=0%o key_order=canonical "+
 			"empty_slice=json_array trailing_newline=true volatile_files=manifest+report_json "+
 			"deterministic_files=%d rerun_identical=%s replay_line=out_omitted shell_quote=posix config_path=as_given "+
 			"tmp_same_filesystem=true partial_write=cleaned write_failure=output_error",
-		len(entries),
 		expectedDirMode,
 		expectedFileMode,
 		len(DeterministicFiles),
@@ -274,17 +299,17 @@ func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {
 		t.Fatalf("flaky replay lost violating label: %s", flakyMarkdown)
 	}
 
-	t.Log("ARTIFACT_V2_RESULT files=6 writer=v2 schedule=neutral mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
+	t.Log("ARTIFACT_V2_RESULT files=6_or_7 writer=v2 schedule=neutral schedule_file=canonical mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
 }
 
 func TestRenderMarkdownDiagnostics(t *testing.T) {
 	run := sampleRun(t, "run_20260816T120004.000Z_ffffffff")
 	without := renderMarkdown(run)
 	wantWithout := "## weavegate: FAIL\n" +
-		"scenario: concurrent-assign | schedules explored: 2 | violating: sch_sample00000\n" +
+		"scenario: concurrent-assign | schedules explored: 2 | violating: sch_fbf6b1dfaae2\n" +
 		"assertion: active-assignment-is-unique\n" +
 		"flaky: false (repeat=20)\n" +
-		"replay: weavegate run --config .weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_sample00000 --repeat 20\n"
+		"replay: weavegate run --config .weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_fbf6b1dfaae2 --repeat 20\n"
 	if without != wantWithout {
 		t.Fatalf("no-diagnostic markdown changed:\n%s", without)
 	}
@@ -297,7 +322,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 			Reason:    "commonly a read-then-write path without a lock or a unique constraint",
 			Help:      []string{"add a unique constraint", "take a pessimistic lock"},
 			Evidence: DiagnosticEvidence{
-				ScheduleRef: "sch_sample00000", Rows: 1,
+				ScheduleRef: "sch_fbf6b1dfaae2", Rows: 1,
 				EvidenceSets: 2, Trace: "trace.json", Observation: "observation.json",
 			},
 		},
@@ -315,7 +340,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
 		"  assertion: active-assignment-is-unique",
 		"  help:      add a unique constraint\n             take a pessimistic lock",
-		"  evidence:  schedule sch_sample00000 · trace.json · observation.json · 1 violating row · 2 evidence sets in observation.json",
+		"  evidence:  schedule sch_fbf6b1dfaae2 · trace.json · observation.json · 1 violating row · 2 evidence sets in observation.json",
 		"error[RG090]: determinism check failed",
 	} {
 		if !strings.Contains(markdown, want) {
@@ -382,7 +407,7 @@ func testRerunIdentical(t *testing.T, base string) string {
 		}
 	}
 
-	return "4_of_6"
+	return "5_of_7"
 }
 
 func TestWriteRunPartialFailureLeavesNoDirectory(t *testing.T) {

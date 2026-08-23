@@ -258,8 +258,8 @@ func TestRun(t *testing.T) {
 		}
 		dir := latestRunDir(t, vulnerableOutDir)
 		entries := listRunFiles(t, dir)
-		if len(entries) != 6 {
-			t.Fatalf("run directory has %d files, want 6", len(entries))
+		if len(entries) != 7 {
+			t.Fatalf("run directory has %d files, want 7", len(entries))
 		}
 		obs := readObservation(t, dir)
 		if obs.Repeat != 20 || obs.ViolationRuns != 20 || obs.Flaky {
