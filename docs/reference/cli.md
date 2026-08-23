@@ -55,6 +55,18 @@ resolved in this order:
 3. The selected entrypoint's registered schedules, embedded in the binary at
    build time. This fallback therefore works outside a source checkout.
 
+Each stage applies its own evidence rule:
+
+| Stage | Candidate rule | Invalid evidence |
+| --- | --- | --- |
+| ① Saved run | Only directories whose names match the opaque run-ID grammar count as published run evidence. The run-scoped `scenario.json` reader remains tolerant of its other fields and accepts both the v2 `schedule` field and the legacy v1 `violating_schedule` field, but the stored steps must hash to the claimed schedule ID. | Temporary or staging directories, malformed run IDs, unreadable entries, and entries that do not prove their content ID are ignored; resolution continues to the next stage. |
+| ② Portable file | Every `.json` file is decoded strictly and must prove its content-derived ID. | A malformed or unverified file is an input error (exit 5), not an entry to ignore. |
+| ③ Embedded schedule | Every registered schedule is decoded strictly and must prove its content-derived ID. | Malformed or unverified registered content is an input error (exit 5). |
+
+This asymmetry is deliberate: damage to one tool-written run must not block
+every replay under that output directory, while a file placed by a person in
+`<out>/schedules/` must not be silently ignored.
+
 Resolution stops at the first stage that finds at least one match. If more
 than one candidate shares the ID, their saved steps must be identical;
 otherwise the ID is rejected as ambiguous (exit 5) rather than guessed at.
