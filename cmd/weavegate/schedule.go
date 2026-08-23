@@ -121,6 +121,10 @@ func findSavedSchedulesByID(outDir, id string) ([]scenario.Schedule, error) {
 		if err != nil || schedule == nil {
 			continue
 		}
+		contentID, err := scenario.ContentID(schedule.Steps)
+		if err != nil || contentID != schedule.ID {
+			continue
+		}
 		if schedule.ID == id {
 			matches = append(matches, *schedule)
 		}
