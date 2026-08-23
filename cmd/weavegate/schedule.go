@@ -109,7 +109,7 @@ func findSavedSchedulesByID(outDir, id string) ([]scenario.Schedule, error) {
 
 	var matches []scenario.Schedule
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || !validRunID(entry.Name()) {
 			continue
 		}
 		path := filepath.Join(runsDir, entry.Name(), "scenario.json")
@@ -119,6 +119,10 @@ func findSavedSchedulesByID(outDir, id string) ([]scenario.Schedule, error) {
 		}
 		schedule, err := extractRunDirectorySchedule(content)
 		if err != nil || schedule == nil {
+			continue
+		}
+		contentID, err := scenario.ContentID(schedule.Steps)
+		if err != nil || contentID != schedule.ID {
 			continue
 		}
 		if schedule.ID == id {

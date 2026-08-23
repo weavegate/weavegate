@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,18 +38,35 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	}
 
 	literalOut := filepath.Join(t.TempDir(), "out[abc]*?")
-	runDir := filepath.Join(literalOut, "runs", "run_saved")
+	runID := "run_20260823T000000.000000001Z_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runDir := filepath.Join(literalOut, "runs", runID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		t.Fatalf("create literal output run: %v", err)
 	}
 	saved := plan.ReplaySchedule.Clone()
 	writeV2ScenarioDoc(t, filepath.Join(runDir, "scenario.json"), saved)
+	stagingDir := filepath.Join(literalOut, "runs", ".tmp-"+runID)
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatalf("create staging output run: %v", err)
+	}
+	stagingSchedule := saved.Clone()
+	stagingSchedule.Steps = append(stagingSchedule.Steps,
+		scenario.CoordinationStep{Worker: "staging", Point: "must-be-ignored"})
+	writeV2ScenarioDoc(t, filepath.Join(stagingDir, "scenario.json"), stagingSchedule)
+	tamperedRunDir := filepath.Join(literalOut, "runs", "run_20260823T000000.000000001Z_cccccccccccccccccccccccccccccccc")
+	if err := os.MkdirAll(tamperedRunDir, 0o755); err != nil {
+		t.Fatalf("create tampered output run: %v", err)
+	}
+	tamperedSchedule := saved.Clone()
+	tamperedSchedule.Steps = append(tamperedSchedule.Steps,
+		scenario.CoordinationStep{Worker: "tampered", Point: "must-not-be-returned"})
+	writeV2ScenarioDoc(t, filepath.Join(tamperedRunDir, "scenario.json"), tamperedSchedule)
 	resolved, err := resolveReplaySchedule(saved.ID, literalOut, nil)
 	if err != nil {
 		t.Fatalf("resolve saved schedule under literal output path: %v", err)
 	}
-	if resolved.ID != saved.ID {
-		t.Fatalf("literal output schedule ID = %q, want %q", resolved.ID, saved.ID)
+	if resolved.ID != saved.ID || !slices.Equal(resolved.Steps, saved.Steps) || slices.Equal(resolved.Steps, tamperedSchedule.Steps) {
+		t.Fatalf("literal output schedule = %+v, want verified steps %+v", resolved, saved.Steps)
 	}
 	malformedSchedulesDir := filepath.Join(literalOut, "schedules")
 	if err := os.MkdirAll(malformedSchedulesDir, 0o755); err != nil {
@@ -73,6 +91,50 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	resolved, err = resolveReplaySchedule(saved.ID, portableOut, unreadableSchedulesFS{})
 	if err != nil || resolved.ID != saved.ID {
 		t.Fatalf("resolve portable schedule before embedded = %q, %v", resolved.ID, err)
+	}
+	stagingOnlyOut := t.TempDir()
+	stagingOnlyRunDir := filepath.Join(stagingOnlyOut, "runs", ".tmp-"+runID)
+	if err := os.MkdirAll(stagingOnlyRunDir, 0o755); err != nil {
+		t.Fatalf("create staging-only output run: %v", err)
+	}
+	writeV2ScenarioDoc(t, filepath.Join(stagingOnlyRunDir, "scenario.json"), saved)
+	if err := os.MkdirAll(filepath.Join(stagingOnlyOut, "schedules"), 0o755); err != nil {
+		t.Fatalf("create staging-only portable schedules directory: %v", err)
+	}
+	if err := scenario.WriteScheduleFile(filepath.Join(stagingOnlyOut, "schedules", "schedule.json"), saved); err != nil {
+		t.Fatalf("write staging-only portable schedule: %v", err)
+	}
+	resolved, err = resolveReplaySchedule(saved.ID, stagingOnlyOut, unreadableSchedulesFS{})
+	if err != nil || resolved.ID != saved.ID {
+		t.Fatalf("staging-only evidence did not fall through = %q, %v", resolved.ID, err)
+	}
+	stagingUnresolvedOut := t.TempDir()
+	stagingUnresolvedRunDir := filepath.Join(stagingUnresolvedOut, "runs", ".tmp-"+runID)
+	if err := os.MkdirAll(stagingUnresolvedRunDir, 0o755); err != nil {
+		t.Fatalf("create unresolved staging-only output run: %v", err)
+	}
+	writeV2ScenarioDoc(t, filepath.Join(stagingUnresolvedRunDir, "scenario.json"), saved)
+	if _, err := resolveReplaySchedule(saved.ID, stagingUnresolvedOut, nil); err == nil || ci.ExitCode(err, ci.Verdict{}) != ci.ExitInput {
+		t.Fatalf("staging-only schedule error = %v, want unresolved input error", err)
+	}
+	unverifiedOut := t.TempDir()
+	unverifiedRunDir := filepath.Join(unverifiedOut, "runs", runID)
+	if err := os.MkdirAll(unverifiedRunDir, 0o755); err != nil {
+		t.Fatalf("create unverified output run: %v", err)
+	}
+	unverifiedSchedule := saved.Clone()
+	unverifiedSchedule.Steps = append(unverifiedSchedule.Steps,
+		scenario.CoordinationStep{Worker: "unverified", Point: "must-fall-through"})
+	writeV2ScenarioDoc(t, filepath.Join(unverifiedRunDir, "scenario.json"), unverifiedSchedule)
+	if err := os.MkdirAll(filepath.Join(unverifiedOut, "schedules"), 0o755); err != nil {
+		t.Fatalf("create verified portable schedules directory: %v", err)
+	}
+	if err := scenario.WriteScheduleFile(filepath.Join(unverifiedOut, "schedules", "schedule.json"), saved); err != nil {
+		t.Fatalf("write verified portable schedule: %v", err)
+	}
+	resolved, err = resolveReplaySchedule(saved.ID, unverifiedOut, unreadableSchedulesFS{})
+	if err != nil || resolved.ID != saved.ID || len(resolved.Steps) != len(saved.Steps) {
+		t.Fatalf("unverified run evidence did not fall through = %+v, %v", resolved, err)
 	}
 
 	malformedOut := t.TempDir()
@@ -110,7 +172,7 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 		t.Fatalf("resolve extensionless schedule = %q, %v", resolved.ID, err)
 	}
 
-	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
+	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
 }
 
 func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
@@ -132,6 +194,19 @@ func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
 			got, err := extractRunDirectorySchedule(content)
 			if err != nil || got == nil || got.ID != scheduleValue.ID {
 				t.Fatalf("extract %s schedule = %+v, %v", name, got, err)
+			}
+
+			outDir := t.TempDir()
+			runDir := filepath.Join(outDir, "runs", "run_20260823T000000.000000001Z_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+			if err := os.MkdirAll(runDir, 0o755); err != nil {
+				t.Fatalf("create %s run directory: %v", name, err)
+			}
+			if err := os.WriteFile(filepath.Join(runDir, "scenario.json"), content, 0o644); err != nil {
+				t.Fatalf("write %s scenario: %v", name, err)
+			}
+			resolved, err := resolveReplaySchedule(scheduleValue.ID, outDir, unreadableSchedulesFS{})
+			if err != nil || resolved.ID != scheduleValue.ID {
+				t.Fatalf("resolve %s run evidence = %+v, %v", name, resolved, err)
 			}
 		})
 	}

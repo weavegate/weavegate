@@ -432,42 +432,31 @@ func TestRun(t *testing.T) {
 		observed["unknown_schedule"] = "5"
 	})
 
-	t.Run("ambiguous_schedule", func(t *testing.T) {
+	t.Run("unverifiable_run_evidence", func(t *testing.T) {
 		// resolveReplaySchedule is a pure filesystem lookup; exercise it
 		// directly rather than through a full Docker-backed run.
 		outDir := t.TempDir()
-		runDirA := filepath.Join(outDir, "runs", "run_a")
-		runDirB := filepath.Join(outDir, "runs", "run_b")
-		if err := os.MkdirAll(runDirA, 0o755); err != nil {
-			t.Fatalf("create run dir A: %v", err)
-		}
-		if err := os.MkdirAll(runDirB, 0o755); err != nil {
-			t.Fatalf("create run dir B: %v", err)
+		runDir := filepath.Join(outDir, "runs", "run_20260823T000000.000000001Z_cccccccccccccccccccccccccccccccc")
+		if err := os.MkdirAll(runDir, 0o755); err != nil {
+			t.Fatalf("create run directory: %v", err)
 		}
 
-		scheduleA, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w1", Point: "p1"}})
+		scheduleValue, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w1", Point: "p1"}})
 		if err != nil {
-			t.Fatalf("build schedule A: %v", err)
+			t.Fatalf("build schedule: %v", err)
 		}
-		scheduleB, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w2", Point: "p2"}})
-		if err != nil {
-			t.Fatalf("build schedule B: %v", err)
-		}
-		// Force the same ID onto conflicting content, simulating tampered
-		// or corrupted saved evidence.
-		scheduleB.ID = scheduleA.ID
+		scheduleValue.Steps = append(scheduleValue.Steps,
+			scenario.CoordinationStep{Worker: "tampered", Point: "unverifiable"})
+		writeScenarioDoc(t, filepath.Join(runDir, "scenario.json"), scheduleValue)
 
-		writeScenarioDoc(t, filepath.Join(runDirA, "scenario.json"), scheduleA)
-		writeScenarioDoc(t, filepath.Join(runDirB, "scenario.json"), scheduleB)
-
-		_, err = resolveReplaySchedule(scheduleA.ID, outDir, nil)
+		_, err = resolveReplaySchedule(scheduleValue.ID, outDir, nil)
 		if err == nil {
-			t.Fatal("resolve ambiguous schedule: want error, got nil")
+			t.Fatal("resolve unverifiable run evidence: want error, got nil")
 		}
 		if got := ci.ExitCode(err, ci.Verdict{}); got != ci.ExitInput {
-			t.Fatalf("ambiguous schedule exit = %d, want %d", got, ci.ExitInput)
+			t.Fatalf("unverifiable run evidence exit = %d, want %d", got, ci.ExitInput)
 		}
-		observed["ambiguous_schedule"] = "5"
+		observed["unverifiable_run_evidence"] = "5"
 	})
 
 	t.Run("missing_fixture_source", func(t *testing.T) {
@@ -559,7 +548,7 @@ func TestRun(t *testing.T) {
 
 	order := []string{
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
-		"ambiguous_schedule", "unwritable_out", "missing_fixture_source",
+		"unverifiable_run_evidence", "unwritable_out", "missing_fixture_source",
 		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay", "stdout_write_failure",
 	}
 	parts := make([]string, 0, len(order))
