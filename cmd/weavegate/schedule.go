@@ -19,8 +19,8 @@ var scheduleIDPattern = regexp.MustCompile(`^sch_[0-9a-f]{12}$`)
 // resolveReplaySchedule interprets a --replay value (A-5). Exactly
 // "sch_" plus 12 lowercase hexadecimal characters is a schedule ID; every
 // other non-empty value is a file path. IDs resolve in order from ① this
-// --out directory's own run evidence, then ② the entrypoint's embedded
-// schedules. Several
+// --out directory's own run evidence, ② portable files under
+// <out>/schedules, then ③ the entrypoint's embedded schedules. Several
 // candidates sharing the ID are accepted only when their steps agree;
 // otherwise the ID is ambiguous and rejected rather than guessed at.
 func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Schedule, error) {
@@ -36,6 +36,12 @@ func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Sche
 	if err != nil {
 		return scenario.Schedule{}, err
 	}
+	if len(candidates) == 0 {
+		candidates, err = findSchedulesDirectoryByID(outDir, value)
+		if err != nil {
+			return scenario.Schedule{}, err
+		}
+	}
 	if len(candidates) == 0 && schedules != nil {
 		candidates, err = findEmbeddedSchedulesByID(schedules, value)
 		if err != nil {
@@ -44,9 +50,10 @@ func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Sche
 	}
 	if len(candidates) == 0 {
 		return scenario.Schedule{}, ci.InputError(fmt.Errorf(
-			"resolve replay schedule %q: not found in %q or %q",
+			"resolve replay schedule %q: not found in %q, %q, or %q",
 			value,
 			outDir,
+			filepath.Join(outDir, "schedules"),
 			"embedded schedules",
 		))
 	}
@@ -61,6 +68,33 @@ func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Sche
 		}
 	}
 	return baseline, nil
+}
+
+func findSchedulesDirectoryByID(outDir, id string) ([]scenario.Schedule, error) {
+	schedulesDir := filepath.Join(outDir, "schedules")
+	entries, err := os.ReadDir(schedulesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, ci.InputError(fmt.Errorf("search portable schedules in %q: %w", schedulesDir, err))
+	}
+
+	var matches []scenario.Schedule
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(schedulesDir, entry.Name())
+		scheduleValue, err := scenario.LoadScheduleFile(path)
+		if err != nil {
+			return nil, ci.InputError(fmt.Errorf("parse portable schedule %q: %w", path, err))
+		}
+		if scheduleValue.ID == id {
+			matches = append(matches, scheduleValue)
+		}
+	}
+	return matches, nil
 }
 
 func findSavedSchedulesByID(outDir, id string) ([]scenario.Schedule, error) {

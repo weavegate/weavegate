@@ -49,15 +49,18 @@ resolved in this order:
 1. `<out>/runs/<run_id>/scenario.json` — the neutral `schedule` field of each
    saved run under `--out`. Legacy v1 `violating_schedule` fields remain
    readable.
-2. The selected entrypoint's registered schedules, embedded in the binary at
+2. `<out>/schedules/*.json` — standalone schedule files in the canonical
+   `{"id","steps"}` format. The filename is not significant; each file's
+   content-derived `id` is verified with strict JSON decoding.
+3. The selected entrypoint's registered schedules, embedded in the binary at
    build time. This fallback therefore works outside a source checkout.
 
 Resolution stops at the first stage that finds at least one match. If more
 than one candidate shares the ID, their saved steps must be identical;
 otherwise the ID is rejected as ambiguous (exit 5) rather than guessed at.
 The `matching-slice` entrypoint registers only `sch_ba00582f9632`, so the
-example's discovered `sch_7dcb74b1e506` resolves only through its saved run
-directory in stage ①.
+example's discovered `sch_7dcb74b1e506` resolves through its saved run
+directory in stage ① or through a copied portable file in stage ②.
 
 ### `run` example
 
@@ -91,9 +94,11 @@ shell minimal quoting, so whitespace, single quotes, and shell
 metacharacters are preserved as argument data rather than interpreted by the
 shell. `--out` is deliberately
 absent from it (see [`--replay` resolution order](#--replay-resolution-order)
-above). The example uses the default `.weavegate` output for both commands;
-replaying with a different `--out` falls back to stage ②, which only resolves
-schedules the entrypoint has registered. See
+above). The example uses the default `.weavegate` output for both commands. A
+reader without the original run directory can place its `schedule.json` in
+`.weavegate/schedules/` and paste the same replay line unchanged. Selecting a
+different `--out` searches that output's own `runs/` and `schedules/` before
+falling back to the entrypoint's embedded schedules. See
 [report-schema.md](report-schema.md) for the full field-by-field contract.
 
 ## `weavegate report`
