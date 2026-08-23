@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,12 +53,20 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	stagingSchedule.Steps = append(stagingSchedule.Steps,
 		scenario.CoordinationStep{Worker: "staging", Point: "must-be-ignored"})
 	writeV2ScenarioDoc(t, filepath.Join(stagingDir, "scenario.json"), stagingSchedule)
+	tamperedRunDir := filepath.Join(literalOut, "runs", "run_20260823T000000.000000001Z_cccccccccccccccccccccccccccccccc")
+	if err := os.MkdirAll(tamperedRunDir, 0o755); err != nil {
+		t.Fatalf("create tampered output run: %v", err)
+	}
+	tamperedSchedule := saved.Clone()
+	tamperedSchedule.Steps = append(tamperedSchedule.Steps,
+		scenario.CoordinationStep{Worker: "tampered", Point: "must-not-be-returned"})
+	writeV2ScenarioDoc(t, filepath.Join(tamperedRunDir, "scenario.json"), tamperedSchedule)
 	resolved, err := resolveReplaySchedule(saved.ID, literalOut, nil)
 	if err != nil {
 		t.Fatalf("resolve saved schedule under literal output path: %v", err)
 	}
-	if resolved.ID != saved.ID {
-		t.Fatalf("literal output schedule ID = %q, want %q", resolved.ID, saved.ID)
+	if resolved.ID != saved.ID || !slices.Equal(resolved.Steps, saved.Steps) || slices.Equal(resolved.Steps, tamperedSchedule.Steps) {
+		t.Fatalf("literal output schedule = %+v, want verified steps %+v", resolved, saved.Steps)
 	}
 	malformedSchedulesDir := filepath.Join(literalOut, "schedules")
 	if err := os.MkdirAll(malformedSchedulesDir, 0o755); err != nil {
