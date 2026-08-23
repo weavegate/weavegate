@@ -173,6 +173,21 @@ jobs:
           grep -Eq 'LOSTUPDATE_RESULT path=vulnerable .* lost=[1-9][0-9]*' lostupdate.log
           grep -Eq 'LOSTUPDATE_RESULT path=fixed .* lost=0( |$)' lostupdate.log
 
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      # The private repository cannot enforce dependency review yet. Remove
+      # continue-on-error after the D-011 public transition.
+      - name: Review dependency changes
+        continue-on-error: true
+        uses: actions/dependency-review-action@v4
+
   docs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest

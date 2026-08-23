@@ -8,18 +8,21 @@ Your integration tests hit this bug by luck. **weavegate** hits it every time �
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![db](https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey)
 
-> ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands work
-> now when built from a source checkout. There is no tagged release yet, and
-> interfaces may change before `v0.1.0-alpha`.
+> ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands can be
+> run from a source checkout or a release archive that includes the reference
+> fixture data. Interfaces may change throughout the pre-1.0 series.
 
 ## Prerequisites
 
-- Go 1.25 or later, as declared in [`go.mod`](go.mod).
 - A running Docker daemon; Testcontainers starts a real MySQL 8.4 container.
+- Go 1.25 or later, as declared in [`go.mod`](go.mod), only when building the
+  CLI from source. Release archives contain a statically built binary.
 - Allow roughly 35 seconds for the
   [documented exploration test](docs/experiments/exploration.md#reproduction)
   on the measured development host; an initial image pull can add time. See
   [Contributing](CONTRIBUTING.md#running-checks) for the build and test commands.
+
+### From source
 
 Build the CLI and put the checkout-local binary on `PATH`:
 
@@ -28,10 +31,26 @@ go build -o weavegate ./cmd/weavegate
 export PATH="$PWD:$PATH"
 ```
 
+### From a release archive
+
+Extract the archive and, from its top-level directory, put the bundled binary
+on `PATH`; the matching-slice config, migration, and seed data are already in
+place:
+
+```bash
+export PATH="$PWD:$PATH"
+```
+
+The archive contains the quick-start fixture. Full documentation and the
+sources for relative references remain in the
+[weavegate repository](https://github.com/weavegate/weavegate).
+
+### Run the CLI
+
 The vulnerable variant intentionally ends with exit 2 because the SQL assertion
 finds and reproduces the invariant violation.
 
-Run the current CLI from a source checkout:
+Run the CLI from either prepared directory:
 
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \

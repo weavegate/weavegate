@@ -1,0 +1,42 @@
+version: 2
+
+project_name: weavegate
+
+builds:
+  - id: weavegate
+    main: ./cmd/weavegate
+    binary: weavegate
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: binaries
+    formats:
+      - tar.gz
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - NOTICE
+      - fixtures/matching-slice/.weavegate/config.yaml
+      - fixtures/matching-slice/db/migration/001_schema.sql
+      - fixtures/matching-slice/db/seed.sql
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  prerelease: auto
