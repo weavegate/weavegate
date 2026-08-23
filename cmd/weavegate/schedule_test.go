@@ -37,12 +37,21 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	}
 
 	literalOut := filepath.Join(t.TempDir(), "out[abc]*?")
-	runDir := filepath.Join(literalOut, "runs", "run_saved")
+	runID := "run_20260823T000000.000000001Z_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runDir := filepath.Join(literalOut, "runs", runID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		t.Fatalf("create literal output run: %v", err)
 	}
 	saved := plan.ReplaySchedule.Clone()
 	writeV2ScenarioDoc(t, filepath.Join(runDir, "scenario.json"), saved)
+	stagingDir := filepath.Join(literalOut, "runs", ".tmp-"+runID)
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatalf("create staging output run: %v", err)
+	}
+	stagingSchedule := saved.Clone()
+	stagingSchedule.Steps = append(stagingSchedule.Steps,
+		scenario.CoordinationStep{Worker: "staging", Point: "must-be-ignored"})
+	writeV2ScenarioDoc(t, filepath.Join(stagingDir, "scenario.json"), stagingSchedule)
 	resolved, err := resolveReplaySchedule(saved.ID, literalOut, nil)
 	if err != nil {
 		t.Fatalf("resolve saved schedule under literal output path: %v", err)
@@ -73,6 +82,22 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 	resolved, err = resolveReplaySchedule(saved.ID, portableOut, unreadableSchedulesFS{})
 	if err != nil || resolved.ID != saved.ID {
 		t.Fatalf("resolve portable schedule before embedded = %q, %v", resolved.ID, err)
+	}
+	stagingOnlyOut := t.TempDir()
+	stagingOnlyRunDir := filepath.Join(stagingOnlyOut, "runs", ".tmp-"+runID)
+	if err := os.MkdirAll(stagingOnlyRunDir, 0o755); err != nil {
+		t.Fatalf("create staging-only output run: %v", err)
+	}
+	writeV2ScenarioDoc(t, filepath.Join(stagingOnlyRunDir, "scenario.json"), saved)
+	if err := os.MkdirAll(filepath.Join(stagingOnlyOut, "schedules"), 0o755); err != nil {
+		t.Fatalf("create staging-only portable schedules directory: %v", err)
+	}
+	if err := scenario.WriteScheduleFile(filepath.Join(stagingOnlyOut, "schedules", "schedule.json"), saved); err != nil {
+		t.Fatalf("write staging-only portable schedule: %v", err)
+	}
+	resolved, err = resolveReplaySchedule(saved.ID, stagingOnlyOut, unreadableSchedulesFS{})
+	if err != nil || resolved.ID != saved.ID {
+		t.Fatalf("staging-only evidence did not fall through = %q, %v", resolved.ID, err)
 	}
 
 	malformedOut := t.TempDir()
@@ -110,7 +135,7 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 		t.Fatalf("resolve extensionless schedule = %q, %v", resolved.ID, err)
 	}
 
-	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
+	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
 }
 
 func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
