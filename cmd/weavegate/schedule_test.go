@@ -154,8 +154,7 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 		t.Fatalf("resolve extensionless schedule = %q, %v", resolved.ID, err)
 	}
 
-	t.Log(`CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2
-`)
+	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
 }
 
 func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
