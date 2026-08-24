@@ -10,9 +10,14 @@ oracles alone decide whether the resulting state is acceptable.
  config + scenario + schedule
               |
               v
-     +------------------+       provision/reset       +---------+
-     |   orchestrator   | <--------------------------> | fixture |
-     +--------+---------+                              +---------+
+     +------------------+        provision        +---------+
+     | CLI/control layer| -----------------------> | fixture |
+     +--------+---------+                          +----^----+
+              | construct with provisioned DB          |
+              v                                        | reset per schedule
+     +------------------+ ------------------------------+
+     |   orchestrator   |
+     +--------+---------+
               |
        invoke | workers                    application boundary
               v
@@ -44,22 +49,25 @@ oracles alone decide whether the resulting state is acceptable.
         +-------------+
 ```
 
-The fixture package provisions and resets MySQL from an immutable migration
-and seed snapshot. The adapter starts the selected application integration and
-invokes worker commands on dedicated connections. The orchestrator executes a
-validated schedule through the sync-point runtime and waits for every worker's
-terminal state before passing normalized evidence to the oracle set. Diagnostic
-rules classify both oracle violations and engine determinism signals, and the
-report package writes the public artifacts.
+The CLI/control layer asks the fixture package to provision MySQL from an
+immutable migration and seed snapshot, then constructs the orchestrator with
+that database and fixture handle. The orchestrator requests a reset before each
+schedule; it does not provision the fixture. The adapter starts the selected
+application integration and invokes worker commands on dedicated connections.
+The orchestrator executes a validated schedule through the sync-point runtime
+and waits for every worker's terminal state before passing normalized evidence
+to the oracle set. Diagnostic rules classify both oracle violations and engine
+determinism signals, and the report package writes the public artifacts.
 
 ## Boundaries
 
 | Boundary | Owns | Must not own |
 | --- | --- | --- |
 | Fixture | Synthetic schema, seed, reset behavior, scenario data | Engine control flow or verdict logic |
+| CLI/control layer | Config resolution, fixture provisioning and cleanup, dependency composition | Per-schedule coordination or invariant judgment |
 | Adapter | Starting and stopping a SUT; asynchronous worker invocation | Schedule policy or invariant judgment |
 | Sync-point runtime | Named arrival, targeted release, and worker lifecycle state | Database assertions |
-| Orchestrator | Exploration/replay execution, deadlines, normalized trace and terminal collection | Fixture-specific business rules or verdicts |
+| Orchestrator | Exploration/replay execution, per-run fixture reset, deadlines, normalized trace and terminal collection | Fixture provisioning, fixture-specific business rules, or verdicts |
 | Oracle | Post-run invariant evaluation and deterministic evidence rows | Worker release order or fixture provisioning |
 | Diagnostic rules | Stable code, explanation, and help text for oracle-violation and engine-signal triggers | Discovering violations or computing determinism |
 | Report | Conversion to the documented artifact schema and Markdown rendering | Re-evaluating the run |
