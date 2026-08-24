@@ -37,8 +37,10 @@ The declaration is observable in `observation.json.oracles`, and failures in
 A **replay** runs one saved schedule directly instead of enumerating candidates,
 then repeats it to test whether the outcome is stable. It does not rediscover
 the schedule. Replay is observable as `observation.json.mode` equal to
-`"replay"`, `schedules_explored` equal to `0`, and a `replayed:` summary in
-`report.md`; see [mode selection](reference/cli.md#mode-selection).
+`"replay"` and `schedules_explored` equal to `0`. In `report.md`, only a
+passing, non-flaky replay labels its schedule `replayed:`; a replay that
+reproduces a violation or is flaky uses `violating:`. See
+[mode selection](reference/cli.md#mode-selection).
 
 ## Fingerprint
 
