@@ -6,47 +6,24 @@ oracles alone decide whether the resulting state is acceptable.
 
 ## Execution flow
 
-```text
- config + scenario + schedule
-              |
-              v
-     +------------------+        provision        +---------+
-     | CLI/control layer| -----------------------> | fixture |
-     +--------+---------+                          +----^----+
-              | construct with provisioned DB          |
-              v                                        | reset per schedule
-     +------------------+ ------------------------------+
-     |   orchestrator   |
-     +--------+---------+
-              |
-       invoke | workers                    application boundary
-              v
-        +-----------+        Arrive         +-------------------+
-        |  adapter  | --------------------> | sync-point runtime|
-        +-----+-----+ <-------------------- +---------+---------+
-              |              release                  ^
-              | application commands                  |
-              v                                       |
-        +-----------+                                 |
-        |    SUT    |                 control --------+
-        +-----+-----+
-              |
-       terminal state + normalized trace
-              |
-              +---------------------> +------------------+
-              | engine determinism    | diagnostic rules |
-              | signal from replay    +---------+--------+
-              | fingerprints                    ^
-              v                                 |
-        +-----------+    oracle violations      |
-        |  oracles  | --------------------------+
-        +-----+-----+
-              |
-       oracle results + diagnostics
-              v
-        +-------------+
-        |   reports   |
-        +-------------+
+```mermaid
+flowchart TD
+    Input[config + scenario + schedule] --> CLI[CLI/control layer]
+    CLI -->|provision| Fixture[fixture]
+    CLI -->|construct with provisioned DB| Orchestrator[orchestrator]
+    Orchestrator -->|reset per schedule| Fixture
+    Orchestrator -->|invoke workers| Adapter[adapter]
+    Adapter --> SUT[SUT]
+    SUT -->|Arrive| Runtime[sync-point runtime]
+    Runtime -->|targeted release| SUT
+    SUT -->|terminal results| Orchestrator
+    Orchestrator -->|normalized trace + terminals| Oracle[oracle evaluation]
+    Oracle -->|complete results + trace + terminals| Fingerprint[fingerprint + replay aggregation]
+    Oracle -->|oracle violations| Diagnostics[diagnostic rules]
+    Fingerprint -->|engine determinism signal| Diagnostics
+    Oracle -->|oracle results| Reports[reports]
+    Fingerprint -->|fingerprint counts| Reports
+    Diagnostics -->|diagnostics| Reports
 ```
 
 The CLI/control layer asks the fixture package to provision MySQL from an
@@ -55,9 +32,11 @@ that database and fixture handle. The orchestrator requests a reset before each
 schedule; it does not provision the fixture. The adapter starts the selected
 application integration and invokes worker commands on dedicated connections.
 The orchestrator executes a validated schedule through the sync-point runtime
-and waits for every worker's terminal state before passing normalized evidence
-to the oracle set. Diagnostic rules classify both oracle violations and engine
-determinism signals, and the report package writes the public artifacts.
+and waits for every worker's terminal state before evaluating the oracle set.
+Only then does it fingerprint the complete oracle evaluation together with the
+normalized trace and terminals. Replay aggregates those fingerprints before
+diagnostic rules classify both oracle violations and the resulting engine
+determinism signal. The report package writes the public artifacts.
 
 ## Boundaries
 
