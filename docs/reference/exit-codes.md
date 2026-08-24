@@ -121,7 +121,8 @@ syntax:
 - an invalid or ambiguous `config.yaml` (see [config.md](config.md))
 - an unsupported adapter, entrypoint, or variant
 - a malformed or duplicate assertion
-- an unresolvable or ambiguous `--replay` schedule ID (see [cli.md](cli.md))
+- an unresolvable `--replay` schedule ID, or two different schedules that
+  collide on one content ID (see [cli.md](cli.md))
 - a run-directory write failure — permission, disk, or rename — writing the
   six base artifacts and the schedule artifact when present (see
   [report-schema.md](report-schema.md))

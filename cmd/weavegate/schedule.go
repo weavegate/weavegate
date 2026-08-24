@@ -20,9 +20,8 @@ var scheduleIDPattern = regexp.MustCompile(`^sch_[0-9a-f]{12}$`)
 // "sch_" plus 12 lowercase hexadecimal characters is a schedule ID; every
 // other non-empty value is a file path. IDs resolve in order from ① this
 // --out directory's own run evidence, ② portable files under
-// <out>/schedules, then ③ the entrypoint's embedded schedules. Several
-// candidates sharing the ID are accepted only when their steps agree;
-// otherwise the ID is ambiguous and rejected rather than guessed at.
+// <out>/schedules, then ③ the entrypoint's embedded schedules. Candidate
+// reconciliation is handled by agreeOnSchedule.
 func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Schedule, error) {
 	if !scheduleIDPattern.MatchString(value) {
 		schedule, err := scenario.LoadScheduleFile(value)
@@ -58,12 +57,31 @@ func resolveReplaySchedule(value, outDir string, schedules fs.FS) (scenario.Sche
 		))
 	}
 
+	return agreeOnSchedule(value, candidates)
+}
+
+// agreeOnSchedule rejects candidates that claim one ID but contain different
+// steps. Every lookup stage verifies candidates by ContentID, so disagreement
+// here requires a collision in the 12-hex truncated SHA-256 ID and cannot be
+// produced by filesystem manipulation alone. The guard remains because silently
+// choosing candidates[0] would hide a collision, and it is the final defense if
+// a lookup stage is added or its verification is accidentally removed. See the
+// resolution order in docs/reference/cli.md for the lookup contract.
+func agreeOnSchedule(id string, candidates []scenario.Schedule) (scenario.Schedule, error) {
+	if len(candidates) == 0 {
+		return scenario.Schedule{}, ci.InputError(fmt.Errorf(
+			"resolve replay schedule %q: no candidates to reconcile",
+			id,
+		))
+	}
+
 	baseline := candidates[0]
 	for _, candidate := range candidates[1:] {
 		if !slices.Equal(candidate.Steps, baseline.Steps) {
 			return scenario.Schedule{}, ci.InputError(fmt.Errorf(
-				"resolve replay schedule %q: ambiguous_schedule: conflicting saved content across candidates",
-				value,
+				"resolve replay schedule %q: ambiguous_schedule: content ID collision across %d candidates",
+				id,
+				len(candidates),
 			))
 		}
 	}

@@ -172,7 +172,25 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 		t.Fatalf("resolve extensionless schedule = %q, %v", resolved.ID, err)
 	}
 
-	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true reader=v1+v2")
+	firstCandidate, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w1", Point: "p1"}})
+	if err != nil {
+		t.Fatalf("build first collision candidate: %v", err)
+	}
+	secondCandidate, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w2", Point: "p2"}})
+	if err != nil {
+		t.Fatalf("build second collision candidate: %v", err)
+	}
+	secondCandidate.ID = firstCandidate.ID
+	if _, err := agreeOnSchedule(firstCandidate.ID, []scenario.Schedule{firstCandidate, secondCandidate}); err == nil || ci.ExitCode(err, ci.Verdict{}) != ci.ExitInput {
+		t.Fatalf("content ID collision error = %v, want ambiguous input error", err)
+	}
+	agreeingCandidate := firstCandidate.Clone()
+	resolved, err = agreeOnSchedule(firstCandidate.ID, []scenario.Schedule{firstCandidate, agreeingCandidate})
+	if err != nil || resolved.ID != firstCandidate.ID || !slices.Equal(resolved.Steps, firstCandidate.Steps) {
+		t.Fatalf("agreeing candidates resolved = %+v, %v; want %+v", resolved, err, firstCandidate)
+	}
+
+	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true content_id_collision=ambiguous_exit5 reader=v1+v2")
 }
 
 func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
