@@ -27,16 +27,21 @@ oracles alone decide whether the resulting state is acceptable.
         +-----+-----+
               |
        terminal state + normalized trace
+              |
+              +---------------------> +------------------+
+              | engine determinism    | diagnostic rules |
+              | signal from replay    +---------+--------+
+              | fingerprints                    ^
+              v                                 |
+        +-----------+    oracle violations      |
+        |  oracles  | --------------------------+
+        +-----+-----+
+              |
+       oracle results + diagnostics
               v
-        +-----------+       violations       +------------------+
-        |  oracles  | ---------------------> | diagnostic rules |
-        +-----+-----+                         +--------+---------+
-              |                                       |
-              +---------------+-----------------------+
-                              v
-                       +-------------+
-                       |   reports   |
-                       +-------------+
+        +-------------+
+        |   reports   |
+        +-------------+
 ```
 
 The fixture package provisions and resets MySQL from an immutable migration
@@ -44,7 +49,8 @@ and seed snapshot. The adapter starts the selected application integration and
 invokes worker commands on dedicated connections. The orchestrator executes a
 validated schedule through the sync-point runtime and waits for every worker's
 terminal state before passing normalized evidence to the oracle set. Diagnostic
-rules classify violations, and the report package writes the public artifacts.
+rules classify both oracle violations and engine determinism signals, and the
+report package writes the public artifacts.
 
 ## Boundaries
 
@@ -55,7 +61,7 @@ rules classify violations, and the report package writes the public artifacts.
 | Sync-point runtime | Named arrival, targeted release, and worker lifecycle state | Database assertions |
 | Orchestrator | Exploration/replay execution, deadlines, normalized trace and terminal collection | Fixture-specific business rules or verdicts |
 | Oracle | Post-run invariant evaluation and deterministic evidence rows | Worker release order or fixture provisioning |
-| Diagnostic rules | Stable code, explanation, and help text for a derived violation kind | Discovering violations |
+| Diagnostic rules | Stable code, explanation, and help text for oracle-violation and engine-signal triggers | Discovering violations or computing determinism |
 | Report | Conversion to the documented artifact schema and Markdown rendering | Re-evaluating the run |
 
 The public [report schema](reference/report-schema.md) is owned by the report
