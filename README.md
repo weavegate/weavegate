@@ -38,6 +38,8 @@ on `PATH`; the matching-slice config, migration, and seed data are already in
 place:
 
 ```bash
+tar -xzf weavegate_*.tar.gz
+cd weavegate_*/
 export PATH="$PWD:$PATH"
 ```
 

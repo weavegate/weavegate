@@ -19,6 +19,7 @@ builds:
 
 archives:
   - id: binaries
+    wrap_in_directory: true
     formats:
       - tar.gz
     files:
