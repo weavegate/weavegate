@@ -9,8 +9,10 @@ artifact field; the artifacts are the source of truth after a run completes.
 A **schedule** is a requested sequence of worker arrivals to release, expressed
 as ordered `{worker, point}` steps. It records control intent, not a claim that
 every release was realized or that the schedule violated an invariant. The
-executed schedule is observable as `scenario.json.schedule.steps`, and its
-portable copy is `schedule.json`; see the
+schedule selected by direct replay or discovered during exploration is
+observable as `scenario.json.schedule.steps`, and its portable copy is
+`schedule.json`. An exhausted exploration selects no schedule and omits both;
+see the
 [scenario and schedule fields](reference/report-schema.md#scenariojson).
 
 ## Sync-point
@@ -47,8 +49,9 @@ reproduces a violation or is flaky uses `violating:`. See
 A **fingerprint** identifies one normalized execution outcome: complete oracle
 results, ordered control trace, and normalized worker terminals, excluding
 wall-clock and other volatile values. Counts for each distinct value are
-observable in `observation.json.fingerprints`; exploration also records
-`discovery_fingerprint` for comparison. One key with a count equal to `repeat`
+observable in `observation.json.fingerprints`. An exploration that discovers a
+schedule also records `discovery_fingerprint` for comparison; exhausted
+exploration and direct replay omit it. One key with a count equal to `repeat`
 means the replay outcomes agreed. See the
 [fingerprint fields](reference/report-schema.md#observationjson) and the
 [measured determinism example](experiments/determinism.md#repeated-result).
