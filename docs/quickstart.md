@@ -90,7 +90,7 @@ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
   --replay sch_7dcb74b1e506 --repeat 20
 ```
 
-Captured output:
+Captured output excerpt:
 
 ```text
 ## weavegate: PASS
