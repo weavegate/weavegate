@@ -6,9 +6,13 @@ repository contains an executable test and observable result for that stage.
 
 ## Coverage status
 
-| Fixture | Anomaly | Fixture state | Controlled execution | Oracle | Fix evidence |
-| --- | --- | --- | --- | --- | --- |
-| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | Schema/seed ready | Six saved schedules explored | SQL assertion + RG001 (20/20) | Six candidates x 5 PASS |
+The fixture × anomaly × oracle matrix currently has one implemented row. Empty
+space is not implied coverage; additional anomaly and oracle families remain
+pending below.
+
+| Fixture | Anomaly | Oracle | Controlled coverage | Fix evidence |
+| --- | --- | --- | --- | --- |
+| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | `active-assignment-is-unique` SQL assertion → RG001 | Six candidates; vulnerable violations reproduced 20/20 | Same six candidates × 5 fixed sweeps PASS |
 
 ## Matching slice
 
