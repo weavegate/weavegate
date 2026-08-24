@@ -141,7 +141,7 @@ func runConcurrentIncrements(ctx context.Context, db *sql.DB, readQuery string) 
 				errs <- fmt.Errorf("worker %d: acquire connection: %w", worker, err)
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			// Wait until the parent releases every worker to start.
 			select {

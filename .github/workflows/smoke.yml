@@ -193,6 +193,26 @@ jobs:
           go test -race ./internal/... ./fixtures/... -count=1
           echo 'RACE_JOB_RESULT scope=internal+fixtures count=1 detector=on'
 
+  lint:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.1
+          args: ./...
+
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

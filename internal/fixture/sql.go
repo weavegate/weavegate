@@ -77,9 +77,9 @@ func Prepare(spec FixtureSpec) (Prepared, error) {
 func hashMigrations(migrations []preparedSQLSource) string {
 	hasher := sha256.New()
 	for _, migration := range migrations {
-		fmt.Fprintf(hasher, "%d\n", len(migration.name))
+		_, _ = fmt.Fprintf(hasher, "%d\n", len(migration.name))
 		_, _ = hasher.Write([]byte(migration.name))
-		fmt.Fprintf(hasher, "%d\n", len(migration.contents))
+		_, _ = fmt.Fprintf(hasher, "%d\n", len(migration.contents))
 		_, _ = hasher.Write(migration.contents)
 	}
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))

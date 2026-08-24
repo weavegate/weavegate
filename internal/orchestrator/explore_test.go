@@ -220,7 +220,8 @@ func TestExploreRejectsInvalidInputsAndEmptyEvaluations(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {
 		fixtureRunner := &recordingFixture{}
 		executor, _ := newExploreTestOrchestrator(t, fixtureRunner)
-		_, err := executor.Explore(nil, matchingScenario(), scenario.Exhaustive{}, stableEvaluator)
+		var nilContext context.Context
+		_, err := executor.Explore(nilContext, matchingScenario(), scenario.Exhaustive{}, stableEvaluator)
 		if err == nil || !strings.Contains(err.Error(), "context is required") {
 			t.Fatalf("nil context error = %v", err)
 		}

@@ -144,6 +144,6 @@ func completeRunDirectory(dir string) bool {
 
 func reportCommandFailure(stderr io.Writer, err error) error {
 	wrapped := ci.InputError(err)
-	fmt.Fprintf(stderr, "weavegate: %v\n", wrapped)
+	_, _ = fmt.Fprintf(stderr, "weavegate: %v\n", wrapped)
 	return &exitError{err: wrapped}
 }

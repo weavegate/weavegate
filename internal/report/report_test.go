@@ -422,7 +422,7 @@ func TestWriteRunPartialFailureLeavesNoDirectory(t *testing.T) {
 	if err := os.Chmod(runsDir, 0o500); err != nil {
 		t.Fatalf("make runs directory unwritable: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(runsDir, 0o755) })
+	t.Cleanup(func() { _ = os.Chmod(runsDir, 0o755) })
 
 	run := sampleRun(t, "run_20260816T140000.000Z_eeeeeeee")
 

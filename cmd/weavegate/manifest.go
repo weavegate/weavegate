@@ -71,7 +71,7 @@ func readEngines(ctx context.Context, db *fixture.DB) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read storage engines: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var engines []string
 	for rows.Next() {

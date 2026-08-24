@@ -28,10 +28,10 @@ var (
 )
 
 func TestTraceModelOrchestratorAliases(t *testing.T) {
-	var kind trace.EventKind = orchestrator.EventScheduleComplete
-	var status trace.ControlStatus = orchestrator.ControlStatusNone
-	var state trace.TerminalState = orchestrator.TerminalStateDone
-	var failure trace.WorkerFailureClass = orchestrator.WorkerFailureNone
+	var kind = orchestrator.EventScheduleComplete
+	var status = orchestrator.ControlStatusNone
+	var state = orchestrator.TerminalStateDone
+	var failure = orchestrator.WorkerFailureNone
 
 	if kind != trace.EventScheduleComplete || status != trace.ControlStatusNone ||
 		state != trace.TerminalStateDone || failure != trace.WorkerFailureNone {
