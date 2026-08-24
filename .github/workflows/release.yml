@@ -25,16 +25,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Read release notes from CHANGELOG
+      - name: Validate and read release notes from CHANGELOG
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: |
           version="${RELEASE_VERSION#v}"
-          awk -v version="$version" '
-            index($0, "## [" version "]") == 1 { capture = 1; next }
-            capture && index($0, "## [") == 1 { exit }
-            capture { print }
-          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          ./scripts/release-notes.sh CHANGELOG.md "$version" > "$RUNNER_TEMP/release-notes.md"
           grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"
 
       - name: Publish release artifacts
