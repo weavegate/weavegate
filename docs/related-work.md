@@ -119,6 +119,23 @@ documentation define the schedules InnoDB permits at each isolation level.
 weavegate treats these as the specification of "legitimate" DB behavior — the
 baseline it holds your application accountable against.
 
+## Why was this layer empty in the survey?
+
+Our survey scope examined the representative tools named above: database
+isolation suites, distributed-system consistency testing, concurrent-object
+checking, deterministic simulation, and containerized integration
+infrastructure. It was not an exhaustive search of every concurrency-testing
+project, and it does not establish that no overlapping tool exists.
+
+Within that surveyed set, each tool stops at a different boundary. Database
+suites decide what the engine permits; object checkers judge in-memory
+histories; simulation frameworks require control of a much larger runtime; and
+Testcontainers provisions infrastructure without controlling the application's
+workflow. The remaining integration layer is narrow but concrete: release two
+application workers at named transaction boundaries, evaluate a domain
+invariant on the real database, and replay the same schedule against the fix.
+That bounded gap is the layer weavegate addresses today.
+
 ## Summary of the boundary
 
 Every tool above is excellent at its own layer, and weavegate is not a
