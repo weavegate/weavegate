@@ -20,6 +20,28 @@ it. A useful scenario names:
 - the semantic sync-points each worker may reach;
 - a vulnerable and a fixed implementation of the same workflow.
 
+### Implement and register the built-in workflow
+
+The scenario must have executable worker commands. Implement the instrumented
+Go-native workflow and its command registry under `fixtures/<name>/sut/`; the
+configured command names must be keys returned by that registry. Keep the
+sync-point dependency behind the adapter protocol and use a production no-op,
+as shown in the [instrumentation guide](instrument.md).
+
+The current CLI compiles entrypoints into the binary rather than loading them
+dynamically. Register a CLI-runnable fixture in
+[`cmd/weavegate/registry.go`](../../cmd/weavegate/registry.go) with:
+
+- a `NewAdapter` factory that binds the fixture registry to the sync-point
+  client;
+- the supported vulnerable and fixed variant names; and
+- the fixture's embedded saved-schedule filesystem.
+
+This is built-in composition wiring, not fixture-specific logic in an engine
+package. The matching-slice [`registry.go`](../../cmd/weavegate/registry.go)
+entry and [fixture SUT registry](../../fixtures/matching-slice/sut/registry.go)
+are the current executable example.
+
 Keep the worker set and point order small enough to explain. The reference
 scenario has two `assign` workers and two points:
 `after_read_request` and `before_insert_assignment`. Its committed
@@ -76,7 +98,8 @@ Create `fixtures/<name>/.weavegate/config.yaml` and connect the earlier pieces:
 
 1. point `target.schema.migrations` and `target.schema.seed` at the fixture's
    database files;
-2. select the supported SUT adapter, entrypoint, and variant;
+2. select the supported SUT adapter and the entrypoint and variant registered
+   in step 1;
 3. declare the scenario workers, arguments, and ordered `sync_points`;
 4. add the oracle assertion ID, SQL, and `expect_rows: 0`;
 5. set a measured arrival timeout only when the default is inappropriate.
@@ -96,5 +119,5 @@ If a fixture, oracle, schedule strategy, or adapter requires an engine change,
 stop. That is an extension-point gap, not permission to force fixture-specific
 logic into the engine. Open an issue describing the missing boundary before
 writing engine code. In particular, the CLI currently recognizes only the
-documented built-in entrypoint; this guide does not imply dynamic external
-fixture loading.
+registered built-in entrypoints; the composition step above does not imply
+dynamic external fixture loading.
