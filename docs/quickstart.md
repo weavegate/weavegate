@@ -31,7 +31,8 @@ go build -o weavegate ./cmd/weavegate
 export PATH="$PWD:$PATH"
 ```
 
-Confirm that this checkout's binary is available:
+Confirm that this checkout's binary is available. The following is a captured
+output excerpt:
 
 ```console
 $ weavegate --help
