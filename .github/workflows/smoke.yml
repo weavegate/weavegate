@@ -198,6 +198,49 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
+      - name: Check the release notes date guard
+        run: |
+          work_dir=$(mktemp -d)
+          trap 'rm -rf "$work_dir"' EXIT
+
+          cat > "$work_dir/placeholder.md" <<'CHANGELOG'
+          `YYYY-MM-DD` documents the release-heading convention.
+
+          ## [0.1.0-alpha] - YYYY-MM-DD
+
+          Release body.
+          CHANGELOG
+          sed 's/^## \[0\.1\.0-alpha\] - YYYY-MM-DD$/## [0.1.0-alpha] - not-a-date/' \
+            "$work_dir/placeholder.md" > "$work_dir/dateless.md"
+          cat > "$work_dir/dated.md" <<'CHANGELOG'
+          `YYYY-MM-DD` documents the release-heading convention.
+
+          ## [0.1.0-alpha] - 2026-08-27
+
+          Release body.
+          CHANGELOG
+          cat > "$work_dir/expected.md" <<'NOTES'
+
+          Release body.
+          NOTES
+
+          if ./scripts/release-notes.sh "$work_dir/placeholder.md" 0.1.0-alpha > /dev/null 2>&1; then
+            echo "release notes guard accepted a placeholder date" >&2
+            exit 1
+          fi
+          if ./scripts/release-notes.sh "$work_dir/dateless.md" 0.1.0-alpha > /dev/null 2>&1; then
+            echo "release notes guard accepted a dateless heading" >&2
+            exit 1
+          fi
+          if ./scripts/release-notes.sh "$work_dir/dated.md" 9.9.9 > /dev/null 2>&1; then
+            echo "release notes guard accepted a missing section" >&2
+            exit 1
+          fi
+          ./scripts/release-notes.sh "$work_dir/dated.md" 0.1.0-alpha > "$work_dir/actual.md"
+          cmp "$work_dir/actual.md" "$work_dir/expected.md"
+
+          echo "RELEASE_NOTES_GUARD_RESULT placeholder=rejected dateless=rejected missing_section=rejected dated=accepted body=exact heading_scope=only"
+
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@v24
         with:

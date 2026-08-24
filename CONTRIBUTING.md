@@ -174,7 +174,8 @@ Rules:
 ## Releasing
 
 Before tagging a release, the person creating it must complete this checklist
-manually. These checks are intentionally not automated because the release
+manually. The release workflow mechanically verifies the date substitution in
+item 5; the behavioral and content checks remain manual because the release
 decision requires a human to inspect the complete behavior.
 
 1. Build the CLI from the exact commit to be tagged.
@@ -187,8 +188,10 @@ decision requires a human to inspect the complete behavior.
    header. If the file changes, commit the updated inventory in the same pull
    request; otherwise, continue with the existing inventory.
 5. Replace the `YYYY-MM-DD` placeholder in the matching
-   [`CHANGELOG.md`](CHANGELOG.md) release heading with the actual tag date, then
-   verify that the section contains only changes already merged into the tag.
+   [`CHANGELOG.md`](CHANGELOG.md) release heading with the actual tag date. The
+   release workflow verifies the substitution and fails before publishing
+   anything if it is missing. Manually verify that the section contains only
+   changes already merged into the tag.
 6. Read the README as it will appear in the tagged archive and confirm that
    every release-status statement remains true after the tag is published.
 7. Create a dry-run archive with
