@@ -226,7 +226,7 @@ jobs:
       # continue-on-error after the D-011 public transition.
       - name: Review dependency changes
         continue-on-error: true
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
 
   docs:
     if: github.event_name != 'schedule'
