@@ -153,8 +153,8 @@ reference pages are one-to-one: a diagnostic code without a reference page
 does not merge. The pull request template's `Docs` section is the checkpoint
 for this rule.
 
-A pull request that adds a file under `docs/` must include one corresponding
-line in `docs/README.md`; the smoke workflow enforces this inventory rule.
+A pull request that adds a Markdown page under `docs/` must include one
+corresponding line in `docs/README.md`; the smoke workflow enforces this inventory rule.
 
 The diagnostic prefix is `WG`; every new code ships with a matching
 `docs/reference/diagnostics/WGxxx.md` page.

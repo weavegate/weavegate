@@ -16,12 +16,16 @@ check_index() {
   repository_root=$(git -C "$requested_root" rev-parse --show-toplevel)
 
   mapfile -t tree_paths < <(
-    git -C "$repository_root" ls-files docs/ \
+    git -C "$repository_root" -c core.quotePath=false ls-files docs/ \
+      | grep -E '\.md$' \
       | grep -v '^docs/README\.md$' \
       | sort
   )
   mapfile -t index_paths < <(
-    grep -oE '\]\([^)]+\.md(#[^)]*)?\)' "$repository_root/docs/README.md" \
+    awk '/^[[:space:]]*```/ { fence = !fence; next } fence { next }
+         /<!--/ { comment = 1 } comment { if (/-->/) comment = 0; next } { print }' \
+      "$repository_root/docs/README.md" \
+      | grep -oE '\]\([^)]+\.md(#[^)]*)?\)' \
       | sed -E 's/^\]\(//; s/#[^)]*//; s/\)$//' \
       | sed 's#^#docs/#' \
       | sort
@@ -101,6 +105,17 @@ run_self_test() {
   output_two=$(check_index "$self_test_root")
   [[ "$output_two" == 'DOCS_INDEX_RESULT pages=2 indexed=2 orphans=0 ghosts=0 duplicates=0' ]]
   echo 'MARKER_TRACKS_COUNT'
+
+  printf 'asset\n' > "$self_test_root/docs/image.png"
+  git -C "$self_test_root" add docs/image.png
+  check_index "$self_test_root" > /dev/null
+  echo 'ASSET_IGNORED'
+
+  printf '# index\n\n- [a](a.md)\n- [b](b.md)\n\n```text\n- [example](missing.md)\n```\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'FENCED_EXAMPLE_IGNORED'
 }
 
 if [[ ${1:-} == '--self-test' ]]; then

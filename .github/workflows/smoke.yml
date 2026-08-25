@@ -253,14 +253,25 @@ jobs:
 
       - name: Check the diagnostic namespace
         run: |
-          bash scripts/diagnostic-namespace.sh --self-test
-          bash scripts/diagnostic-namespace.sh .
-          echo 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files'
+          bash scripts/diagnostic-namespace.sh --self-test | tee /tmp/diagnostic-namespace-selftest.out
+          for marker in GATE_BITES BARE_RG_CAUGHT LOWER_RG_CAUGHT; do
+            grep -qF "$marker" /tmp/diagnostic-namespace-selftest.out
+          done
+          bash scripts/diagnostic-namespace.sh . | tee /tmp/diagnostic-namespace.out
+          grep -qF 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files' \
+            /tmp/diagnostic-namespace.out
 
       - name: Check the documentation index
         run: |
-          bash scripts/docs-index.sh --self-test
-          bash scripts/docs-index.sh .
+          bash scripts/docs-index.sh --self-test | tee /tmp/docs-index-selftest.out
+          for marker in MISSING_FROM_INDEX_CAUGHT GHOST_ENTRY_CAUGHT \
+            DUPLICATE_ENTRY_CAUGHT MARKER_TRACKS_COUNT ASSET_IGNORED \
+            FENCED_EXAMPLE_IGNORED; do
+            grep -qF "$marker" /tmp/docs-index-selftest.out
+          done
+          bash scripts/docs-index.sh . | tee /tmp/docs-index.out
+          grep -Eq '^DOCS_INDEX_RESULT pages=[0-9]+ indexed=[0-9]+ orphans=0 ghosts=0 duplicates=0$' \
+            /tmp/docs-index.out
 
       - name: Check the release notes date guard
         run: |

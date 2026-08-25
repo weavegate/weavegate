@@ -44,7 +44,10 @@ scan_repository() {
     fi
   done < <(git -C "$repository_root" ls-files -z)
 
-  [[ $found -eq 0 ]]
+  if [[ $found -ne 0 ]]; then
+    return 1
+  fi
+  printf 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files\n'
 }
 
 run_self_test() {

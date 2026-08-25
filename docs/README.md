@@ -15,7 +15,7 @@ Use these guides when you are new to weavegate or ready to create and instrument
 Use these pages when you need the exact CLI, configuration, artifact, or diagnostic contract.
 
 - [CLI](reference/cli.md) — Look up commands, flags, output, and replay behavior.
-- [Configuration](reference/config.md) — Check every configuration key, default, and validation rule.
+- [Configuration](reference/config.md) — Look up configuration keys, their defaults, and the documented behavior of each.
 - [Exit codes](reference/exit-codes.md) — Interpret process status across pass, fail, flaky, and usage outcomes.
 - [Report schema](reference/report-schema.md) — Consume run artifacts without guessing their fields or stability guarantees.
 - [WG001](reference/diagnostics/WG001.md) — Understand evidence for an invariant violation under a controlled schedule.
