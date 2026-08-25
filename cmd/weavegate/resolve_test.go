@@ -76,7 +76,7 @@ func TestResolve(t *testing.T) {
 		if resolved.NewAdapter == nil || resolved.NewRuntime == nil {
 			t.Fatalf("adapter/runtime factories are nil: %+v", resolved)
 		}
-		if got := fmt.Sprint(resolved.Diagnostics.Codes()); got != "[RG001 RG090]" {
+		if got := fmt.Sprint(resolved.Diagnostics.Codes()); got != "[WG001 WG090]" {
 			t.Fatalf("diagnostic rule codes = %s", got)
 		}
 

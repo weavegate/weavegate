@@ -315,7 +315,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	}
 	run.Observation.Diagnostics = []Diagnostic{
 		{
-			Code: "RG001", Severity: "error", Title: "invariant violated under a controlled schedule",
+			Code: "WG001", Severity: "error", Title: "invariant violated under a controlled schedule",
 			Observed:  "active-assignment-is-unique returned 1 row: active_count=2",
 			Assertion: "active-assignment-is-unique",
 			Invariant: "a declared state invariant must hold under every release schedule the database permits",
@@ -327,7 +327,7 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 			},
 		},
 		{
-			Code: "RG090", Severity: "error", Title: "determinism check failed",
+			Code: "WG090", Severity: "error", Title: "determinism check failed",
 			Observed: "repeated executions diverged", Invariant: "same schedule, same result",
 			Reason: "fingerprints differ", Help: []string{"compare fingerprints"},
 			Evidence: DiagnosticEvidence{Rows: 0, Observation: "observation.json"},
@@ -335,13 +335,13 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	}
 	markdown := renderMarkdown(run)
 	for _, want := range []string{
-		"## weavegate: FAIL (RG001)",
-		"error[RG001]: invariant violated under a controlled schedule",
+		"## weavegate: FAIL (WG001)",
+		"error[WG001]: invariant violated under a controlled schedule",
 		"  observed:  active-assignment-is-unique returned 1 row: active_count=2",
 		"  assertion: active-assignment-is-unique",
 		"  help:      add a unique constraint\n             take a pessimistic lock",
 		"  evidence:  schedule sch_fbf6b1dfaae2 · trace.json · observation.json · 1 violating row · 2 evidence sets in observation.json",
-		"error[RG090]: determinism check failed",
+		"error[WG090]: determinism check failed",
 	} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
@@ -356,18 +356,18 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	flaky := run
 	flaky.Flaky = true
 	got := renderMarkdown(flaky)
-	if !strings.HasPrefix(got, "## weavegate: FLAKY (RG090)\n") {
+	if !strings.HasPrefix(got, "## weavegate: FLAKY (WG090)\n") {
 		t.Fatalf("flaky headline:\n%s", got)
 	}
-	if strings.Index(got, "error[RG001]") >= strings.Index(got, "error[RG090]") {
+	if strings.Index(got, "error[WG001]") >= strings.Index(got, "error[WG090]") {
 		t.Fatalf("flaky diagnostic order changed:\n%s", got)
 	}
-	rg090Block := got[strings.Index(got, "error[RG090]"):]
-	if strings.Contains(rg090Block, "violating row") || strings.Contains(rg090Block, "trace.json") ||
-		!strings.Contains(rg090Block, "  evidence:  observation.json\n") {
-		t.Fatalf("RG090 row-independent evidence rendered incorrectly:\n%s", rg090Block)
+	wg090Block := got[strings.Index(got, "error[WG090]"):]
+	if strings.Contains(wg090Block, "violating row") || strings.Contains(wg090Block, "trace.json") ||
+		!strings.Contains(wg090Block, "  evidence:  observation.json\n") {
+		t.Fatalf("WG090 row-independent evidence rendered incorrectly:\n%s", wg090Block)
 	}
-	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=rg090 render=single_source")
+	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=wg090 render=single_source")
 }
 
 func testRerunIdentical(t *testing.T, base string) string {

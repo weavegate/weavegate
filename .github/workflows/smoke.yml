@@ -165,11 +165,11 @@ jobs:
           grep -F 'FIXTURE_TEARDOWN_CONTEXT_RESULT deadline=honored calls=1 state=retryable pool_close=bounded' fixture.log
           grep -F 'CLI_VERDICT_RESULT all_violation=2 partial_violation=3 all_pass_after_discovery=3 fingerprint_mismatch=3 replay_mode_flaky=3 exhausted=0' fixture.log
           grep -F 'CLI_REPLAY_COMMAND_RESULT source=report_md executed=verbatim argv=preserved out=omitted resolved_from=run_directory verdict=identical exit=2' fixture.log
-          grep -F 'CLI_REPLAY_PORTABLE_RESULT source=report_md executed=verbatim run_dir=absent schedules_dir=present out=omitted verdict=identical diagnostic=RG001 exit=2 missing_schedule=5' fixture.log
+          grep -F 'CLI_REPLAY_PORTABLE_RESULT source=report_md executed=verbatim run_dir=absent schedules_dir=present out=omitted verdict=identical diagnostic=WG001 exit=2 missing_schedule=5' fixture.log
           grep -F 'CLI_RUN_FAILURE_RESULT bad_config=5 missing_scenario=5 unknown_scenario=5 nonpositive_repeat_override=5 unknown_schedule=5 unverifiable_run_evidence=5 unwritable_out=5 missing_fixture_source=5 artifacts_written_on_pass=true cleanup_failure_on_pass=4 fixture_failure_during_replay=4 stdout_write_failure=5' fixture.log
-          grep -E 'CLI_RUN_RESULT mode=explore variant=vulnerable passes=1 evaluated=[1-9][0-9]* schedule=sch_[0-9a-f]{12} repeat=20 violation_runs=20 flaky=false diagnostic=RG001 artifacts=7 exit=2' fixture.log
+          grep -E 'CLI_RUN_RESULT mode=explore variant=vulnerable passes=1 evaluated=[1-9][0-9]* schedule=sch_[0-9a-f]{12} repeat=20 violation_runs=20 flaky=false diagnostic=WG001 artifacts=7 exit=2' fixture.log
           grep -F 'CLI_RUN_RESULT mode=explore variant=fixed passes=3 evaluated=18 violating=none exhausted=true flaky=false diagnostic=none artifacts=6 exit=0' fixture.log
-          grep -F 'CLI_RUN_RESULT mode=replay variant=vulnerable schedule=sch_ba00582f9632 repeat=20 violation_runs=20 flaky=false diagnostic=RG001 artifacts=7 exit=2' fixture.log
+          grep -F 'CLI_RUN_RESULT mode=replay variant=vulnerable schedule=sch_ba00582f9632 repeat=20 violation_runs=20 flaky=false diagnostic=WG001 artifacts=7 exit=2' fixture.log
 
       - name: Assert the diagnostic contract
         run: |
@@ -177,7 +177,7 @@ jobs:
           grep -F 'DIAGNOSTIC_RULES_RESULT codes=2 source=embedded filename_code_match=enforced duplicate_code=error duplicate_trigger=error unknown_trigger=error missing_help=error lookup=by_trigger order=sorted outside_repo=true' fixture.log
           grep -F 'DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted keys=printable_or_quoted values=escaped trace=corresponding_run_only observation=always order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true' fixture.log
           grep -F 'REPORT_DIAGNOSTIC_RESULT field=observation.diagnostics files=6_or_7 empty=json_array dto=report_owned merged=report_json deterministic=true' fixture.log
-          grep -F 'REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=rg090 render=single_source' fixture.log
+          grep -F 'REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=wg090 render=single_source' fixture.log
           grep -F 'CLI_DIAGNOSTIC_RESULT rule_table=embedded load_failure=5 preflight=before_fixture fixture_factory_calls=0 kind_source=oracle_violation oracle_order=preserved verdict_unchanged=true exit_policy_unchanged=true config_keys_added=0' fixture.log
 
       - name: Run the lost-update experiment

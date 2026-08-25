@@ -1,5 +1,5 @@
 {
-  "code": "RG090",
+  "code": "WG090",
   "severity": "error",
   "triggers": ["engine.determinism"],
   "title": "determinism check failed",

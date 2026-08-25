@@ -1,4 +1,4 @@
-// Package diagnostic classifies an evaluated verdict into a documented RG
+// Package diagnostic classifies an evaluated verdict into a documented WG
 // code. It never discovers a violation; it names one an oracle already found.
 package diagnostic
 
@@ -10,7 +10,7 @@ import (
 	"github.com/weavegate/weavegate/internal/oracle"
 )
 
-var codePattern = regexp.MustCompile(`^RG[0-9]{3}$`)
+var codePattern = regexp.MustCompile(`^WG[0-9]{3}$`)
 
 type Code string
 type Severity string
@@ -60,7 +60,7 @@ type Evidence struct {
 
 func ValidateCode(code Code) error {
 	if !codePattern.MatchString(string(code)) {
-		return fmt.Errorf("invalid diagnostic code %q: must match RG followed by three digits", code)
+		return fmt.Errorf("invalid diagnostic code %q: must match WG followed by three digits", code)
 	}
 	return nil
 }

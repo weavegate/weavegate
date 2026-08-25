@@ -1,5 +1,5 @@
 {
-  "code": "RG001",
+  "code": "WG001",
   "severity": "error",
   "triggers": ["oracle.assertion"],
   "title": "invariant violated under a controlled schedule",

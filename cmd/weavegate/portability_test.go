@@ -33,9 +33,9 @@ func TestReplayPortability(t *testing.T) {
 	if producerScenario.Schedule == nil {
 		t.Fatal("producer run has no discovered schedule")
 	}
-	if len(producerObservation.Diagnostics) != 1 || producerObservation.Diagnostics[0].Code != "RG001" ||
+	if len(producerObservation.Diagnostics) != 1 || producerObservation.Diagnostics[0].Code != "WG001" ||
 		len(producerObservation.AssertionViolations) == 0 {
-		t.Fatalf("producer verdict evidence = %+v, want RG001 with an assertion violation", producerObservation)
+		t.Fatalf("producer verdict evidence = %+v, want WG001 with an assertion violation", producerObservation)
 	}
 
 	replayLine := extractReplayLine(t, producerRunDir)
@@ -69,14 +69,14 @@ func TestReplayPortability(t *testing.T) {
 	if replayExit != ci.ExitViolation {
 		t.Fatalf("portable replay exit = %d, want %d; stdout=%s stderr=%s", replayExit, ci.ExitViolation, replayStdout, replayStderr)
 	}
-	if !strings.Contains(replayStdout, "## weavegate: FAIL (RG001)") || !strings.Contains(replayStdout, "error[RG001]:") {
-		t.Fatalf("portable replay stdout = %q, want RG001 verdict", replayStdout)
+	if !strings.Contains(replayStdout, "## weavegate: FAIL (WG001)") || !strings.Contains(replayStdout, "error[WG001]:") {
+		t.Fatalf("portable replay stdout = %q, want WG001 verdict", replayStdout)
 	}
 	replayRunDir := latestRunDir(t, readerOut)
 	replayObservation := readObservation(t, replayRunDir)
-	if len(replayObservation.Diagnostics) != 1 || replayObservation.Diagnostics[0].Code != "RG001" ||
+	if len(replayObservation.Diagnostics) != 1 || replayObservation.Diagnostics[0].Code != "WG001" ||
 		len(replayObservation.AssertionViolations) == 0 {
-		t.Fatalf("portable replay evidence = %+v, want RG001 with an assertion violation", replayObservation)
+		t.Fatalf("portable replay evidence = %+v, want WG001 with an assertion violation", replayObservation)
 	}
 	if replayObservation.AssertionViolations[0].OracleID != producerObservation.AssertionViolations[0].OracleID {
 		t.Fatalf(
@@ -98,5 +98,5 @@ func TestReplayPortability(t *testing.T) {
 		}
 	}
 
-	t.Log("CLI_REPLAY_PORTABLE_RESULT source=report_md executed=verbatim run_dir=absent schedules_dir=present out=omitted verdict=identical diagnostic=RG001 exit=2 missing_schedule=5")
+	t.Log("CLI_REPLAY_PORTABLE_RESULT source=report_md executed=verbatim run_dir=absent schedules_dir=present out=omitted verdict=identical diagnostic=WG001 exit=2 missing_schedule=5")
 }

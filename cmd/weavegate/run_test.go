@@ -272,17 +272,17 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeExplore) || obs.DiscoveryFingerprint == "" {
 			t.Fatalf("vulnerable observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
-		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "RG001" {
-			t.Fatalf("vulnerable diagnostics = %+v, want RG001", obs.Diagnostics)
+		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "WG001" {
+			t.Fatalf("vulnerable diagnostics = %+v, want WG001", obs.Diagnostics)
 		}
-		if !strings.Contains(stdout, "## weavegate: FAIL (RG001)") || !strings.Contains(stdout, "error[RG001]:") {
-			t.Fatalf("vulnerable stdout = %q, want the RG001 report", stdout)
+		if !strings.Contains(stdout, "## weavegate: FAIL (WG001)") || !strings.Contains(stdout, "error[WG001]:") {
+			t.Fatalf("vulnerable stdout = %q, want the WG001 report", stdout)
 		}
 
 		vulnerableDir = dir
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=RG001 artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=explore variant=vulnerable passes=%d evaluated=%d schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=WG001 artifacts=%d exit=%d",
 			obs.ExplorePasses, obs.SchedulesExplored, doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
@@ -351,12 +351,12 @@ func TestRun(t *testing.T) {
 		if obs.Mode != string(ModeReplay) || obs.DiscoveryFingerprint != "" {
 			t.Fatalf("replay observation mode/discovery = %q/%q", obs.Mode, obs.DiscoveryFingerprint)
 		}
-		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "RG001" {
-			t.Fatalf("replay diagnostics = %+v, want RG001", obs.Diagnostics)
+		if len(obs.Diagnostics) != 1 || obs.Diagnostics[0].Code != "WG001" {
+			t.Fatalf("replay diagnostics = %+v, want WG001", obs.Diagnostics)
 		}
 
 		t.Logf(
-			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=RG001 artifacts=%d exit=%d",
+			"CLI_RUN_RESULT mode=replay variant=vulnerable schedule=%s repeat=%d violation_runs=%d flaky=%t diagnostic=WG001 artifacts=%d exit=%d",
 			doc.Schedule.ID, obs.Repeat, obs.ViolationRuns, obs.Flaky, len(entries), exit,
 		)
 	})
