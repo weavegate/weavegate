@@ -153,6 +153,9 @@ reference pages are one-to-one: a diagnostic code without a reference page
 does not merge. The pull request template's `Docs` section is the checkpoint
 for this rule.
 
+The diagnostic prefix is `WG`; every new code ships with a matching
+`docs/reference/diagnostics/WGxxx.md` page.
+
 ## Contributing a fixture
 
 A fixture is data, not engine code. If adding a fixture seems to require an

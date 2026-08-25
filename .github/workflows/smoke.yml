@@ -251,6 +251,12 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
+      - name: Check the diagnostic namespace
+        run: |
+          bash scripts/diagnostic-namespace.sh --self-test
+          bash scripts/diagnostic-namespace.sh .
+          echo 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files'
+
       - name: Check the release notes date guard
         run: |
           work_dir=$(mktemp -d)
