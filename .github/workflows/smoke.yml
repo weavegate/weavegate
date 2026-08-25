@@ -327,3 +327,37 @@ jobs:
             --accept 200,206,429
             './**/*.md'
           fail: true
+
+  toolchain:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [minimum, stable]
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up the minimum Go version
+        if: matrix.go == 'minimum'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up stable Go
+        if: matrix.go == 'stable'
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - name: Build and test non-container packages
+        run: |
+          go build ./...
+          go test \
+            ./internal/ci/... ./internal/config/... ./internal/diagnostic/... ./internal/oracle \
+            ./internal/orchestrator/... ./internal/report/... ./internal/scenario/... \
+            ./internal/sut ./internal/syncpoint/... ./internal/trace/... ./rules/... -count=1
+          printf 'TOOLCHAIN_RESULT go=%s scope=non-container build=ok\n' "$(go env GOVERSION)"
