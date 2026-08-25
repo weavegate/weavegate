@@ -62,7 +62,18 @@ jobs:
           ./fixtures/matching-slice/...
           ./cmd/weavegate/... ./internal/config/... ./internal/ci/...
           ./internal/diagnostic/... ./internal/report/...
+          -coverprofile=cov.out -covermode=atomic -coverpkg=./internal/...
           -v -count=1 -timeout 12m | tee fixture.log
+
+      - name: Report engine coverage
+        run: |
+          coverage=$(go tool cover -func=cov.out | tail -1 | awk '{print $3}')
+          if [[ ! "$coverage" =~ ^[0-9]+\.[0-9]+%$ ]]; then
+            echo "invalid engine coverage total: $coverage" >&2
+            exit 1
+          fi
+          printf '## Engine coverage\n\n- `./internal/...`: %s\n' "$coverage" >> "$GITHUB_STEP_SUMMARY"
+          printf 'COVERAGE_RESULT scope=internal total=%s\n' "$coverage"
 
       - name: Assert the fixture invariants
         run: |
