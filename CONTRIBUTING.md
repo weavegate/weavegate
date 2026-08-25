@@ -20,7 +20,16 @@ run the checks, and structure commits and pull requests.
 
 ## Development environment
 
-The Go version this project builds with is pinned in `go.mod`.
+The supported Go versions are the minimum Go 1.25.0 toolchain declared in
+`go.mod` and the current stable Go toolchain. The smoke workflow's `toolchain`
+matrix builds the repository and runs the non-container package set with both.
+
+Raising the supported minimum is one contract change: update `go.mod` (which
+moves the matrix entry that uses `go-version-file`), the matrix lower-bound
+expectation, and the README source-build prerequisite in the same pull request.
+The README coverage badge is also generated evidence, not a hand-edited number;
+after producing `cov.out`, refresh it with
+`bash scripts/coverage-badge.sh --write`.
 
 Running the fixture, engine, and experiment tests requires Docker, because
 they start a real MySQL 8.4 container through Testcontainers. Without Docker

@@ -7,6 +7,7 @@ Your integration tests hit this bug by luck. **weavegate** hits it every time �
 [![smoke](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![db](https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey)
+![coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)
 
 > ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands can be
 > run from a source checkout or a release archive that includes the reference
