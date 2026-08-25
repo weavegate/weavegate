@@ -12,11 +12,11 @@ therefore mixed: a list of every artifact that supports a diagnostic, or one
 pointer telling a reader where to look next.
 
 That ambiguity produced three consecutive review findings in the same field.
-RG090 first pointed at a trace that could not demonstrate fingerprint
+WG090 first pointed at a trace that could not demonstrate fingerprint
 divergence. Assertion diagnostics then all pointed at one trace, including
 assertions that passed in the saved run. Restricting the trace to assertions
 violated in that run fixed the false pointer but removed `observation.json`,
-the only artifact that preserves the violating rows rendered by RG001.
+the only artifact that preserves the violating rows rendered by WG001.
 
 ## Decision
 
@@ -29,7 +29,7 @@ the diagnostic.
   violating rows exist in `assertion_violations` there.
 - It additionally names `trace.json` only when the saved trace comes from a
   run where that assertion was violated.
-- Engine-derived RG090 names only `observation.json`, because a single trace
+- Engine-derived WG090 names only `observation.json`, because a single trace
   cannot demonstrate fingerprint divergence.
 
 The named `trace` and `observation` fields remain in the schema. Replacing them
@@ -45,8 +45,8 @@ not the representation.
   order and terminal state.
 - When a future artifact supports a diagnostic, extending evidence means adding
   that true pointer rather than selecting it in place of another true pointer.
-- The RG001 demonstration now renders both `trace.json` and
-  `observation.json`; RG090 remains observation-only.
+- The WG001 demonstration now renders both `trace.json` and
+  `observation.json`; WG090 remains observation-only.
 
 ## What didn't work
 

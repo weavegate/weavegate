@@ -189,7 +189,7 @@ decision requires a human to inspect the complete behavior.
 
 1. Build the CLI from the exact commit to be tagged.
 2. Replay the vulnerable matching-slice schedule and confirm the expected
-   `RG001` diagnostic, violating rows, trace, and exit 2.
+   `WG001` diagnostic, violating rows, trace, and exit 2.
 3. Replay that same schedule against the `SELECT ... FOR UPDATE` variant and
    confirm PASS with exit 0. This is the required vulnerable → diagnostic → fix
    → PASS inspection.

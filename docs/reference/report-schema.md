@@ -122,7 +122,7 @@ the run-scoped `artifact_version` or the rest of `scenario.json`.
 | `schedules_explored` | int | The number of candidates **actually evaluated**, not the total size of the candidate space. Explore mode stops at the first violation, so this is often smaller than the full candidate count. |
 | `explore_passes` | int | How many full sweeps ran before stopping — 1 if a violation was found on the first pass, up to `run.explore_passes` if every pass exhausted its candidates. `0` in replay mode, where no exploration happens. |
 | `assertion_violations` | array of objects | One entry per distinct violation found across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). Each entry is `{"oracle_id": "...", "rows": [...]}` — `oracle_id` names the assertion, and `rows` is that oracle's own evidence rows, so a saved verdict shows *which* rows violated it, not only that it did. Each row is a plain object keyed by the query's column names, restricted to deterministic, JSON-safe scalar values (no `NaN`/`Inf`, no non-UTF-8 strings). Two violations sharing an `oracle_id` are only collapsed into one entry when their rows are also identical; a later run reproducing the same assertion with different rows is kept as a separate entry so each stays individually auditable. `[]` when nothing violated. |
-| `diagnostics` | array of objects | Named verdict classifications derived from Oracle violation kinds and engine signals. Each entry contains `code`, `severity`, `title`, `observed`, optional `assertion`, `invariant`, `reason`, `help`, and `evidence` (`schedule_ref`, `rows`, optional `evidence_sets`, `trace`, optional `observation`). Declaration order is preserved and an engine-derived RG090 is last. Always emitted; `[]` means the run derived no diagnostic. See [diagnostic references](diagnostics/RG001.md). |
+| `diagnostics` | array of objects | Named verdict classifications derived from Oracle violation kinds and engine signals. Each entry contains `code`, `severity`, `title`, `observed`, optional `assertion`, `invariant`, `reason`, `help`, and `evidence` (`schedule_ref`, `rows`, optional `evidence_sets`, `trace`, optional `observation`). Declaration order is preserved and an engine-derived WG090 is last. Always emitted; `[]` means the run derived no diagnostic. See [diagnostic references](diagnostics/WG001.md). |
 | `oracles` | array of objects | Every configured assertion's effective `id`, `sql`, and `expect_rows` — the same fields as `oracle.assertions` in config, snapshotted here so a saved verdict stays auditable against the query that produced it even after the referenced config is edited or deleted. `[]` when the scenario declares none. |
 | `repeat` | int | The effective repeat count used (config default or `--repeat` override). |
 | `timeouts` | object | The effective arrive timeout and its four derived orchestrator deadlines, in milliseconds: `arrive_timeout_ms` (config default or resolved value), `block_inference_timeout_ms` (equal to `arrive_timeout_ms`), `step_timeout_ms` (20×), `run_timeout_ms` (60×), `stop_timeout_ms` (20×) — see [Timing](config.md#timing) for how these are derived. These deadlines affect terminal timing classifications and normalized fingerprints, and therefore potentially the `flaky` verdict, so they are snapshotted here even after the referenced config is edited or deleted. |
@@ -144,7 +144,7 @@ Diagnostic evidence names every artifact that supports the diagnostic;
 An assertion diagnostic always points at `observation.json`, because its
 violating rows exist in `assertion_violations`. It additionally points at
 `trace.json` only when the saved trace comes from a run where that assertion
-was violated. Engine-derived RG090 points only at `observation.json`, where
+was violated. Engine-derived WG090 points only at `observation.json`, where
 `fingerprints` and `discovery_fingerprint` record the determinism comparison;
 one trace cannot demonstrate that comparison.
 
@@ -203,13 +203,13 @@ deterministic set even though `scenario` and `observation` alone would be.
 ## `report.md`
 
 ```text
-## weavegate: FAIL (RG001)
+## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: invariant violated under a controlled schedule
+error[WG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
@@ -223,7 +223,7 @@ error[RG001]: invariant violated under a controlled schedule
 The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three
 verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). A stable
 violation appends its first violation code to `FAIL`. A flaky run appends
-RG090 to `FLAKY`, even when an RG001 block precedes RG090 in the body, because
+WG090 to `FLAKY`, even when a WG001 block precedes WG090 in the body, because
 the determinism failure takes verdict priority. Every diagnostic is rendered
 below the unchanged summary lines. An exhausted exploration with no diagnostic
 has the previous output shape and no `replay:` line because there is no

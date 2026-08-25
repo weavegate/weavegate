@@ -58,13 +58,13 @@ Run the CLI from either prepared directory:
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
     --scenario concurrent-assign --variant vulnerable
-## weavegate: FAIL (RG001)
+## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: invariant violated under a controlled schedule
+error[WG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
@@ -92,18 +92,18 @@ The database is not at fault — MySQL is behaving *as documented*: its own lock
 │ read request        │     │ 1. explore release-order schedules       │
 │   ● sync-point ─────┼────▶│ 2. force the interleaving, every time    │
 │ decide              │     │ 3. check SQL oracles on the real DB      │
-│   ● sync-point ─────┼────▶│ 4. violation → error[RG001] + evidence   │
+│   ● sync-point ─────┼────▶│ 4. violation → error[WG001] + evidence   │
 │ write assignment    │     │ 5. save the schedule → replay on demand  │
 └─────────────────────┘     └──────────────────────────────────────────┘
 ```
 
 - **Controlled replay** — named sync-points let weavegate control worker execution order. A violating schedule is saved as an artifact and can be re-run exactly: same schema, same seed, same schedule, same result (`repeat=20`, `flaky=false`).
 - **SQL assertion oracles** — you declare domain invariants as plain SQL assertions and retain the violating rows with the execution trace. No DSL to learn.
-- **Compiler-style diagnostics** — violations render as `error[RG001]` with observed state, broken invariant, likely reason, and suggested fixes.
+- **Compiler-style diagnostics** — violations render as `error[WG001]` with observed state, broken invariant, likely reason, and suggested fixes.
 - **CI evidence** — exit codes, `report.json`/`report.md`, and `trace.json` provide the verdict and its supporting artifacts today.
 - **Planned CI integration** — the `v0.2.0` roadmap adds a one-line GitHub Action and a PR comment with the replay command.
 
-See the full [RG001 reference](docs/reference/diagnostics/RG001.md), including
+See the full [WG001 reference](docs/reference/diagnostics/WG001.md), including
 what this code does not claim.
 
 After you fix the path with `SELECT ... FOR UPDATE`, replaying the **same
@@ -127,7 +127,7 @@ of these claims.
 
 | Milestone | Scope | Target |
 | --- | --- | --- |
-| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `RG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
+| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `WG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
 | `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Sep 2026 |
 | later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection | Q3–Q4 2026 |
 

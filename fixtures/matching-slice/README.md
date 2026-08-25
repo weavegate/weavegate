@@ -150,13 +150,13 @@ The vulnerable CLI run names that assertion result without any diagnostic key
 in the fixture configuration. Its saved `report.md` contains:
 
 ```text
-## weavegate: FAIL (RG001)
+## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: invariant violated under a controlled schedule
+error[WG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
