@@ -44,8 +44,8 @@ cd weavegate_*/
 export PATH="$PWD:$PATH"
 ```
 
-The archive contains the quick-start fixture. Full documentation and the
-sources for relative references remain in the
+The archive contains the quick-start fixture. Full [documentation](docs/README.md) and
+the sources for relative references remain in the
 [weavegate repository](https://github.com/weavegate/weavegate).
 
 ### Run the CLI

@@ -147,7 +147,7 @@ in commit [50064de](https://github.com/weavegate/weavegate/commit/50064de4b8b111
 ## Documentation is part of the change
 
 If a pull request changes a user-visible contract — a diagnostic code, a
-report or trace format, or a public interface — the documentation update for
+report or trace format, or a public interface — the [documentation](docs/README.md) update for
 that contract ships in the same pull request. Diagnostic codes and their
 reference pages are one-to-one: a diagnostic code without a reference page
 does not merge. The pull request template's `Docs` section is the checkpoint
