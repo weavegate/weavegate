@@ -82,7 +82,7 @@ func WriteRun(base string, run Run) (dir string, returnErr error) {
 	keepTemp := true
 	defer func() {
 		if keepTemp {
-			os.RemoveAll(tempDir)
+			_ = os.RemoveAll(tempDir)
 		}
 	}()
 

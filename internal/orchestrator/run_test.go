@@ -900,7 +900,7 @@ func (r *waitForNextPointOnReleaseRuntime) Release(
 	if workerID != r.workerID || point != r.releasePoint {
 		return nil
 	}
-	status, err := r.Runtime.WaitArrive(ctx, workerID, r.nextPoint, r.timeout)
+	status, err := r.WaitArrive(ctx, workerID, r.nextPoint, r.timeout)
 	if err != nil {
 		return err
 	}

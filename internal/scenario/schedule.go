@@ -98,7 +98,7 @@ func LoadScheduleFile(path string) (Schedule, error) {
 	if err != nil {
 		return Schedule{}, fmt.Errorf("load schedule file %q: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	schedule, err := LoadSchedule(file)
 	if err != nil {
@@ -164,8 +164,8 @@ func WriteScheduleFile(path string, schedule Schedule) error {
 	keepTemporary := true
 	defer func() {
 		if keepTemporary {
-			temporary.Close()
-			os.Remove(temporaryPath)
+			_ = temporary.Close()
+			_ = os.Remove(temporaryPath)
 		}
 	}()
 

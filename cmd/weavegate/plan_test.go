@@ -32,7 +32,7 @@ func TestRunPlanRejectsInputBeforeFixtureFactory(t *testing.T) {
 		t.Fatalf("create incompatible schedule: %v", err)
 	}
 	if err := scenario.WriteSchedule(file, incompatible); err != nil {
-		file.Close()
+		_ = file.Close()
 		t.Fatalf("write incompatible schedule: %v", err)
 	}
 	if err := file.Close(); err != nil {

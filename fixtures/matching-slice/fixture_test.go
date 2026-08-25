@@ -96,7 +96,7 @@ func assertMatchingSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	if err != nil {
 		t.Fatalf("query matching tables: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	engines := make(map[string]string)
 	for rows.Next() {
@@ -140,7 +140,7 @@ func assertAssignmentForeignKeys(t *testing.T, ctx context.Context, db *sql.DB) 
 	if err != nil {
 		t.Fatalf("query assignment foreign keys: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	references := make(map[string]string)
 	for rows.Next() {

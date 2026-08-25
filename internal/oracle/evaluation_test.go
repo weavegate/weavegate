@@ -286,7 +286,8 @@ func TestRejectsInvalidOracleSets(t *testing.T) {
 		!strings.Contains(err.Error(), "stable ID changed") {
 		t.Fatalf("changed stable ID error = %v", err)
 	}
-	if _, err := set.Evaluate(nil, nil, RunContext{}); err == nil {
+	var nilContext context.Context
+	if _, err := set.Evaluate(nilContext, nil, RunContext{}); err == nil {
 		t.Fatal("nil context error = nil")
 	}
 	var nilSet *Set

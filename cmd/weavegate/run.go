@@ -118,7 +118,7 @@ func runScenario(
 		if cleanupErr == nil {
 			return
 		}
-		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
+		_, _ = fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 
 		var exit *exitError
 		if errors.As(finalErr, &exit) {
@@ -171,7 +171,7 @@ func runScenario(
 	cleanupErr := cleanup.run()
 	cleanupDone = true
 	if cleanupErr != nil {
-		fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
+		_, _ = fmt.Fprintf(stderr, "weavegate: warning: cleanup failed: %v\n", cleanupErr)
 		manifest.CleanupFailed = true
 	}
 	semanticVerdict := ci.Verdict{
@@ -538,7 +538,7 @@ func reportRunFailure(stderr io.Writer, err error) error {
 	if errors.Is(err, context.Canceled) {
 		err = ci.InterruptedError(err)
 	}
-	fmt.Fprintf(stderr, "weavegate: %v\n", err)
+	_, _ = fmt.Fprintf(stderr, "weavegate: %v\n", err)
 	return &exitError{err: err}
 }
 

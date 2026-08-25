@@ -108,7 +108,7 @@ func ExecuteContext(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	var exit *exitError
 	if !errors.As(err, &exit) {
-		fmt.Fprintf(stderr, "weavegate: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "weavegate: %v\n", err)
 	}
 	return exitCodeFromError(err)
 }

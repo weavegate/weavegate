@@ -76,9 +76,12 @@ func (a *zeroRowAssertion) Evaluate(
 	if err != nil {
 		return nil, fmt.Errorf("evaluate SQL assertion %q: query: %w", a.id, err)
 	}
-	evidence, readErr := readRows(rows)
-	closeErr := rows.Close()
-	if readErr != nil || closeErr != nil {
+	var readErr error
+	defer func() {
+		closeErr := rows.Close()
+		if readErr == nil && closeErr == nil {
+			return
+		}
 		var joined error
 		if readErr != nil {
 			joined = errors.Join(joined, fmt.Errorf("read evidence: %w", readErr))
@@ -86,7 +89,17 @@ func (a *zeroRowAssertion) Evaluate(
 		if closeErr != nil {
 			joined = errors.Join(joined, fmt.Errorf("close rows: %w", closeErr))
 		}
-		return nil, fmt.Errorf("evaluate SQL assertion %q: %w", a.id, joined)
+		violations = nil
+		returnErr = errors.Join(
+			returnErr,
+			fmt.Errorf("evaluate SQL assertion %q: %w", a.id, joined),
+		)
+	}()
+
+	evidence, readErr := readRows(rows)
+	if readErr != nil {
+		// The deferred closer reports the read error together with any close error.
+		return
 	}
 
 	if len(evidence) == 0 {

@@ -149,7 +149,8 @@ func TestSQLAssertionRejectsInvalidConstructorAndInputs(t *testing.T) {
 	}
 
 	assertion := mustZeroRow(t, "input-check", "SELECT 1")
-	if _, err := assertion.Evaluate(nil, nil, oracle.RunContext{}); err == nil {
+	var nilContext context.Context
+	if _, err := assertion.Evaluate(nilContext, nil, oracle.RunContext{}); err == nil {
 		t.Fatal("nil context error = nil")
 	}
 	if _, err := assertion.Evaluate(context.Background(), nil, oracle.RunContext{}); err == nil {
