@@ -257,6 +257,11 @@ jobs:
           bash scripts/diagnostic-namespace.sh .
           echo 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files'
 
+      - name: Check the documentation index
+        run: |
+          bash scripts/docs-index.sh --self-test
+          bash scripts/docs-index.sh .
+
       - name: Check the release notes date guard
         run: |
           work_dir=$(mktemp -d)
