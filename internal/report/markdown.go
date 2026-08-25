@@ -59,12 +59,12 @@ func renderMarkdown(run Run) string {
 }
 
 // headlineDiagnosticCode follows verdict priority rather than diagnostic list
-// order. RG090 is rendered last in the body, but a flaky verdict must name the
+// order. WG090 is rendered last in the body, but a flaky verdict must name the
 // determinism failure that made the run untrustworthy.
 func headlineDiagnosticCode(run Run) string {
 	if run.Flaky {
 		for _, diagnostic := range run.Observation.Diagnostics {
-			if diagnostic.Code == "RG090" {
+			if diagnostic.Code == "WG090" {
 				return diagnostic.Code
 			}
 		}

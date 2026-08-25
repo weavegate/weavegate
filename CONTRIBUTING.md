@@ -153,6 +153,9 @@ reference pages are one-to-one: a diagnostic code without a reference page
 does not merge. The pull request template's `Docs` section is the checkpoint
 for this rule.
 
+The diagnostic prefix is `WG`; every new code ships with a matching
+`docs/reference/diagnostics/WGxxx.md` page.
+
 ## Contributing a fixture
 
 A fixture is data, not engine code. If adding a fixture seems to require an
@@ -189,7 +192,7 @@ decision requires a human to inspect the complete behavior.
 
 1. Build the CLI from the exact commit to be tagged.
 2. Replay the vulnerable matching-slice schedule and confirm the expected
-   `RG001` diagnostic, violating rows, trace, and exit 2.
+   `WG001` diagnostic, violating rows, trace, and exit 2.
 3. Replay that same schedule against the `SELECT ... FOR UPDATE` variant and
    confirm PASS with exit 0. This is the required vulnerable → diagnostic → fix
    → PASS inspection.

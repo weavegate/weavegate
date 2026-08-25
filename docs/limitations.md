@@ -71,13 +71,13 @@ It includes normalized trace events and worker terminal states, including
 timeout-derived database-blocked classifications. Effective deadlines can
 therefore change fingerprints and the resulting flaky verdict. The boundary of
 what that diagnostic does not claim is described in the
-[RG090 reference](reference/diagnostics/RG090.md#what-this-code-does-not-claim).
+[WG090 reference](reference/diagnostics/WG090.md#what-this-code-does-not-claim).
 
 ## Diagnostic codes are broad classifications
 
 A diagnostic code does not uniquely identify a root cause. Every SQL assertion
-violation currently maps to `RG001`, regardless of the assertion's more specific
+violation currently maps to `WG001`, regardless of the assertion's more specific
 domain meaning; the configured Oracle and captured rows provide that detail.
 The current classification resolution and non-claims are recorded in the
-[RG001 reference](reference/diagnostics/RG001.md#what-this-code-does-not-claim) and
+[WG001 reference](reference/diagnostics/WG001.md#what-this-code-does-not-claim) and
 [ADR 0006](adr/0006-diagnostic-mapping-key.md).

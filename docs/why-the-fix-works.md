@@ -12,7 +12,7 @@ pending below.
 
 | Fixture | Anomaly | Oracle | Controlled coverage | Fix evidence |
 | --- | --- | --- | --- | --- |
-| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | `active-assignment-is-unique` SQL assertion → RG001 | Six candidates; vulnerable violations reproduced 20/20 | Same six candidates × 5 fixed sweeps PASS |
+| [matching-slice](../fixtures/matching-slice/README.md) | Duplicate active assignment | `active-assignment-is-unique` SQL assertion → WG001 | Six candidates; vulnerable violations reproduced 20/20 | Same six candidates × 5 fixed sweeps PASS |
 
 ## Matching slice
 
@@ -84,7 +84,7 @@ another session or assignment.
   replayed 20/20 times with a violation and the same fingerprint measured
   during discovery.
 - The CLI classified that assertion violation as
-  [RG001](reference/diagnostics/RG001.md), saved it in `observation.json`, and
+  [WG001](reference/diagnostics/WG001.md), saved it in `observation.json`, and
   rendered the same block in `report.md` without a fixture config change.
 - A non-stopping census ran all six vulnerable candidates three times and
   observed the same six violating candidates in each repeat.

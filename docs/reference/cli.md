@@ -82,13 +82,13 @@ portable file in stage ②.
 ```console
 $ weavegate run --config fixtures/matching-slice/.weavegate/config.yaml \
     --scenario concurrent-assign --variant vulnerable
-## weavegate: FAIL (RG001)
+## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: invariant violated under a controlled schedule
+error[WG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
@@ -141,13 +141,13 @@ invalid ID, or unknown format exits 5.
 
 ```console
 $ weavegate report --format md
-## weavegate: FAIL (RG001)
+## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
 replay: weavegate run --config fixtures/matching-slice/.weavegate/config.yaml --scenario concurrent-assign --variant vulnerable --replay sch_7dcb74b1e506 --repeat 20
 
-error[RG001]: invariant violated under a controlled schedule
+error[WG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
   assertion: active-assignment-is-unique
   invariant: a declared state invariant must hold under every release schedule the database permits
@@ -160,7 +160,7 @@ error[RG001]: invariant violated under a controlled schedule
 
 Because `report` streams the stored artifact, this diagnostic is the same block
 written by `run`, not a second rendering. Longer explanations live under
-[`docs/reference/diagnostics/`](diagnostics/RG001.md).
+[`docs/reference/diagnostics/`](diagnostics/WG001.md).
 
 ## Global behavior
 
@@ -168,9 +168,9 @@ written by `run`, not a second rendering. Longer explanations live under
 - An unknown subcommand or an unknown flag exits 5 with a one-line message on
   stderr; Cobra's usage dump is suppressed so the error message stays short.
 - Verdict output goes to stdout. `run` streams the stored `report.md` bytes,
-  including RG diagnostic blocks such as `error[RG001]`, then prints the run
+  including WG diagnostic blocks such as `error[WG001]`, then prints the run
   directory path as its final line. `report` streams the artifact selected by
-  `--format`: `report.json` by default, or `report.md` with `--format md`; RG
+  `--format`: `report.json` by default, or `report.md` with `--format md`; WG
   diagnostic blocks are part of its Markdown output.
 - Operational messages, including invalid input, fixture failures, and cleanup
   warnings, go to stderr.

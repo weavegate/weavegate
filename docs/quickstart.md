@@ -60,11 +60,11 @@ same request. The following excerpt is captured output; the run directory is a
 volatile identifier and will differ:
 
 ```text
-## weavegate: FAIL (RG001)
+## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
 assertion: active-assignment-is-unique
 flaky: false (repeat=20)
-error[RG001]: invariant violated under a controlled schedule
+error[WG001]: invariant violated under a controlled schedule
   observed:  active-assignment-is-unique returned 1 row: active_assignment_count=2 project_request_id=42
 ```
 
@@ -109,5 +109,5 @@ $ echo $?
 Expected exit code: `0`. The schedule that deterministically violated the
 invariant now passes on every replay. See the
 [determinism experiment](experiments/determinism.md#repeated-result) for the
-recorded evidence and [RG001](reference/diagnostics/RG001.md) for the diagnostic
+recorded evidence and [WG001](reference/diagnostics/WG001.md) for the diagnostic
 contract.

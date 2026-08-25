@@ -28,4 +28,4 @@ workflow fails before publication if the placeholder remains.
 - Three-step replay lookup across saved run evidence, portable files under
   `<out>/schedules/`, and schedules built into the selected entrypoint, so an
   unchanged replay line can travel without its original run directory.
-- `RG001` assertion-violation and `RG090` determinism diagnostics.
+- `WG001` assertion-violation and `WG090` determinism diagnostics.

@@ -11,14 +11,14 @@ import (
 
 func TestDiagnosticTypeContract(t *testing.T) {
 	valid := Rule{
-		Code: RG("RG001"), Severity: SeverityError,
+		Code: WG("WG001"), Severity: SeverityError,
 		Triggers: []Trigger{TriggerOracleAssertion},
 		Title:    "title", Invariant: "invariant", Reason: "reason", Help: []string{"help"},
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("validate complete rule: %v", err)
 	}
-	for _, code := range []Code{"RG01", "rg001", "RG0001", "RGABC"} {
+	for _, code := range []Code{"WG01", "wg001", "WG0001", "WGABC"} {
 		if ValidateCode(code) == nil {
 			t.Fatalf("ValidateCode(%q) succeeded", code)
 		}
@@ -42,7 +42,7 @@ func TestDiagnosticTypeContract(t *testing.T) {
 	}
 
 	diagnostic := Diagnostic{
-		Code: "RG001", Severity: SeverityError, Title: "title", Observed: "observed",
+		Code: "WG001", Severity: SeverityError, Title: "title", Observed: "observed",
 		Assertion: "check", Invariant: "invariant", Reason: "reason", Help: []string{"help"},
 		Evidence: Evidence{ScheduleRef: "sch_1", Rows: 1, EvidenceSets: 2, Trace: "trace.json"},
 	}
@@ -61,4 +61,4 @@ func TestDiagnosticTypeContract(t *testing.T) {
 	fmt.Println("DIAGNOSTIC_TYPE_RESULT code_grammar=strict severity=error trigger_vocabulary=closed implemented_triggers=2 reserved_triggers=5 required_fields=enforced empty_help=error empty_triggers=error kind_mapping=oracle_kind json_shape=spec9")
 }
 
-func RG(value string) Code { return Code(value) }
+func WG(value string) Code { return Code(value) }

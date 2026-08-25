@@ -30,7 +30,7 @@ func TestDeriveContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || got[0].Assertion != "first" || got[1].Assertion != "second" || got[2].Code != "RG090" {
+	if len(got) != 3 || got[0].Assertion != "first" || got[1].Assertion != "second" || got[2].Code != "WG090" {
 		t.Fatalf("diagnostics = %#v", got)
 	}
 	if got[1].Evidence.Rows != 1 || got[1].Evidence.EvidenceSets != 2 ||
@@ -186,7 +186,7 @@ func TestDeriveDescribesDiscoveryReplayMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Code != "RG090" ||
+	if len(got) != 1 || got[0].Code != "WG090" ||
 		got[0].Observed != "the discovery fingerprint differs from the replay fingerprint" {
 		t.Fatalf("diagnostics = %#v", got)
 	}
@@ -205,7 +205,7 @@ func TestDerivePreservesFlakyVerdictWithoutDetailedDivergence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Code != "RG090" ||
+	if len(got) != 1 || got[0].Code != "WG090" ||
 		got[0].Observed != "the determinism check reported divergent normalized results" {
 		t.Fatalf("diagnostics = %#v", got)
 	}
