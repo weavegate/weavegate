@@ -75,6 +75,9 @@ jobs:
           printf '## Engine coverage\n\n- `./internal/...`: %s\n' "$coverage" >> "$GITHUB_STEP_SUMMARY"
           printf 'COVERAGE_RESULT scope=internal total=%s\n' "$coverage"
 
+      - name: Check the published coverage badge
+        run: bash scripts/coverage-badge.sh --check
+
       - name: Assert the fixture invariants
         run: |
           grep -F 'MATCHING_FIXTURE_RESULT request_id=42 project_requests=1 matching_sessions=0 assignments=0 reset=true' fixture.log
