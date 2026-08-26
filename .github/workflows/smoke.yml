@@ -253,9 +253,34 @@ jobs:
 
       - name: Check the diagnostic namespace
         run: |
-          bash scripts/diagnostic-namespace.sh --self-test
-          bash scripts/diagnostic-namespace.sh .
-          echo 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files'
+          bash scripts/diagnostic-namespace.sh --self-test | tee /tmp/diagnostic-namespace-selftest.out
+          for marker in GATE_BITES BARE_RG_CAUGHT LOWER_RG_CAUGHT; do
+            grep -qF "$marker" /tmp/diagnostic-namespace-selftest.out
+          done
+          bash scripts/diagnostic-namespace.sh . | tee /tmp/diagnostic-namespace.out
+          grep -qF 'DIAGNOSTIC_NAMESPACE_RESULT prefix=WG legacy=rejected scope=tracked_files' \
+            /tmp/diagnostic-namespace.out
+
+      - name: Check the documentation index
+        run: |
+          bash scripts/docs-index.sh --self-test | tee /tmp/docs-index-selftest.out
+          for marker in MISSING_FROM_INDEX_CAUGHT GHOST_ENTRY_CAUGHT \
+            DUPLICATE_ENTRY_CAUGHT MARKER_TRACKS_COUNT ASSET_IGNORED NUL_INVENTORY_SAFE \
+            FENCED_EXAMPLE_IGNORED TILDE_FENCE_IGNORED LONG_FENCE_IGNORED \
+            INDENTED_CLOSER_IGNORED INLINE_SPAN_IGNORED TITLED_LINK_INDEXED \
+            DOTSLASH_NORMALIZED UTF8_DEST_NORMALIZED \
+            ANGLE_DEST_INDEXED GHOST_STILL_BITES UNCLOSED_FENCE_STILL_BITES \
+            INDEX_MISSING_CAUGHT INDEX_UNTRACKED_CAUGHT EMPTY_TREE_CAUGHT \
+            FENCED_COMMENT_IGNORED COMMENTED_FENCE_IGNORED \
+            MISSING_DESCRIPTION_CAUGHT MALFORMED_ENTRY_DISTINCT \
+            INDENTED_BLOCK_IGNORED CONTROL_ESCAPE_CAUGHT RAW_HTML_ENTRY_IGNORED \
+            RAW_HTML_TYPES_IGNORED ESCAPED_LABEL_REJECTED MARKDOWN_ESCAPE_NORMALIZED \
+            PERCENT_DEST_NORMALIZED PERCENT_FILENAME_CAUGHT; do
+            grep -qF "$marker" /tmp/docs-index-selftest.out
+          done
+          bash scripts/docs-index.sh . | tee /tmp/docs-index.out
+          grep -Eq '^DOCS_INDEX_RESULT pages=[0-9]+ indexed=[0-9]+ orphans=0 ghosts=0 duplicates=0$' \
+            /tmp/docs-index.out
 
       - name: Check the release notes date guard
         run: |

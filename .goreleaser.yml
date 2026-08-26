@@ -27,6 +27,7 @@ archives:
       - README.md
       - CHANGELOG.md
       - NOTICE
+      - docs/
       - fixtures/matching-slice/.weavegate/config.yaml
       - fixtures/matching-slice/db/migration/001_schema.sql
       - fixtures/matching-slice/db/seed.sql

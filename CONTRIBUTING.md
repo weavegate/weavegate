@@ -147,11 +147,25 @@ in commit [50064de](https://github.com/weavegate/weavegate/commit/50064de4b8b111
 ## Documentation is part of the change
 
 If a pull request changes a user-visible contract — a diagnostic code, a
-report or trace format, or a public interface — the documentation update for
+report or trace format, or a public interface — the [documentation](docs/README.md) update for
 that contract ships in the same pull request. Diagnostic codes and their
 reference pages are one-to-one: a diagnostic code without a reference page
 does not merge. The pull request template's `Docs` section is the checkpoint
 for this rule.
+
+A pull request that adds a Markdown page under `docs/` must include one
+corresponding top-level line in `docs/README.md` with the form
+`- [title](path.md) — description`; the smoke workflow enforces this inventory
+rule, including a nonempty description. A direct Markdown list link with the
+wrong separator or indentation is rejected as a malformed entry. Reference-style
+links and links that occur mid-line are outside the index entry contract and do
+not satisfy the inventory requirement. Percent escapes in destinations are
+decoded, so tracked Markdown page paths under `docs/` must not contain a literal
+`%`, which would make encoded and literal destinations ambiguous. Tracked page
+paths must not contain ASCII control characters, which cannot be represented by
+the guard's one-line index-entry contract. CommonMark backslash escapes in link
+destinations are normalized before comparison; percent-encode a literal
+backslash when it precedes escapable punctuation in a tracked filename.
 
 The diagnostic prefix is `WG`; every new code ships with a matching
 `docs/reference/diagnostics/WGxxx.md` page.
