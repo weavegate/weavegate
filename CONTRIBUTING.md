@@ -156,8 +156,12 @@ for this rule.
 A pull request that adds a Markdown page under `docs/` must include one
 corresponding top-level line in `docs/README.md` with the form
 `- [title](path.md) — description`; the smoke workflow enforces this inventory
-rule. Reference-style links and links that occur mid-line are outside the index
-entry contract and do not satisfy the inventory requirement.
+rule, including a nonempty description. A direct Markdown list link with the
+wrong separator or indentation is rejected as a malformed entry. Reference-style
+links and links that occur mid-line are outside the index entry contract and do
+not satisfy the inventory requirement. Percent escapes in destinations are
+decoded, so tracked Markdown page paths under `docs/` must not contain a literal
+`%`, which would make encoded and literal destinations ambiguous.
 
 The diagnostic prefix is `WG`; every new code ships with a matching
 `docs/reference/diagnostics/WGxxx.md` page.
