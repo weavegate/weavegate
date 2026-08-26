@@ -1,13 +1,28 @@
-# weavegate
+<p align="center">
+  <img src="https://github.com/weavegate.png?size=160" width="120" alt="weavegate organization mark">
+</p>
 
-> Deterministically replay the DB race, gate the deploy.
+<h1 align="center">weavegate</h1>
+
+<p align="center">
+  Deterministically replay the DB race, gate the deploy.
+</p>
+
+<p align="center">
+  <a href="https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain"><img alt="smoke" src="https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main"></a>
+  <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+  <img alt="database" src="https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey">
+  <img alt="coverage" src="https://img.shields.io/badge/coverage-88%25-brightgreen">
+</p>
+
+<p align="center">
+  <a href="#run-the-cli">Run the CLI</a> ·
+  <a href="docs/quickstart.md">Quickstart</a> ·
+  <a href="docs/architecture.md">Architecture</a> ·
+  <a href="docs/limitations.md">Limitations</a>
+</p>
 
 Your integration tests hit this bug by luck. **weavegate** hits it every time — and proves your fix closes it. This replay gate currently runs against a Go-native reference SUT; a Spring Boot adapter is planned for `v0.2.0`.
-
-[![smoke](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain)
-![license](https://img.shields.io/badge/license-Apache--2.0-blue)
-![db](https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey)
-![coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)
 
 > ⚠️ **Pre-release.** The `weavegate run` and `weavegate report` commands can be
 > run from a source checkout or a release archive that includes the reference
