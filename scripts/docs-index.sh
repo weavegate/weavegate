@@ -18,20 +18,104 @@ extract_index_entries() {
       return run_length - 1
     }
 
-    function raw_html_type_one_tag(text, lower, tags, count, offset, tag) {
+    function html_tag_name(text, lower, start, offset, character) {
       lower = tolower(text)
-      tags[1] = "pre"
-      tags[2] = "script"
-      tags[3] = "style"
-      tags[4] = "textarea"
-      count = 4
-      for (offset = 1; offset <= count; offset++) {
-        tag = tags[offset]
-        if (lower ~ "^<" tag "([[:space:]>]|$)") {
-          return tag
+      if (substr(lower, 1, 2) == "</") {
+        start = 3
+      } else if (substr(lower, 1, 1) == "<") {
+        start = 2
+      } else {
+        return ""
+      }
+      for (offset = start; offset <= length(lower); offset++) {
+        character = substr(lower, offset, 1)
+        if (character !~ /[a-z0-9-]/) {
+          break
         }
       }
-      return ""
+      return substr(lower, start, offset - start)
+    }
+
+    function raw_html_start(text, allow_type_seven, lower, tag, block_tags) {
+      lower = tolower(text)
+      tag = html_tag_name(text)
+      raw_html_blank = 0
+      raw_html_terminator = ""
+
+      if (substr(lower, 1, 2) != "</" &&
+          (tag == "pre" || tag == "script" || tag == "style" ||
+           tag == "textarea") &&
+          lower ~ "^<" tag "([[:space:]>]|$)") {
+        raw_html_terminator = "</" tag ">"
+        return 1
+      }
+      if (substr(text, 1, 2) == "<?") {
+        raw_html_terminator = "?>"
+        return 1
+      }
+      if (text ~ /^<![A-Z]/) {
+        raw_html_terminator = ">"
+        return 1
+      }
+      if (substr(lower, 1, 9) == "<![cdata[") {
+        raw_html_terminator = "]]>"
+        return 1
+      }
+
+      block_tags = " address article aside base basefont blockquote body caption center"
+      block_tags = block_tags " col colgroup dd details dialog dir div dl dt fieldset"
+      block_tags = block_tags " figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6"
+      block_tags = block_tags " head header hr html iframe legend li link main menu menuitem nav"
+      block_tags = block_tags " noframes ol optgroup option p param search section summary table"
+      block_tags = block_tags " tbody td tfoot th thead title tr track ul "
+      if (tag != "" && index(block_tags, " " tag " ") &&
+          lower ~ "^</?" tag "([[:space:]/>]|$)") {
+        raw_html_blank = 1
+        return 1
+      }
+      if (allow_type_seven && text ~ /^<\/?[A-Za-z][^>]*>[[:space:]]*$/) {
+        raw_html_blank = 1
+        return 1
+      }
+      return 0
+    }
+
+    function link_label_end(text, offset, character, slash_count, scan) {
+      if (text !~ /^[[:space:]]*- \[/) {
+        return 0
+      }
+      match(text, /^[[:space:]]*/)
+      for (offset = RLENGTH + 4; offset <= length(text); offset++) {
+        character = substr(text, offset, 1)
+        if (character != "]" || substr(text, offset + 1, 1) != "(") {
+          continue
+        }
+        slash_count = 0
+        for (scan = offset - 1; scan >= 1 && substr(text, scan, 1) == "\\"; scan--) {
+          slash_count++
+        }
+        if (slash_count % 2 == 0) {
+          return offset
+        }
+      }
+      return 0
+    }
+
+    function markdown_unescape(text, unescaped, punctuation, offset, character, next_character) {
+      unescaped = ""
+      punctuation = "!\"#$%&\047()*+,-./:;<=>?@[\\]^_`{|}~"
+      for (offset = 1; offset <= length(text); offset++) {
+        character = substr(text, offset, 1)
+        next_character = substr(text, offset + 1, 1)
+        if (character == "\\" && next_character != "" &&
+            index(punctuation, next_character)) {
+          unescaped = unescaped next_character
+          offset++
+        } else {
+          unescaped = unescaped character
+        }
+      }
+      return unescaped
     }
 
     function without_comments(text, visible, opening, closing) {
@@ -93,6 +177,9 @@ extract_index_entries() {
 
     {
       original = $0
+      preceded_by_blank = (NR == 1 || previous_blank)
+      current_blank = (original ~ /^[[:space:]]*$/)
+      previous_blank = current_blank
 
       if (fence) {
         match(original, /^ */)
@@ -106,9 +193,13 @@ extract_index_entries() {
         next
       }
 
-      if (raw_html_tag != "") {
-        if (index(tolower(original), "</" raw_html_tag ">")) {
-          raw_html_tag = ""
+      if (raw_html) {
+        if (raw_html_blank) {
+          if (current_blank) {
+            raw_html = 0
+          }
+        } else if (index(tolower(original), raw_html_terminator)) {
+          raw_html = 0
         }
         next
       }
@@ -128,20 +219,18 @@ extract_index_entries() {
         next
       }
 
-      raw_html_tag = ""
-      if (indentation <= 3) {
-        raw_html_tag = raw_html_type_one_tag(rest)
-      }
-      if (raw_html_tag != "") {
+      if (indentation <= 3 && raw_html_start(rest, preceded_by_blank)) {
+        raw_html = 1
         comment = 0
-        if (index(tolower(rest), "</" raw_html_tag ">")) {
-          raw_html_tag = ""
+        if (!raw_html_blank && index(tolower(rest), raw_html_terminator)) {
+          raw_html = 0
         }
         next
       }
 
-      if (original !~ /^[[:space:]]*- \[[^]]+\]\(/ ||
-          line !~ /^[[:space:]]*- \[[^]]+\]\(/) {
+      original_label_end = link_label_end(original)
+      line_label_end = link_label_end(line)
+      if (!original_label_end || !line_label_end) {
         next
       }
       if (indentation >= 4) {
@@ -152,8 +241,7 @@ extract_index_entries() {
         next
       }
 
-      value = line
-      sub(/^- \[[^]]+\]\(/, "", value)
+      value = substr(line, line_label_end + 2)
       if (!sub(/\)[[:space:]]+—[[:space:]]+[^[:space:]].*$/, "", value)) {
         malformed("entry requires a nonempty em-dash description")
         next
@@ -186,6 +274,7 @@ extract_index_entries() {
         next
       }
 
+      destination = markdown_unescape(destination)
       sub(/#.*/, "", destination)
       destination = percent_decode(destination)
       if (percent_error == 1) {
@@ -573,6 +662,52 @@ run_self_test() {
   git -C "$self_test_root" add docs/README.md
   check_index "$self_test_root" > /dev/null
   echo 'RAW_HTML_ENTRY_IGNORED'
+
+  printf '# index\n\n- [a](a.md) — a\n\n<table>\n- [b](b.md) — hidden\n</table>\n\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard accepted an entry inside a block-tag HTML block' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'docs/b.md'* ]]
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n\n<!--\n- [ghost](ghost.md) — hidden\n-->\n\n<?process\n- [ghost](ghost.md) — hidden\n?>\n\n<!A declaration\n- [ghost](ghost.md) — hidden\n>\n\n<![CDATA[\n- [ghost](ghost.md) — hidden\n]]>\n\n<table>\n- [ghost](ghost.md) — hidden\n</table>\n\n<x-widget>\n- [ghost](ghost.md) — hidden\n</x-widget>\n\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'RAW_HTML_TYPES_IGNORED'
+
+  printf '# index\n\n- [not a link\\](a.md) — hidden\n- [b](b.md) — b\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard accepted an escaped label closer as navigation' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'docs/a.md'* ]]
+  printf '# index\n\n- [a\\] label](a.md) — a\n- [b](b.md) — b\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'ESCAPED_LABEL_REJECTED'
+
+  printf '# hidden\n' > "$self_test_root/docs/hidden.md"
+  printf '# backslash hidden\n' > "$self_test_root/docs/hidden\\.md"
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n- [plain](hidden.md) — plain\n- [escaped](hidden\\.md) — escaped\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md docs/hidden.md 'docs/hidden\.md'
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard accepted two source destinations with one rendered target' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'duplicate documentation index entries:'* ]]
+  [[ "$output_one" == *'docs/hidden.md'* ]]
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n- [plain](hidden.md) — plain\n- [backslash](hidden%%5C.md) — backslash\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  git -C "$self_test_root" rm -q -f -- docs/hidden.md 'docs/hidden\.md'
+  echo 'MARKDOWN_ESCAPE_NORMALIZED'
 
   printf '# c-sharp guide\n' > "$self_test_root/docs/c#-guide.md"
   printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n- [c](c%%23-guide.md) — c\n' \
