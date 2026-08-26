@@ -46,7 +46,7 @@ extract_index_entries() {
       return index("0123456789abcdef", character) - 1
     }
 
-    function percent_decode(text, decoded, offset, high, low) {
+    function percent_decode(text, decoded, offset, high, low, byte) {
       decoded = ""
       percent_error = 0
       for (offset = 1; offset <= length(text); offset++) {
@@ -60,7 +60,12 @@ extract_index_entries() {
           percent_error = 1
           return ""
         }
-        decoded = decoded sprintf("%c", high * 16 + low)
+        byte = high * 16 + low
+        if (byte < 32 || byte == 127) {
+          percent_error = 2
+          return ""
+        }
+        decoded = decoded sprintf("%c", byte)
         offset += 2
       }
       return decoded
@@ -104,6 +109,9 @@ extract_index_entries() {
           line !~ /^[[:space:]]*- \[[^]]+\]\(/) {
         next
       }
+      if (indentation >= 4) {
+        next
+      }
       if (line !~ /^- /) {
         malformed("entry must be a top-level list item")
         next
@@ -145,8 +153,12 @@ extract_index_entries() {
 
       sub(/#.*/, "", destination)
       destination = percent_decode(destination)
-      if (percent_error) {
+      if (percent_error == 1) {
         malformed("destination contains an invalid percent escape")
+        next
+      }
+      if (percent_error == 2) {
+        malformed("destination contains a percent-encoded control character")
         next
       }
       sub(/^\.\//, "", destination)
@@ -455,6 +467,24 @@ run_self_test() {
   [[ "$output_one" == *'entry must be a top-level list item'* ]]
   [[ "$output_one" != *'tracked documentation missing from top-level index entries'* ]]
   echo 'MALFORMED_ENTRY_DISTINCT'
+
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n\n    - [example](missing.md) — example\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'INDENTED_BLOCK_IGNORED'
+
+  printf '# c\n' > "$self_test_root/docs/c.md"
+  printf '# index\n\n- [a](a.md) — a\n- [both](b.md%%0APATH%%09docs/c.md) — b\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md docs/c.md
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard accepted a percent-decoded record injection' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'destination contains a percent-encoded control character'* ]]
+  echo 'CONTROL_ESCAPE_CAUGHT'
+  git -C "$self_test_root" rm -q -f docs/c.md
 
   printf '# c-sharp guide\n' > "$self_test_root/docs/c#-guide.md"
   printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n- [c](c%%23-guide.md) — c\n' \
