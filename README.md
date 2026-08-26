@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="https://github.com/weavegate.png?size=160" width="120" alt="weavegate organization mark">
+  <img src="assets/logos/logo-horizontal.svg" width="310" alt="weavegate">
 </p>
-
-<h1 align="center">weavegate</h1>
 
 <p align="center">
   Deterministically replay the DB race, gate the deploy.
