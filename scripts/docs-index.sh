@@ -22,12 +22,107 @@ check_index() {
       | sort
   )
   mapfile -t index_paths < <(
-    awk '/^[[:space:]]*```/ { fence = !fence; next } fence { next }
-         /<!--/ { comment = 1 } comment { if (/-->/) comment = 0; next } { print }' \
-      "$repository_root/docs/README.md" \
-      | grep -oE '\]\([^)]+\.md(#[^)]*)?\)' \
-      | sed -E 's/^\]\(//; s/#[^)]*//; s/\)$//' \
-      | sed 's#^#docs/#' \
+    awk '
+      function fence_run(text, character, run_length) {
+        character = substr(text, 1, 1)
+        if (character != "`" && character != "~") {
+          return 0
+        }
+        for (run_length = 1; substr(text, run_length, 1) == character; run_length++) {
+        }
+        return run_length - 1
+      }
+
+      function without_comments(text, visible, opening, closing) {
+        visible = ""
+        while (1) {
+          if (comment) {
+            closing = index(text, "-->")
+            if (!closing) {
+              return visible
+            }
+            text = substr(text, closing + 3)
+            visible = visible " "
+            comment = 0
+          }
+
+          opening = index(text, "<!--")
+          if (!opening) {
+            return visible text
+          }
+          visible = visible substr(text, 1, opening - 1) " "
+          text = substr(text, opening + 4)
+          comment = 1
+        }
+      }
+
+      {
+        line = without_comments($0)
+        match(line, /^ */)
+        indentation = RLENGTH
+        rest = substr(line, indentation + 1)
+        run = fence_run(rest)
+
+        if (fence) {
+          if (substr(rest, 1, 1) == fence_character &&
+              run >= fence_length && substr(rest, run + 1) ~ /^[[:space:]]*$/) {
+            fence = 0
+          }
+          next
+        }
+
+        if (indentation <= 3 && run >= 3 &&
+            (substr(rest, 1, 1) == "~" || substr(rest, run + 1) !~ /`/)) {
+          fence = 1
+          fence_character = substr(rest, 1, 1)
+          fence_length = run
+          next
+        }
+
+        print line
+      }
+    ' "$repository_root/docs/README.md" \
+      | grep -E '^- \[[^]]+\]\(' \
+      | awk '
+        {
+          value = $0
+          sub(/^- \[[^]]+\]\(/, "", value)
+          if (!sub(/\)[[:space:]]*(—.*)?$/, "", value)) {
+            next
+          }
+
+          if (substr(value, 1, 1) == "<") {
+            closing = index(value, ">")
+            if (!closing) {
+              next
+            }
+            destination = substr(value, 2, closing - 2)
+            title = substr(value, closing + 1)
+          } else {
+            match(value, /[[:space:]]/)
+            if (RSTART) {
+              destination = substr(value, 1, RSTART - 1)
+              title = substr(value, RSTART + 1)
+            } else {
+              destination = value
+              title = ""
+            }
+          }
+
+          sub(/^[[:space:]]+/, "", title)
+          sub(/[[:space:]]+$/, "", title)
+          if (title != "" && title !~ /^"[^"]*"$/ &&
+              title !~ /^\047[^\047]*\047$/ && title !~ /^\([^()]*\)$/) {
+            next
+          }
+
+          sub(/#.*/, "", destination)
+          sub(/^\.\//, "", destination)
+          if (destination ~ /\.md$/) {
+            print "docs/" destination
+          }
+        }
+      ' \
       | sort
   )
 
@@ -45,7 +140,9 @@ check_index() {
     <(printf '%s\n' "${index_paths[@]}"))
 
   if [[ -n "$orphan_paths" ]]; then
-    printf 'tracked documentation missing from index:\n%s\n' "$orphan_paths" >&2
+    printf '%s\n%s\n' \
+      'tracked documentation missing from top-level index entries (expected `- [title](path.md) — description`; reference-style and mid-line links are not index entries):' \
+      "$orphan_paths" >&2
   fi
   if [[ -n "$ghost_paths" ]]; then
     printf 'documentation index entries missing from tree:\n%s\n' "$ghost_paths" >&2
@@ -116,6 +213,65 @@ run_self_test() {
   git -C "$self_test_root" add docs/README.md
   check_index "$self_test_root" > /dev/null
   echo 'FENCED_EXAMPLE_IGNORED'
+
+  printf '# index\n\n- [a](a.md)\n- [b](b.md)\n\n~~~text\n- [example](missing.md)\n~~~\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'TILDE_FENCE_IGNORED'
+
+  printf '# index\n\n- [a](a.md)\n- [b](b.md)\n\n````text\n```text\n- [example](missing.md)\n```\n````\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'LONG_FENCE_IGNORED'
+
+  printf '# index\n\n- [a](a.md)\n- [b](b.md)\n\nFormat: `- [example](missing.md)`\n\n[example][ref]\n[ref]: missing.md\n\n<!-- note --> - [example](missing.md)\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'INLINE_SPAN_IGNORED'
+
+  printf '# index\n\n- [a](a.md "title")\n- [b](b.md)\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  printf "# index\n\n- [a](a.md 'title')\n- [b](b.md)\n" \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  printf '# index\n\n- [a](a.md (title))\n- [b](b.md)\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'TITLED_LINK_INDEXED'
+
+  printf '# index\n\n- [a](./a.md#section)\n- [b](b.md)\n' > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'DOTSLASH_NORMALIZED'
+
+  printf '# index\n\n- [a](<a.md>)\n- [b](b.md)\n' > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'ANGLE_DEST_INDEXED'
+
+  printf '# index\n\n- [a](a.md)\n- [b](b.md)\n- [ghost](ghost.md)\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  if check_index "$self_test_root" > /dev/null 2>&1; then
+    echo 'docs index guard stopped rejecting an ordinary ghost entry' >&2
+    return 1
+  fi
+  echo 'GHOST_STILL_BITES'
+
+  printf '# index\n\n```text\n- [a](a.md)\n- [b](b.md)\n' > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  if check_index "$self_test_root" > /dev/null 2>&1; then
+    echo 'docs index guard accepted pages hidden by an unclosed fence' >&2
+    return 1
+  fi
+  echo 'UNCLOSED_FENCE_STILL_BITES'
 }
 
 if [[ ${1:-} == '--self-test' ]]; then

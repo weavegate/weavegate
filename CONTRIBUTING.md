@@ -154,7 +154,10 @@ does not merge. The pull request template's `Docs` section is the checkpoint
 for this rule.
 
 A pull request that adds a Markdown page under `docs/` must include one
-corresponding line in `docs/README.md`; the smoke workflow enforces this inventory rule.
+corresponding top-level line in `docs/README.md` with the form
+`- [title](path.md) — description`; the smoke workflow enforces this inventory
+rule. Reference-style links and links that occur mid-line are outside the index
+entry contract and do not satisfy the inventory requirement.
 
 The diagnostic prefix is `WG`; every new code ships with a matching
 `docs/reference/diagnostics/WGxxx.md` page.

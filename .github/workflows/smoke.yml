@@ -266,7 +266,9 @@ jobs:
           bash scripts/docs-index.sh --self-test | tee /tmp/docs-index-selftest.out
           for marker in MISSING_FROM_INDEX_CAUGHT GHOST_ENTRY_CAUGHT \
             DUPLICATE_ENTRY_CAUGHT MARKER_TRACKS_COUNT ASSET_IGNORED \
-            FENCED_EXAMPLE_IGNORED; do
+            FENCED_EXAMPLE_IGNORED TILDE_FENCE_IGNORED LONG_FENCE_IGNORED \
+            INLINE_SPAN_IGNORED TITLED_LINK_INDEXED DOTSLASH_NORMALIZED \
+            ANGLE_DEST_INDEXED GHOST_STILL_BITES UNCLOSED_FENCE_STILL_BITES; do
             grep -qF "$marker" /tmp/docs-index-selftest.out
           done
           bash scripts/docs-index.sh . | tee /tmp/docs-index.out
