@@ -161,7 +161,9 @@ wrong separator or indentation is rejected as a malformed entry. Reference-style
 links and links that occur mid-line are outside the index entry contract and do
 not satisfy the inventory requirement. Percent escapes in destinations are
 decoded, so tracked Markdown page paths under `docs/` must not contain a literal
-`%`, which would make encoded and literal destinations ambiguous.
+`%`, which would make encoded and literal destinations ambiguous. Tracked page
+paths must not contain ASCII control characters, which cannot be represented by
+the guard's one-line index-entry contract.
 
 The diagnostic prefix is `WG`; every new code ships with a matching
 `docs/reference/diagnostics/WGxxx.md` page.

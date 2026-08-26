@@ -208,6 +208,7 @@ check_index() {
   local requested_root=$1
   local repository_root
   local check_root
+  local raw_tree_file
   local tree_file
   local raw_index_file
   local index_file
@@ -218,11 +219,13 @@ check_index() {
   local percent_paths
   local pages
   local indexed
+  local tracked_path
   local -a tree_paths
   local -a index_paths
 
   repository_root=$(git -C "$requested_root" rev-parse --show-toplevel)
   check_root=$(mktemp -d)
+  raw_tree_file="$check_root/tree.raw"
   tree_file="$check_root/tree"
   raw_index_file="$check_root/index.raw"
   index_file="$check_root/index"
@@ -239,10 +242,26 @@ check_index() {
     return 1
   fi
 
-  if ! git -C "$repository_root" -c core.quotePath=false ls-files docs/ \
-    | awk '/\.md$/ && $0 != "docs/README.md"' \
-    | sort > "$tree_file"; then
+  if ! git -C "$repository_root" ls-files -z -- docs/ > "$raw_tree_file"; then
     echo 'failed to read the tracked documentation inventory' >&2
+    rm -rf -- "$check_root"
+    return 1
+  fi
+  : > "$tree_file"
+  while IFS= read -r -d '' tracked_path; do
+    if [[ $tracked_path == docs/README.md || $tracked_path != *.md ]]; then
+      continue
+    fi
+    if [[ $tracked_path =~ [[:cntrl:]] ]]; then
+      printf 'tracked documentation path contains an unsupported ASCII control character: %q\n' \
+        "$tracked_path" >&2
+      rm -rf -- "$check_root"
+      return 1
+    fi
+    printf '%s\n' "$tracked_path" >> "$tree_file"
+  done < "$raw_tree_file"
+  if ! sort -o "$tree_file" "$tree_file"; then
+    echo 'failed to normalize the tracked documentation inventory' >&2
     rm -rf -- "$check_root"
     return 1
   fi
@@ -313,6 +332,7 @@ check_index() {
 }
 
 run_self_test() {
+  local control_path
   local output_one
   local output_two
 
@@ -362,6 +382,25 @@ run_self_test() {
   git -C "$self_test_root" add docs/image.png
   check_index "$self_test_root" > /dev/null
   echo 'ASSET_IGNORED'
+
+  printf '# hidden\n' > "$self_test_root/docs/hidden\\.md"
+  git -C "$self_test_root" add 'docs/hidden\.md'
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard dropped a Git-special Markdown path from the inventory' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'docs/hidden\.md'* ]]
+  git -C "$self_test_root" rm -q -f -- 'docs/hidden\.md'
+  control_path=$'docs/control\n.md'
+  printf '# control\n' > "$self_test_root/$control_path"
+  git -C "$self_test_root" add -- "$control_path"
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard accepted a control character in a tracked path' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'tracked documentation path contains an unsupported ASCII control character'* ]]
+  git -C "$self_test_root" rm -q -f -- "$control_path"
+  echo 'NUL_INVENTORY_SAFE'
 
   printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n\n```text\n- [example](missing.md)\n```\n' \
     > "$self_test_root/docs/README.md"
