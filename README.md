@@ -1,3 +1,5 @@
+<!-- markdownlint-disable-file MD033 MD041 -->
+
 <p align="center">
   <img src="assets/logos/logo-horizontal.svg" width="310" alt="weavegate">
 </p>
