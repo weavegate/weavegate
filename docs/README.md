@@ -2,6 +2,8 @@
 
 This map covers the documentation shipped in this repository; choose the section that matches the question you need to answer.
 
+This repository-relative map is bundled in release archives, but targets outside `docs/`—including `fixtures/`, `internal/`, `cmd/`, and `CONTRIBUTING.md`—remain in the [weavegate repository](https://github.com/weavegate/weavegate).
+
 ## Start here
 
 Use these guides when you are new to weavegate or ready to create and instrument a fixture.

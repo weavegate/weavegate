@@ -7,7 +7,7 @@ self_test_root=''
 extract_index_entries() {
   local index_file=$1
 
-  awk '
+  LC_ALL=C awk '
     function fence_run(text, character, run_length) {
       character = substr(text, 1, 1)
       if (character != "`" && character != "~") {
@@ -78,7 +78,7 @@ extract_index_entries() {
         indentation = RLENGTH
         rest = substr(original, indentation + 1)
         run = fence_run(rest)
-        if (substr(rest, 1, 1) == fence_character &&
+        if (indentation <= 3 && substr(rest, 1, 1) == fence_character &&
             run >= fence_length && substr(rest, run + 1) ~ /^[[:space:]]*$/) {
           fence = 0
         }
@@ -334,6 +334,12 @@ run_self_test() {
   check_index "$self_test_root" > /dev/null
   echo 'LONG_FENCE_IGNORED'
 
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n\n```text\n    ```\n- [example](missing.md) — example\n```\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'INDENTED_CLOSER_IGNORED'
+
   printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n\nFormat: `- [example](missing.md)`\n\n[example][ref]\n[ref]: missing.md\n\n<!-- note --> - [example](missing.md)\n' \
     > "$self_test_root/docs/README.md"
   git -C "$self_test_root" add docs/README.md
@@ -456,6 +462,13 @@ run_self_test() {
   git -C "$self_test_root" add docs/README.md 'docs/c#-guide.md'
   check_index "$self_test_root" > /dev/null
   echo 'PERCENT_DEST_NORMALIZED'
+
+  printf '# café guide\n' > "$self_test_root/docs/café.md"
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n- [c](c%%23-guide.md) — c\n- [café](caf%%C3%%A9.md) — café\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md 'docs/café.md'
+  check_index "$self_test_root" > /dev/null
+  echo 'UTF8_DEST_NORMALIZED'
 
   printf '# ambiguous percent path\n' > "$self_test_root/docs/c%23-guide.md"
   git -C "$self_test_root" add 'docs/c%23-guide.md'
