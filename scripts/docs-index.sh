@@ -18,6 +18,22 @@ extract_index_entries() {
       return run_length - 1
     }
 
+    function raw_html_type_one_tag(text, lower, tags, count, offset, tag) {
+      lower = tolower(text)
+      tags[1] = "pre"
+      tags[2] = "script"
+      tags[3] = "style"
+      tags[4] = "textarea"
+      count = 4
+      for (offset = 1; offset <= count; offset++) {
+        tag = tags[offset]
+        if (lower ~ "^<" tag "([[:space:]>]|$)") {
+          return tag
+        }
+      }
+      return ""
+    }
+
     function without_comments(text, visible, opening, closing) {
       visible = ""
       while (1) {
@@ -90,6 +106,13 @@ extract_index_entries() {
         next
       }
 
+      if (raw_html_tag != "") {
+        if (index(tolower(original), "</" raw_html_tag ">")) {
+          raw_html_tag = ""
+        }
+        next
+      }
+
       line = without_comments(original)
       match(line, /^ */)
       indentation = RLENGTH
@@ -102,6 +125,18 @@ extract_index_entries() {
         comment = 0
         fence_character = substr(rest, 1, 1)
         fence_length = run
+        next
+      }
+
+      raw_html_tag = ""
+      if (indentation <= 3) {
+        raw_html_tag = raw_html_type_one_tag(rest)
+      }
+      if (raw_html_tag != "") {
+        comment = 0
+        if (index(tolower(rest), "</" raw_html_tag ">")) {
+          raw_html_tag = ""
+        }
         next
       }
 
@@ -485,6 +520,20 @@ run_self_test() {
   [[ "$output_one" == *'destination contains a percent-encoded control character'* ]]
   echo 'CONTROL_ESCAPE_CAUGHT'
   git -C "$self_test_root" rm -q -f docs/c.md
+
+  printf '# index\n\n- [a](a.md) — a\n\n<pre>\n- [b](b.md) — hidden\n</pre>\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  if output_one=$(check_index "$self_test_root" 2>&1); then
+    echo 'docs index guard accepted an entry rendered inside raw HTML' >&2
+    return 1
+  fi
+  [[ "$output_one" == *'docs/b.md'* ]]
+  printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n\n<pre>\n- [ghost](ghost.md) — hidden\n</pre>\n' \
+    > "$self_test_root/docs/README.md"
+  git -C "$self_test_root" add docs/README.md
+  check_index "$self_test_root" > /dev/null
+  echo 'RAW_HTML_ENTRY_IGNORED'
 
   printf '# c-sharp guide\n' > "$self_test_root/docs/c#-guide.md"
   printf '# index\n\n- [a](a.md) — a\n- [b](b.md) — b\n- [c](c%%23-guide.md) — c\n' \
