@@ -33,9 +33,9 @@ Your integration tests hit this bug by luck. **weavegate** hits it every time â€
 - A running Docker daemon; Testcontainers starts a real MySQL 8.4 container.
 - Go 1.25 or later, as declared in [`go.mod`](go.mod), only when building the
   CLI from source. Release archives contain a statically built binary.
-- Allow roughly 35 seconds for the
-  [documented exploration test](docs/experiments/exploration.md#reproduction)
-  on the measured development host; an initial image pull can add time. See
+- The [documented exploration test](docs/experiments/exploration.md#reproduction)
+  completed in 25.5 s on the measured development host with the image already
+  pulled; an initial image pull adds to that. See
   [Contributing](CONTRIBUTING.md#running-checks) for the build and test commands.
 
 ### From source
