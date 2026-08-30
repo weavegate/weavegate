@@ -36,5 +36,6 @@ oracle:
       expect_rows: 0
 run:
   # 250ms keeps the lock-blocked (fixed variant) replay path fast: the
-  # default 3000ms would add 3s to every blocked run (V-005).
+  # default 3000ms would add 3s to every blocked run; see
+  # ../../../docs/experiments/determinism.md.
   arrive_timeout_ms: 250
