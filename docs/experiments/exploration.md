@@ -112,6 +112,11 @@ go test ./fixtures/matching-slice/sut \
   -run '^TestExploreConcurrentAssign$' -v -count=1
 ```
 
+That command completed in `25.5s` on 2026-08-28 with the MySQL image already
+pulled; an initial image pull adds to that. It was measured locally with MySQL
+8.4 in Docker on the development host recorded in the
+[baseline comparison](baseline-comparison.md#timing-environment-and-reproduction).
+
 The test emits these stable result shapes; the schedule ID and candidate index
 are observed values rather than hard-coded expectations:
 
