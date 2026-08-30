@@ -113,6 +113,31 @@ scenario exits 5 during preflight instead of starting a container or lazily
 discovering the excess after partial execution. The limit is not currently a
 config key or CLI flag.
 
+## Validation
+
+Validation finishes before a database container starts. Errors name the
+rejected key or indexed item; placeholders below show the shape of values that
+vary with the input.
+
+| Key | Enforced rules | Error form |
+| --- | --- | --- |
+| `scenarios` | At least one scenario is required, and a scenario name cannot be blank. | `scenarios: at least one scenario is required`; `scenarios: scenario name is blank` |
+| `target.db` | The value is required and must start with `mysql:`. | `target.db is required`; `target.db "<value>" must have prefix "mysql:"` |
+| `target.schema.migrations`, `target.schema.seed` | Both values are required. | `target.schema.<key> is required` |
+| `target.sut.adapter` | The value is required and must be a supported adapter. The supported value is `gonative`. | `target.sut.adapter is required`; `target.sut.adapter "<value>" is not supported; supported adapters: gonative` |
+| `target.sut.entrypoint` | The value is required. It is a built-in ID, so `/` and `.` are rejected. | `target.sut.entrypoint is required`; `target.sut.entrypoint "<value>" is a built-in ID, not a path` |
+| `target.sut.variant` | The value is required. | `target.sut.variant is required` |
+| `scenarios.<name>.workers` | At least one worker is required. | `scenarios["<name>"]: at least one worker is required` |
+| `scenarios.<name>.workers[].id` | Every ID is required and must be unique within the scenario. | `workers[<index>]: id is required`; `workers[<index>]: duplicate worker id "<id>"` |
+| `scenarios.<name>.workers[].command` | Every command is required. | `workers[<index>] "<id>": command is required` |
+| `scenarios.<name>.workers[].args` | Every worker's map must exactly match the first worker's map. | `worker "<id>": args must match worker "<first-id>"'s args` |
+| `scenarios.<name>.sync_points` | At least one sync-point is required; names cannot be blank or duplicated within the scenario. | `at least one sync-point is required`; `sync_points[<index>]: name is blank`; `sync_points[<index>]: duplicate sync-point "<name>"` |
+| `oracle.assertions` | At least one assertion is required. | `oracle.assertions: at least one assertion is required` |
+| `oracle.assertions[].id` | Every ID must match `^[a-z0-9][a-z0-9-]*$` and must be unique. | `invalid id "<id>": must match ^[a-z0-9][a-z0-9-]*$`; `duplicate assertion id "<id>"` |
+| `oracle.assertions[].sql` | SQL cannot be blank. | `oracle.assertions[<index>] "<id>": sql is required` |
+| `oracle.assertions[].expect_rows` | The value must be exactly `0`. | `oracle.assertions[<index>] "<id>": expect_rows must be 0, got <value>` |
+| `run.repeat`, `run.arrive_timeout_ms`, `run.explore_passes` | Each value must be positive. Defaults are applied before validation when a key is omitted. | `run.<key> must be positive, got <value>` |
+
 ## Example
 
 The committed example, `fixtures/matching-slice/.weavegate/config.yaml`:
