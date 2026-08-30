@@ -117,7 +117,10 @@ config key or CLI flag.
 
 Validation finishes before a database container starts. Errors name the
 rejected key or indexed item; placeholders below show the shape of values that
-vary with the input.
+vary with the input. Strict decoding rejects unrecognized keys, including
+typos, rather than ignoring them. A second YAML document is also rejected with
+`multiple YAML documents are not supported`. These file-wide rules are stated
+outside the key table because they do not belong to one configuration key.
 
 | Key | Enforced rules | Error form |
 | --- | --- | --- |
@@ -135,8 +138,11 @@ vary with the input.
 | `oracle.assertions` | At least one assertion is required. | `oracle.assertions: at least one assertion is required` |
 | `oracle.assertions[].id` | Every ID must match `^[a-z0-9][a-z0-9-]*$` and must be unique. | `invalid id "<id>": must match ^[a-z0-9][a-z0-9-]*$`; `duplicate assertion id "<id>"` |
 | `oracle.assertions[].sql` | SQL cannot be blank. | `oracle.assertions[<index>] "<id>": sql is required` |
-| `oracle.assertions[].expect_rows` | The value must be exactly `0`. | `oracle.assertions[<index>] "<id>": expect_rows must be 0, got <value>` |
+| `oracle.assertions[].expect_rows` | The key is required, and its explicit value must be exactly `0`. | `oracle.assertions[<index>] "<id>": expect_rows is required`; `oracle.assertions[<index>] "<id>": expect_rows must be 0, got <value>` |
 | `run.repeat`, `run.arrive_timeout_ms`, `run.explore_passes` | Each value must be positive. Defaults are applied before validation when a key is omitted. | `run.<key> must be positive, got <value>` |
+
+The `run.*` keys above receive defaults when omitted. `expect_rows` has no
+default, so omitting it is an error rather than an implicit zero-row assertion.
 
 ## Example
 
