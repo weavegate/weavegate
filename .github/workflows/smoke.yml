@@ -236,10 +236,7 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
-      # The private repository cannot enforce dependency review yet. Remove
-      # continue-on-error after the D-011 public transition.
       - name: Review dependency changes
-        continue-on-error: true
         uses: actions/dependency-review-action@v5
 
   docs:
