@@ -140,11 +140,13 @@ of these claims.
 
 ## Roadmap
 
-| Milestone | Scope | Target |
-| --- | --- | --- |
-| `v0.1.0-alpha` | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `WG001` diagnostics, CLI, report/trace artifacts | Aug 2026 |
-| `v0.2.0` | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) | Sep 2026 |
-| later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection | Q3–Q4 2026 |
+| Milestone | Scope |
+| --- | --- |
+| [`v0.1.0-alpha`](https://github.com/weavegate/weavegate/milestone/1) | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `WG001` diagnostics, CLI, report/trace artifacts |
+| [`v0.2.0`](https://github.com/weavegate/weavegate/milestone/2) | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) |
+| later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection |
+
+This table shows the two most recent releases and the next planned release; until the first release, it retains the versions named here, and afterward each shipped version links to its `CHANGELOG.md` entry.
 
 ## Built on / related work
 
