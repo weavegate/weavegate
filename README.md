@@ -146,7 +146,7 @@ of these claims.
 | [`v0.2.0`](https://github.com/weavegate/weavegate/milestone/2) | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) |
 | later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection |
 
-This table shows the two most recent releases and the next planned release; until the first release, it retains the versions named here, and afterward each shipped version links to its `CHANGELOG.md` entry.
+Versioned rows remain planned until a matching release appears on the [GitHub Releases](https://github.com/weavegate/weavegate/releases) page. As releases accumulate, this table keeps up to the two most recent alongside the next planned version, and each shipped version links to its `CHANGELOG.md` entry; `later` remains unversioned work.
 
 ## Built on / related work
 
