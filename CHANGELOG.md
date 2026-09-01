@@ -29,3 +29,20 @@ workflow fails before publication if the placeholder remains.
   `<out>/schedules/`, and schedules built into the selected entrypoint, so an
   unchanged replay line can travel without its original run directory.
 - `WG001` assertion-violation and `WG090` determinism diagnostics.
+
+### Compatibility
+
+This first tag fixes the following for `artifact_version` 2:
+
+- The field names and meanings of `artifact_version` 2, as described in
+  [ADR 0007](docs/adr/0007-artifact-version-policy.md).
+- The meaning of exit codes 0, 2, 3, 4, 5, and 130, as described in
+  [the exit-code reference](docs/reference/exit-codes.md).
+- The `WG` diagnostic namespace and the `WG001` and `WG090` codes.
+- The versioned top-level directory that a release archive extracts into.
+
+It does not fix, and a later release may change without a compatibility note:
+
+- How `report.md` renders a variable field that has to stay on one line (#43).
+- Whether a completed run keeps its artifacts when diagnostic derivation
+  fails (#44).
