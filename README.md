@@ -64,6 +64,11 @@ This path records `0.0.0-dev` in both `--version` and the run manifest's
 tagged version. Module-version reporting for `go install` is tracked in
 [#102](https://github.com/weavegate/weavegate/issues/102).
 
+The `go install` path installs only the executable. The documented run reads
+`fixtures/matching-slice/.weavegate/config.yaml` relative to the current
+working directory, so run it from a repository checkout or from the extracted
+release archive directory, where that fixture data is included.
+
 Or build the CLI from a checkout and put the checkout-local binary on `PATH`:
 
 ```bash
@@ -71,9 +76,8 @@ go build -o weavegate ./cmd/weavegate
 export PATH="$PWD:$PATH"
 ```
 
-The archive contains the quick-start fixture. Full [documentation](docs/README.md) and
-the sources for relative references remain in the
-[weavegate repository](https://github.com/weavegate/weavegate).
+Full [documentation](docs/README.md) and the sources for relative references
+remain in the [weavegate repository](https://github.com/weavegate/weavegate).
 
 ### Run the CLI
 
