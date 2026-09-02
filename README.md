@@ -57,6 +57,7 @@ Install the latest tagged version:
 
 ```bash
 go install github.com/weavegate/weavegate/cmd/weavegate@latest
+export PATH="${GOBIN:-$(go env GOPATH)/bin}:$PATH"
 ```
 
 This path records `0.0.0-dev` in both `--version` and the run manifest's
