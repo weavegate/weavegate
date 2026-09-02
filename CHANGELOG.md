@@ -35,9 +35,9 @@ workflow fails before publication if the placeholder remains.
 This first tag fixes the following for `artifact_version` 2:
 
 - The field names and meanings of `artifact_version` 2, as described in
-  [ADR 0007](docs/adr/0007-artifact-version-policy.md).
+  [`docs/adr/0007-artifact-version-policy.md`](https://github.com/weavegate/weavegate/blob/v0.1.0-alpha/docs/adr/0007-artifact-version-policy.md).
 - The meaning of exit codes 0, 2, 3, 4, 5, and 130, as described in
-  [the exit-code reference](docs/reference/exit-codes.md).
+  [`docs/reference/exit-codes.md`](https://github.com/weavegate/weavegate/blob/v0.1.0-alpha/docs/reference/exit-codes.md).
 - The `WG` diagnostic namespace and the `WG001` and `WG090` codes.
 - The versioned top-level directory that a release archive extracts into.
 
