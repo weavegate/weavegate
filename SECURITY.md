@@ -2,18 +2,22 @@
 
 ## Supported versions
 
-weavegate has not published a release yet. Security fixes land on the `main`
-branch only.
+Security fixes are developed on `main` and applied to the latest tagged
+pre-release. Older pre-1.0 tags are not supported after a newer pre-release is
+published.
 
 | Version | Supported |
 | --- | --- |
 | `main` | Yes |
-| Tagged releases | None published yet |
+| `v0.1.0-alpha` | Yes |
+| Older tagged releases | No |
 
 ## Reporting a vulnerability
 
-Email `jaeunda@gmail.com` with the details. Please do not open a public issue
-or a discussion thread for a security report.
+Use [GitHub private vulnerability reporting](https://github.com/weavegate/weavegate/security/advisories/new)
+to submit a report privately. If that channel is unavailable, email
+`jaeunda@gmail.com` with the details. Please do not open a public issue or a
+discussion thread for a security report.
 
 Include what you can:
 
