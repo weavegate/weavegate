@@ -14,7 +14,7 @@ workflow fails before publication if the placeholder remains.
 
 ## [Unreleased]
 
-## [0.1.0-alpha] - YYYY-MM-DD
+## [0.1.0-alpha] - 2026-09-02
 
 ### Added
 
