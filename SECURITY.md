@@ -14,8 +14,10 @@ published.
 
 ## Reporting a vulnerability
 
-Email `jaeunda@gmail.com` with the details. Please do not open a public issue
-or a discussion thread for a security report.
+Use [GitHub private vulnerability reporting](https://github.com/weavegate/weavegate/security/advisories/new)
+to submit a report privately. If that channel is unavailable, email
+`jaeunda@gmail.com` with the details. Please do not open a public issue or a
+discussion thread for a security report.
 
 Include what you can:
 
