@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain"><img alt="smoke" src="https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/weavegate/weavegate/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/weavegate/weavegate?include_prereleases"></a>
+  <a href="https://github.com/weavegate/weavegate/releases"><img alt="release" src="https://img.shields.io/github/v/release/weavegate/weavegate?include_prereleases"></a>
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="database" src="https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey">
   <img alt="coverage" src="https://img.shields.io/badge/coverage-88%25-brightgreen">
@@ -39,6 +39,18 @@ Your integration tests hit this bug by luck. **weavegate** hits it every time â€
   pulled; an initial image pull adds to that. See
   [Contributing](CONTRIBUTING.md#running-checks) for the build and test commands.
 
+### From a release archive
+
+Extract the archive and, from its top-level directory, put the bundled binary
+on `PATH`; the matching-slice config, migration, and seed data are already in
+place. The `v0.1.0-alpha` archive binary reports `0.1.0-alpha`:
+
+```bash
+tar -xzf weavegate_*.tar.gz
+cd weavegate_*/
+export PATH="$PWD:$PATH"
+```
+
 ### From source
 
 Install the latest tagged version:
@@ -47,22 +59,15 @@ Install the latest tagged version:
 go install github.com/weavegate/weavegate/cmd/weavegate@latest
 ```
 
+This path records `0.0.0-dev` in both `--version` and the run manifest's
+`weavegate_version`; use the release archive when the binary must report the
+tagged version. Module-version reporting for `go install` is tracked in
+[#102](https://github.com/weavegate/weavegate/issues/102).
+
 Or build the CLI from a checkout and put the checkout-local binary on `PATH`:
 
 ```bash
 go build -o weavegate ./cmd/weavegate
-export PATH="$PWD:$PATH"
-```
-
-### From a release archive
-
-Extract the archive and, from its top-level directory, put the bundled binary
-on `PATH`; the matching-slice config, migration, and seed data are already in
-place:
-
-```bash
-tar -xzf weavegate_*.tar.gz
-cd weavegate_*/
 export PATH="$PWD:$PATH"
 ```
 
