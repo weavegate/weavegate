@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/weavegate/weavegate/actions/workflows/smoke.yml?query=branch%3Amain"><img alt="smoke" src="https://github.com/weavegate/weavegate/actions/workflows/smoke.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/weavegate/weavegate/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/weavegate/weavegate?include_prereleases"></a>
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue">
   <img alt="database" src="https://img.shields.io/badge/DB-MySQL%208%20%2F%20InnoDB-lightgrey">
   <img alt="coverage" src="https://img.shields.io/badge/coverage-88%25-brightgreen">
@@ -40,7 +41,13 @@ Your integration tests hit this bug by luck. **weavegate** hits it every time â€
 
 ### From source
 
-Build the CLI and put the checkout-local binary on `PATH`:
+Install the latest tagged version:
+
+```bash
+go install github.com/weavegate/weavegate/cmd/weavegate@latest
+```
+
+Or build the CLI from a checkout and put the checkout-local binary on `PATH`:
 
 ```bash
 go build -o weavegate ./cmd/weavegate
@@ -142,7 +149,7 @@ of these claims.
 
 | Milestone | Scope |
 | --- | --- |
-| [`v0.1.0-alpha`](https://github.com/weavegate/weavegate/milestone/1) | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `WG001` diagnostics, CLI, report/trace artifacts |
+| [`v0.1.0-alpha`](CHANGELOG.md#010-alpha---2026-09-02) | Go-native engine end-to-end: sync-point runtime, schedule exploration & replay, SQL assertion oracle, `WG001` diagnostics, CLI, report/trace artifacts |
 | [`v0.2.0`](https://github.com/weavegate/weavegate/milestone/2) | Spring Boot test-slice adapter (`ReplayPoint`, no-op in production), differential/schema oracles, one-line GitHub Action + PR comment, one-command demo (`weavegate demo init`) |
 | later | second fixture (job-claim), abort-then-retry recoverability, isolation-level matrix (RC vs RR), `data_lock_waits`-based lock-wait detection |
 
