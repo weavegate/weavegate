@@ -1,9 +1,9 @@
 # README editorial and visual maintenance
 
-This is a maintainer-only working note for updating the repository README
-without rewriting unaffected sections. It records the strategy used for the
-current README and the contract between its prose, measurements, commands, and
-four SVGs. It is intentionally not listed in the public documentation index.
+This working note is included in the public repository for maintainers updating
+the repository README without rewriting unaffected sections. It records the
+strategy used for the current README and the contract between its prose,
+measurements, commands, and four SVGs.
 
 ## Reader outcome
 
