@@ -172,6 +172,7 @@ weavegate runs on [Testcontainers](https://testcontainers.com/) (real MySQL 8/In
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build the project, run the checks, and open a pull request; adding a fixture is the most welcome way to contribute. Repository working conventions live in [`AGENTS.md`](AGENTS.md), conduct is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), and vulnerabilities are reported through [`SECURITY.md`](SECURITY.md). Questions and usage discussion go to [GitHub Discussions](https://github.com/weavegate/weavegate/discussions) rather than an issue.
+See [`SUPPORT.md`](SUPPORT.md) to choose the right route for questions, reproducible defects, and vulnerability reports.
 
 ## License
 
