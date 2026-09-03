@@ -61,6 +61,9 @@ explicitly as planned rather than writing about it as if it already ran.
 
 - A change to a user-visible contract ships its documentation update in the
   same pull request.
+- README content or visual changes follow the maintainer contract in
+  [`docs/maintainers/readme-maintenance.md`](docs/maintainers/readme-maintenance.md),
+  including its source-of-truth and partial-update rules.
 - A diagnostic code and its reference page are one-to-one; a diagnostic code
   without a reference page does not merge.
 - A design decision that cannot be inferred from the code alone gets a short
