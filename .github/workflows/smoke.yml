@@ -322,6 +322,17 @@ jobs:
 
           echo "RELEASE_NOTES_GUARD_RESULT placeholder=rejected dateless=rejected missing_section=rejected dated=accepted body=exact heading_scope=only"
 
+      - name: Check the published release body contract
+        run: |
+          bash scripts/release-body.sh --self-test | tee /tmp/release-body-selftest.out
+          for marker in EXACT_BODY_ACCEPTED TRAILING_NEWLINES_NORMALIZED \
+            EMPTY_EXPECTED_CAUGHT EMPTY_ACTUAL_CAUGHT BODY_MISMATCH_CAUGHT; do
+            grep -qF "$marker" /tmp/release-body-selftest.out
+          done
+          grep -qF \
+            'RELEASE_BODY_RESULT exact=accepted trailing_newlines=normalized expected_empty=rejected actual_empty=rejected mismatch=rejected' \
+            /tmp/release-body-selftest.out
+
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@v24
         with:

@@ -45,6 +45,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify the published release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+            --jq .body > "$RUNNER_TEMP/published-release-notes.md"
+          ./scripts/release-body.sh verify \
+            "$RUNNER_TEMP/release-notes.md" \
+            "$RUNNER_TEMP/published-release-notes.md"
+
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@v4
         with:
