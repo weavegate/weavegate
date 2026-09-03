@@ -55,3 +55,9 @@ Use these experiments for reproduced observations; their measured values are tie
 - [Replay determinism](experiments/determinism.md) — Inspect repeated evidence from the saved matching-slice schedule.
 - [Schedule exploration](experiments/exploration.md) — Review which candidates reproduce the invariant violation and how they were enumerated.
 - [Baseline comparison](experiments/baseline-comparison.md) — Compare uncontrolled baseline detection with controlled schedule replay.
+
+## Maintainer notes
+
+Use these notes when maintaining repository-facing documentation and visuals.
+
+- [README editorial and visual maintenance](maintainers/readme-maintenance.md) — Follow the content, evidence, and visual contracts for focused README updates.
