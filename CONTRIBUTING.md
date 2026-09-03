@@ -227,8 +227,10 @@ decision requires a human to inspect the complete behavior.
    it, and the bundled `fixtures/matching-slice/.weavegate/config.yaml` path
    matches the README run example.
 8. Confirm that the release workflow will use that CHANGELOG section as its
-   release notes, then create the tag manually. Do not tag if any earlier item
-   is incomplete.
+   release notes, then create the tag manually. The workflow publishes that
+   section as the release body and verifies the remote body before succeeding;
+   retries replace the body from CHANGELOG, so manual edits are not the source
+   of truth. Do not tag if any earlier item is incomplete.
 9. After the tag and release exist, remove their two temporary entries from
    `.lycheeignore` so the compare and release URLs return to external-link
    validation.
