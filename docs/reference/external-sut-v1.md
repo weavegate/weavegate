@@ -32,7 +32,14 @@ The enabled child bootstrap reserves stdout and reads `start` before creating
 its Spring context/DataSource. Its control reader remains available during
 initialization so Stop can cancel startup. E starts the startup deadline before
 launch, bounded by both its configured startup budget and the remaining Start
-context; `startup_ms` conveys only the remaining budget to J. No command can
+context. Immediately before writing start, E computes `startup_ms` as whole
+milliseconds remaining to that original startup deadline, rounded down. If less
+than 1 ms remains, E sends no start frame and fails startup; 0 is never sent and
+rounding up is forbidden. If the child was already launched, E closes the pipes
+and terminates/reaps it under the detached bounded cleanup context. It sends no
+stop as a first frame to an uninitialized peer. J's receipt-relative startup
+watchdog cannot extend E's original deadline; transport delay consumes that
+budget as well. No command can
 run before E validates ready. Startup failure sends fatal when possible; Stop
 during startup may produce `stopped` without `ready` if cleanup is proven.
 In that path, `stopped` is the first J frame with `seq: 1`; E accepts it only

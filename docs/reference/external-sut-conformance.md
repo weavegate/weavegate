@@ -172,6 +172,19 @@ to reuse a terminal worker in the orchestrator's single-use runtime. The second
 scripted command completes without arrivals and must not inherit the first
 invocation's cancellation or consume a leaked capacity reservation.
 
+`startup_submillisecond_budget` launches a child blocked on its first start
+frame, then advances the fake clock so `startup_before_write.remaining_us` is
+999. This value is remaining time to the previously established deadline, not
+a replacement budget. The engine must neither round up nor emit a zero-budget
+frame; detached cleanup closes pipes and reaps the child without first sending
+stop. No application or database work can have started in this case.
+
+`readiness_mismatch` now advances initialization/probe cleanup before injecting
+the faulty ready response, explicitly delivers startup fatal to Java, and runs
+Go's bounded Stop. With graceful cleanup unproven at the cutoff, it kills and
+reaps the child and preserves the startup fault. Child reaping alone does not
+certify application/DB cleanup, so Reset remains blocked by quarantine.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)

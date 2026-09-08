@@ -1853,6 +1853,17 @@
           ]
         },
         {
+          "peer": "java",
+          "action": "local",
+          "event": "readiness_complete",
+          "args": {
+            "probe_lease_returned": true
+          },
+          "expect": [
+            "send_ready"
+          ]
+        },
+        {
           "peer": "go",
           "action": "receive",
           "frame": {
@@ -1874,12 +1885,78 @@
           },
           "expect": [
             "startup_error",
-            "no_invoke"
+            "no_invoke",
+            "latch_startup_fault",
+            "send_fatal"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "fatal",
+            "seq": 2,
+            "body": {
+              "kind": "startup",
+              "message": "ready registration mismatch"
+            }
+          },
+          "expect": [
+            "close_admission",
+            "begin_bounded_cleanup",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "mismatch-stop",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "set_single_deadline",
+            "best_effort_stop",
+            "retain_startup_fault",
+            "no_stopped_required"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_half_deadline",
+          "args": {},
+          "expect": [
+            "kill_child",
+            "await_reaping"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 137
+          },
+          "expect": [
+            "child_reaped",
+            "stop_error",
+            "quarantine_fixture",
+            "reset_rejected",
+            "startup_error_preserved"
           ]
         }
       ],
       "covers": [
-        "readiness"
+        "readiness",
+        "startup_cleanup",
+        "child_reaping",
+        "reset_isolation"
       ]
     },
     {
@@ -2711,6 +2788,69 @@
       ],
       "covers": [
         "log_bounds"
+      ]
+    },
+    {
+      "id": "startup_submillisecond_budget",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "launch_child",
+          "args": {},
+          "expect": [
+            "owned_child_waiting_start"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "startup_before_write",
+          "args": {
+            "remaining_us": 999
+          },
+          "expect": [
+            "startup_error",
+            "no_start_frame",
+            "no_invoke"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "uninitialized-stop",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "set_single_deadline",
+            "close_pipes",
+            "no_stop_frame",
+            "kill_child",
+            "await_reaping"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 137
+          },
+          "expect": [
+            "child_reaped",
+            "startup_error_preserved",
+            "no_handle"
+          ]
+        }
+      ],
+      "covers": [
+        "startup_budget",
+        "rounding",
+        "uninitialized_cleanup"
       ]
     }
   ],
