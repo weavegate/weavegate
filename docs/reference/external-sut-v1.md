@@ -34,7 +34,10 @@ initialization so Stop can cancel startup. E starts the startup deadline before
 launch, bounded by both its configured startup budget and the remaining Start
 context; `startup_ms` conveys only the remaining budget to J. No command can
 run before E validates ready. Startup failure sends fatal when possible; Stop
-during startup may produce stopped without ready if cleanup is proven.
+during startup may produce `stopped` without `ready` if cleanup is proven.
+In that path, `stopped` is the first J frame with `seq: 1`; E accepts it only
+after requesting Stop. Start returns no Handle and cannot admit an invocation.
+An unsolicited `stopped` is a protocol error, even with the expected sequence.
 
 ## Identity, order, and duplicate handling
 
@@ -46,7 +49,7 @@ during startup may produce stopped without ready if cleanup is proven.
 | `worker` | Scenario worker name. Unique among live invocations; reusable only after prior terminal acceptance and Go result channel closure. |
 | `arrival` | Positive decimal string without leading zeros, starting at `"1"` and increasing by one per invocation, maximum `"100000"`. |
 | `point` | Registered sync-point name; compared exactly, without case folding. |
-| `seq` | Integer 1–100000, increasing by one independently in each direction, starting with start/ready (or startup fatal). Covers all message types. |
+| `seq` | Integer 1–100000, increasing by one independently in each direction, starting at 1 with E `start` and J `ready`, startup `fatal`, or `stopped` after a pre-ready Stop. Covers all message types. |
 
 A release targets `(run, session, invocation, worker, arrival, point)`, never
 just a worker or point. Each invocation has at most one outstanding arrival.
@@ -87,7 +90,7 @@ The `I` body fields below mean `invocation` and `worker`. `A` means `I` plus
 | Type | Direction | Exact body fields | Required behavior |
 | --- | --- | --- | --- |
 | `start` | E → J | `variant` (name), `params` (string map), `commands` (distinct name array), `points` (distinct name array), `capacity` (integer 1–1024), `database` (object below), `startup_ms`, `cancel_ms` (positive integers ≤ 2147483647) | First E frame. Configure application, validate registration and transaction profile, establish pool, and ping the fixture before readiness. |
-| `ready` | J → E | `commands`, `points`, `capacity` | First J frame on success. Exactly echo the validated start arrays/order and capacity; DB probe lease returned, application initialized, no worker running. E verifies equality before Start returns a Handle. |
+| `ready` | J → E | `commands`, `points`, `capacity` | First J frame on successful startup. Exactly echo the validated start arrays/order and capacity; DB probe lease returned, application initialized, no worker running. E verifies equality before Start returns a Handle. |
 | `invoke` | E → J | `I`, `command` (name) | Only after ready; reserve worker and invocation, enqueue one worker. Uses start's variant/params. Reject excess capacity, unknown command, or an already-active worker. |
 | `accepted` | J → E | `I` | Reserve invocation before sending; precedes all arrivals/terminal for it. Acknowledges dispatch, not transaction completion. E may return a result channel from Invoke before receiving this. |
 | `arrive` | J → E | `A` | Worker gate is installed before sending. E validates identity, then calls its session's `Client.Arrive` once in an independent bridge task. |
@@ -95,7 +98,7 @@ The `I` body fields below mean `invocation` and `worker`. `A` means `I` plus
 | `terminal` | J → E | `I`, `transaction`, `connection`, `error` | Only after accepted, proxy exit and verified cleanup; no outstanding arrival. One terminal per invocation. Rules below. |
 | `cancel` | E → J | `I`, `reason` (`context` or `stop`) | Cancel one invocation, including one awaiting accepted. Wake its gate with an exception, request JDBC cancellation, and await transaction cleanup. This is not release or completion. |
 | `stop` | E → J | `budget_ms` (positive integer ≤ 2147483647) | Close admission permanently, cancel all active invocations, await cleanup, close pool and application. Valid during startup as well as after ready. |
-| `stopped` | J → E | empty object | All invocation terminals sent, no worker/lease remains, pool/application closed. Flush, close stdout, and exit 0. Cannot be sent after fatal. |
+| `stopped` | J → E | empty object | All invocation terminals sent, no worker/lease remains, pool/application closed. Sent only in response to Stop; may be the first J frame (`seq: 1`) when startup was stopped before ready. Flush, close stdout, and exit 0. Cannot be sent after fatal. |
 | `fatal` | Either | `kind`, `message` | Session failure, never a worker terminal. `kind` is `version`, `protocol`, `startup`, `transport`, `transaction`, `cleanup`, or `shutdown`; message is sanitized, at most 1024 UTF-8 bytes. Close admission and begin bounded cleanup. Best effort only if writing remains possible. |
 
 `database` has exactly `driver` (`mysql`), `host` (nonempty string), `port`

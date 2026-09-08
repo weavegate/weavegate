@@ -63,7 +63,7 @@ the same implementation PR.
 ## Sequence review
 
 All sequences below are constructed. `E` is the Go adapter, `J` the JVM SDK,
-`R` the Go runtime, and `DB` the fixture database. Startup is always
+`R` the Go runtime, and `DB` the fixture database. Successful startup is
 `E start → J initialize/validate/probe/return probe lease → J ready → E Invoke`.
 
 | Case | Causal sequence | Required observation |
@@ -74,6 +74,12 @@ All sequences below are constructed. `E` is the Go adapter, `J` the JVM SDK,
 | Cancellation | Go context cancels bridge + sends cancel → Java gate throws → proxy rolls back → lease returns → terminal(cancelled) | No release from cancellation; context failure remains a failed operation. Already-committed work reports committed truthfully. |
 | Process death | JVM disappears with a transaction/arrival outstanding → EOF/exit observed → session fault → bounded cleanup/quarantine | No invented WorkerResult; no oracle success, reset, or retry on the uncertain database. Death after terminal but before normal Stop also fails the run. |
 | Stale arrival | Session A or invocation i1 retires; session B or invocation i2 uses w1 → delayed A/i1 arrive/release | Old identity cannot call B's runtime or resume i2. Session mismatch does not advance B's sequence; retired invocation messages consume current sequence without side effects. |
+
+`stop_before_ready` exercises the alternate startup path: E sends start (1),
+requests Stop and sends stop (2), then receives J's first frame stopped (1)
+after cleanup. EOF and exit 0 complete Stop without returning a Handle or running
+a command. `unsolicited_startup_stopped` rejects the same first J frame when E
+has not requested Stop.
 
 ## Implementation checklist
 

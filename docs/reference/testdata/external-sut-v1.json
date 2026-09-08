@@ -1498,6 +1498,186 @@
       ]
     },
     {
+      "id": "stop_before_ready",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "start",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "variant": "fixed",
+              "params": {
+                "request_id": "1"
+              },
+              "commands": [
+                "assign"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2,
+              "database": {
+                "driver": "mysql",
+                "host": "127.0.0.1",
+                "port": 33060,
+                "name": "weavegate",
+                "username": "synthetic",
+                "password": "synthetic-only"
+              },
+              "startup_ms": 10000,
+              "cancel_ms": 1000
+            }
+          },
+          "expect": [
+            "initialize_application",
+            "validate_registration",
+            "probe_database"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "budget_ms": 5000
+          },
+          "expect": [
+            "send_stop",
+            "set_single_deadline",
+            "no_invoke"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stop",
+            "seq": 2,
+            "body": {
+              "budget_ms": 5000
+            }
+          },
+          "expect": [
+            "close_admission",
+            "cancel_startup",
+            "close_pool_and_application",
+            "no_ready"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stopped",
+            "seq": 1,
+            "body": {}
+          },
+          "expect": [
+            "await_eof_and_exit",
+            "start_returns_no_handle"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 0
+          },
+          "expect": [
+            "stop_ok",
+            "reset_allowed"
+          ]
+        }
+      ],
+      "covers": [
+        "startup_stop",
+        "initial_sequence",
+        "stop"
+      ]
+    },
+    {
+      "id": "unsolicited_startup_stopped",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "start",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "variant": "fixed",
+              "params": {
+                "request_id": "1"
+              },
+              "commands": [
+                "assign"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2,
+              "database": {
+                "driver": "mysql",
+                "host": "127.0.0.1",
+                "port": 33060,
+                "name": "weavegate",
+                "username": "synthetic",
+                "password": "synthetic-only"
+              },
+              "startup_ms": 10000,
+              "cancel_ms": 1000
+            }
+          },
+          "expect": [
+            "initialize_application",
+            "validate_registration",
+            "probe_database"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stopped",
+            "seq": 1,
+            "body": {}
+          },
+          "expect": [
+            "fatal_protocol",
+            "start_returns_no_handle",
+            "no_invoke"
+          ]
+        }
+      ],
+      "covers": [
+        "startup_stop",
+        "invalid_state"
+      ]
+    },
+    {
       "id": "startup_deadline",
       "prefix": "new",
       "steps": [
