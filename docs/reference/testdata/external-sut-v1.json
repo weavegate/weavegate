@@ -1,0 +1,2065 @@
+{
+  "vector_format": 1,
+  "wire_version": 1,
+  "status": "proposed_not_executed",
+  "identity": {
+    "run": "11111111111111111111111111111111",
+    "session": "22222222222222222222222222222222",
+    "invocation": "33333333333333333333333333333333"
+  },
+  "prefixes": {
+    "new": [],
+    "ready": [
+      {
+        "peer": "java",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "start",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 1,
+          "body": {
+            "variant": "fixed",
+            "params": {
+              "request_id": "1"
+            },
+            "commands": [
+              "assign"
+            ],
+            "points": [
+              "after_read",
+              "before_write"
+            ],
+            "capacity": 2,
+            "database": {
+              "driver": "mysql",
+              "host": "127.0.0.1",
+              "port": 33060,
+              "name": "weavegate",
+              "username": "synthetic",
+              "password": "synthetic-only"
+            },
+            "startup_ms": 10000,
+            "cancel_ms": 1000
+          }
+        },
+        "expect": [
+          "initialize_application",
+          "validate_registration",
+          "probe_database"
+        ]
+      },
+      {
+        "peer": "java",
+        "action": "local",
+        "event": "readiness_complete",
+        "args": {
+          "probe_lease_returned": true
+        },
+        "expect": [
+          "send_ready"
+        ]
+      },
+      {
+        "peer": "go",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "ready",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 1,
+          "body": {
+            "commands": [
+              "assign"
+            ],
+            "points": [
+              "after_read",
+              "before_write"
+            ],
+            "capacity": 2
+          }
+        },
+        "expect": [
+          "start_returns_handle"
+        ]
+      }
+    ],
+    "active": [
+      {
+        "prefix": "ready"
+      },
+      {
+        "peer": "java",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "invoke",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 2,
+          "body": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "command": "assign"
+          }
+        },
+        "expect": [
+          "reserve_invocation",
+          "dispatch_once"
+        ]
+      },
+      {
+        "peer": "go",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "accepted",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 2,
+          "body": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1"
+          }
+        },
+        "expect": [
+          "mark_accepted"
+        ]
+      }
+    ],
+    "arrived": [
+      {
+        "prefix": "active"
+      },
+      {
+        "peer": "java",
+        "action": "local",
+        "event": "worker_arrives",
+        "args": {
+          "identity": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "arrival": "1",
+            "point": "after_read"
+          }
+        },
+        "expect": [
+          "install_gate",
+          "send_arrive"
+        ]
+      },
+      {
+        "peer": "go",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "arrive",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 3,
+          "body": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "arrival": "1",
+            "point": "after_read"
+          }
+        },
+        "expect": [
+          "client_arrive_once",
+          "no_release_before_runtime_return"
+        ]
+      }
+    ],
+    "released": [
+      {
+        "prefix": "arrived"
+      },
+      {
+        "peer": "go",
+        "action": "local",
+        "event": "runtime_arrive_returns",
+        "args": {
+          "identity": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "arrival": "1",
+            "point": "after_read"
+          },
+          "result": "nil"
+        },
+        "expect": [
+          "send_release"
+        ]
+      },
+      {
+        "peer": "java",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "release",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 3,
+          "body": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "arrival": "1",
+            "point": "after_read"
+          }
+        },
+        "expect": [
+          "wake_exact_gate"
+        ]
+      }
+    ],
+    "completed": [
+      {
+        "prefix": "released"
+      },
+      {
+        "peer": "java",
+        "action": "local",
+        "event": "completion",
+        "args": {
+          "proxy_exited": true,
+          "transaction": "committed",
+          "lease": "returned"
+        },
+        "expect": [
+          "send_terminal"
+        ]
+      },
+      {
+        "peer": "go",
+        "action": "receive",
+        "frame": {
+          "v": 1,
+          "type": "terminal",
+          "run": "11111111111111111111111111111111",
+          "session": "22222222222222222222222222222222",
+          "seq": 4,
+          "body": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "transaction": "committed",
+            "connection": "returned",
+            "error": null
+          }
+        },
+        "expect": [
+          "worker_result_nil",
+          "close_result_channel",
+          "retire_invocation"
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "success",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "stop",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "budget_ms": 5000
+            }
+          },
+          "expect": [
+            "close_admission",
+            "close_pool_and_application"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "stopped",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {}
+          },
+          "expect": [
+            "await_eof_and_exit"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 0
+          },
+          "expect": [
+            "stop_ok",
+            "reset_allowed"
+          ]
+        }
+      ],
+      "covers": [
+        "success",
+        "stop"
+      ]
+    },
+    {
+      "id": "rollback",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "rolled_back",
+              "connection": "returned",
+              "error": {
+                "kind": "application",
+                "message": "synthetic failure",
+                "mysql_code": 0,
+                "sql_state": ""
+              }
+            }
+          },
+          "expect": [
+            "worker_result_error",
+            "close_result_channel",
+            "retire_invocation"
+          ]
+        }
+      ],
+      "covers": [
+        "rollback"
+      ]
+    },
+    {
+      "id": "database_blocking",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "invoke",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w2",
+              "command": "assign"
+            }
+          },
+          "expect": [
+            "reserve_invocation",
+            "dispatch_once"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "accepted",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w2"
+            }
+          },
+          "expect": [
+            "mark_accepted"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "jdbc_blocked",
+          "args": {
+            "worker": "w2"
+          },
+          "expect": [
+            "no_arrive_for_w2"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "wait_arrive_timeout",
+          "args": {
+            "worker": "w2",
+            "point": "after_read"
+          },
+          "expect": [
+            "runtime_db_blocked",
+            "no_transport_fault"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "nil"
+          },
+          "expect": [
+            "send_release"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "wake_exact_gate"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal",
+            "database_lock_released"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "worker_result_nil",
+            "close_result_channel",
+            "retire_invocation"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "worker_arrives",
+          "args": {
+            "identity": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w2",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "install_gate",
+            "send_arrive"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 6,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w2",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "client_arrive_once",
+            "pending_arrival_resolves"
+          ]
+        }
+      ],
+      "covers": [
+        "database_blocking",
+        "multiplexing"
+      ]
+    },
+    {
+      "id": "cancel_at_arrival",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "cancel_context",
+          "args": {
+            "invocation": "33333333333333333333333333333333"
+          },
+          "expect": [
+            "cancel_bridge",
+            "send_cancel"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "cancel",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "context"
+            }
+          },
+          "expect": [
+            "cancel_latched",
+            "wake_gate_exceptionally",
+            "request_jdbc_cancel"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "cancelled"
+          },
+          "expect": [
+            "no_release"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "rolled_back",
+              "connection": "returned",
+              "error": {
+                "kind": "cancelled",
+                "message": "synthetic failure",
+                "mysql_code": 0,
+                "sql_state": ""
+              }
+            }
+          },
+          "expect": [
+            "worker_result_cancelled",
+            "close_result_channel",
+            "operation_context_error"
+          ]
+        }
+      ],
+      "covers": [
+        "cancellation"
+      ]
+    },
+    {
+      "id": "cancel_racing_release",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "cancel_context",
+          "args": {
+            "invocation": "33333333333333333333333333333333"
+          },
+          "expect": [
+            "cancel_bridge",
+            "send_cancel"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "cancel",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "context"
+            }
+          },
+          "expect": [
+            "cancel_latched",
+            "wake_gate_exceptionally",
+            "request_jdbc_cancel"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "nil"
+          },
+          "expect": [
+            "no_release"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "ignore_cancelled_gate",
+            "no_resume"
+          ]
+        }
+      ],
+      "covers": [
+        "cancellation",
+        "release_race"
+      ]
+    },
+    {
+      "id": "cancel_before_accepted",
+      "prefix": "ready",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "invoke",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 2,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "command": "assign"
+            }
+          },
+          "expect": [
+            "reserve_invocation",
+            "dispatch_once"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "cancel_context",
+          "args": {
+            "invocation": "33333333333333333333333333333333"
+          },
+          "expect": [
+            "send_cancel"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "cancel",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "context"
+            }
+          },
+          "expect": [
+            "cancel_latched",
+            "prevent_command_start"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "accepted",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 2,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1"
+            }
+          },
+          "expect": [
+            "mark_accepted"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "not_started",
+              "connection": "not_acquired",
+              "error": {
+                "kind": "cancelled",
+                "message": "cancelled",
+                "mysql_code": 0,
+                "sql_state": ""
+              }
+            }
+          },
+          "expect": [
+            "worker_result_cancelled",
+            "close_result_channel"
+          ]
+        }
+      ],
+      "covers": [
+        "cancellation",
+        "not_started"
+      ]
+    },
+    {
+      "id": "late_arrival_after_cancel",
+      "prefix": "active",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "cancel_context",
+          "args": {
+            "invocation": "33333333333333333333333333333333"
+          },
+          "expect": [
+            "cancel_bridge",
+            "send_cancel"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "consume_cancelled_arrival",
+            "no_client_arrive",
+            "no_release"
+          ]
+        }
+      ],
+      "covers": [
+        "cancellation",
+        "stale_arrival"
+      ]
+    },
+    {
+      "id": "commit_wins_cancel",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "cancel_context",
+          "args": {
+            "invocation": "33333333333333333333333333333333"
+          },
+          "expect": [
+            "send_cancel"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "worker_result_nil",
+            "close_result_channel",
+            "operation_context_error"
+          ]
+        }
+      ],
+      "covers": [
+        "cancellation",
+        "truthful_commit"
+      ]
+    },
+    {
+      "id": "process_death",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 137
+          },
+          "expect": [
+            "latch_transport_fault",
+            "cancel_bridge",
+            "no_worker_result",
+            "abort_run",
+            "quarantine_fixture"
+          ]
+        }
+      ],
+      "covers": [
+        "process_death",
+        "unknown_transaction"
+      ]
+    },
+    {
+      "id": "death_after_terminals",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 0
+          },
+          "expect": [
+            "latch_transport_fault",
+            "invalidate_evaluation",
+            "abort_run",
+            "quarantine_fixture"
+          ]
+        }
+      ],
+      "covers": [
+        "process_death",
+        "fault_after_terminal"
+      ]
+    },
+    {
+      "id": "stale_session",
+      "prefix": "active",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "seq": 99,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "drop_foreign_session",
+            "no_client_arrive",
+            "sequence_unchanged"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "client_arrive_once",
+            "no_release_before_runtime_return"
+          ]
+        }
+      ],
+      "covers": [
+        "stale_arrival",
+        "session_isolation"
+      ]
+    },
+    {
+      "id": "retired_invocation_worker_reuse",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "invoke",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "command": "assign"
+            }
+          },
+          "expect": [
+            "reserve_invocation",
+            "dispatch_once"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "accepted",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1"
+            }
+          },
+          "expect": [
+            "mark_accepted"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 6,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "consume_retired_invocation",
+            "no_client_arrive"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "consume_retired_invocation",
+            "no_resume"
+          ]
+        }
+      ],
+      "covers": [
+        "worker_reuse",
+        "stale_arrival",
+        "stale_release"
+      ]
+    },
+    {
+      "id": "duplicate_frame",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "ignore_duplicate",
+            "no_client_arrive",
+            "no_reply"
+          ]
+        }
+      ],
+      "covers": [
+        "duplicate_arrival",
+        "exact_sequence_duplicate"
+      ]
+    },
+    {
+      "id": "conflicting_duplicate",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "before_write"
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "abort_run"
+          ]
+        }
+      ],
+      "covers": [
+        "duplicate_conflict"
+      ]
+    },
+    {
+      "id": "sequence_gap",
+      "prefix": "active",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "abort_run"
+          ]
+        }
+      ],
+      "covers": [
+        "out_of_order"
+      ]
+    },
+    {
+      "id": "unknown_invocation",
+      "prefix": "active",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "no_client_arrive",
+            "abort_run"
+          ]
+        }
+      ],
+      "covers": [
+        "unknown_identity"
+      ]
+    },
+    {
+      "id": "future_release",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "2",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "no_resume"
+          ]
+        }
+      ],
+      "covers": [
+        "targeted_release"
+      ]
+    },
+    {
+      "id": "wrong_point_release",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "before_write"
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "no_resume"
+          ]
+        }
+      ],
+      "covers": [
+        "targeted_release"
+      ]
+    },
+    {
+      "id": "release_before_arrival",
+      "prefix": "active",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "no_resume"
+          ]
+        }
+      ],
+      "covers": [
+        "out_of_order"
+      ]
+    },
+    {
+      "id": "terminal_while_arrived",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "no_worker_result",
+            "abort_run"
+          ]
+        }
+      ],
+      "covers": [
+        "terminal_order"
+      ]
+    },
+    {
+      "id": "version_mismatch",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 2,
+            "type": "start",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "variant": "fixed",
+              "params": {
+                "request_id": "1"
+              },
+              "commands": [
+                "assign"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2,
+              "database": {
+                "driver": "mysql",
+                "host": "127.0.0.1",
+                "port": 33060,
+                "name": "weavegate",
+                "username": "synthetic",
+                "password": "synthetic-only"
+              },
+              "startup_ms": 10000,
+              "cancel_ms": 1000
+            }
+          },
+          "expect": [
+            "fatal_version",
+            "no_command_start"
+          ]
+        }
+      ],
+      "covers": [
+        "version"
+      ]
+    },
+    {
+      "id": "readiness_mismatch",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "start",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "variant": "fixed",
+              "params": {
+                "request_id": "1"
+              },
+              "commands": [
+                "assign"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2,
+              "database": {
+                "driver": "mysql",
+                "host": "127.0.0.1",
+                "port": 33060,
+                "name": "weavegate",
+                "username": "synthetic",
+                "password": "synthetic-only"
+              },
+              "startup_ms": 10000,
+              "cancel_ms": 1000
+            }
+          },
+          "expect": [
+            "initialize_application",
+            "validate_registration",
+            "probe_database"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "ready",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "commands": [
+                "other"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2
+            }
+          },
+          "expect": [
+            "startup_error",
+            "no_invoke"
+          ]
+        }
+      ],
+      "covers": [
+        "readiness"
+      ]
+    },
+    {
+      "id": "startup_deadline",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "start",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "variant": "fixed",
+              "params": {
+                "request_id": "1"
+              },
+              "commands": [
+                "assign"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2,
+              "database": {
+                "driver": "mysql",
+                "host": "127.0.0.1",
+                "port": 33060,
+                "name": "weavegate",
+                "username": "synthetic",
+                "password": "synthetic-only"
+              },
+              "startup_ms": 10000,
+              "cancel_ms": 1000
+            }
+          },
+          "expect": [
+            "initialize_application",
+            "validate_registration",
+            "probe_database"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "startup_deadline",
+          "args": {},
+          "expect": [
+            "startup_error",
+            "bounded_stop",
+            "no_invoke"
+          ]
+        }
+      ],
+      "covers": [
+        "startup_timeout"
+      ]
+    },
+    {
+      "id": "mysql_deadlock",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "rolled_back",
+              "connection": "returned",
+              "error": {
+                "kind": "mysql",
+                "message": "synthetic failure",
+                "mysql_code": 1213,
+                "sql_state": "40001"
+              }
+            }
+          },
+          "expect": [
+            "worker_result_error",
+            "failure_class_mysql_deadlock",
+            "close_result_channel"
+          ]
+        }
+      ],
+      "covers": [
+        "error_metadata",
+        "mysql_deadlock"
+      ]
+    },
+    {
+      "id": "mysql_lock_timeout",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "rolled_back",
+              "connection": "returned",
+              "error": {
+                "kind": "mysql",
+                "message": "synthetic failure",
+                "mysql_code": 1205,
+                "sql_state": "HY000"
+              }
+            }
+          },
+          "expect": [
+            "worker_result_error",
+            "failure_class_error",
+            "close_result_channel"
+          ]
+        }
+      ],
+      "covers": [
+        "error_metadata",
+        "mysql_lock_timeout"
+      ]
+    },
+    {
+      "id": "post_commit_exception",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": {
+                "kind": "application",
+                "message": "synthetic failure",
+                "mysql_code": 0,
+                "sql_state": ""
+              }
+            }
+          },
+          "expect": [
+            "worker_result_error",
+            "failure_class_error",
+            "close_result_channel"
+          ]
+        }
+      ],
+      "covers": [
+        "error_metadata",
+        "post_commit_exception"
+      ]
+    },
+    {
+      "id": "completion_callback_too_early",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": false,
+            "transaction": "committed",
+            "lease": "held"
+          },
+          "expect": [
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "held"
+          },
+          "expect": [
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        }
+      ],
+      "covers": [
+        "spring_proxy",
+        "connection_return"
+      ]
+    },
+    {
+      "id": "suppressed_cleanup_failure",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "close_failed"
+          },
+          "expect": [
+            "fatal_cleanup",
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "kind": "cleanup",
+              "message": "lease return failed"
+            }
+          },
+          "expect": [
+            "latch_adapter_fault",
+            "no_worker_result",
+            "abort_run",
+            "quarantine_fixture"
+          ]
+        }
+      ],
+      "covers": [
+        "spring_cleanup_failure"
+      ]
+    },
+    {
+      "id": "unknown_commit_outcome",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "unknown",
+            "lease": "returned"
+          },
+          "expect": [
+            "fatal_transaction",
+            "no_terminal"
+          ]
+        }
+      ],
+      "covers": [
+        "unknown_transaction"
+      ]
+    },
+    {
+      "id": "cancel_cleanup_deadline",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "cancel",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "context"
+            }
+          },
+          "expect": [
+            "cancel_latched",
+            "wake_gate_exceptionally",
+            "request_jdbc_cancel"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "cancel_deadline",
+          "args": {},
+          "expect": [
+            "fatal_cleanup",
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_half_deadline",
+          "args": {},
+          "expect": [
+            "kill_child"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_deadline",
+          "args": {},
+          "expect": [
+            "stop_error",
+            "quarantine_fixture",
+            "reset_rejected"
+          ]
+        }
+      ],
+      "covers": [
+        "bounded_shutdown",
+        "reset_isolation"
+      ]
+    },
+    {
+      "id": "duplicate_stop_call",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "budget_ms": 5000
+          },
+          "expect": [
+            "send_stop",
+            "set_single_deadline"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "budget_ms": 5000
+          },
+          "expect": [
+            "reuse_deadline",
+            "no_second_child"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_half_deadline",
+          "args": {},
+          "expect": [
+            "kill_child"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_deadline",
+          "args": {},
+          "expect": [
+            "stop_error",
+            "quarantine_fixture"
+          ]
+        }
+      ],
+      "covers": [
+        "bounded_shutdown",
+        "idempotent_stop"
+      ]
+    },
+    {
+      "id": "stderr_overflow",
+      "prefix": "active",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stderr_bytes",
+          "args": {
+            "byte_count": 1048577
+          },
+          "expect": [
+            "retain_last_1048576_bytes",
+            "no_protocol_effect",
+            "no_worker_block"
+          ]
+        }
+      ],
+      "covers": [
+        "log_bounds"
+      ]
+    }
+  ],
+  "framing": [
+    {
+      "id": "fragmented_valid_frame",
+      "input_hex": "000000c77b2276223a312c2274797065223a227265616479222c2272756e223a223131313131313131313131313131313131313131313131313131313131313131222c2273657373696f6e223a223232323232323232323232323232323232323232323232323232323232323232222c22736571223a312c22626f6479223a7b22636f6d6d616e6473223a5b2261737369676e225d2c22706f696e7473223a5b2261667465725f72656164222c226265666f72655f7772697465225d2c226361706163697479223a327d7d",
+      "read_chunk_sizes": [
+        1,
+        2,
+        1,
+        7,
+        3
+      ],
+      "expect": [
+        "one_ready_frame_after_complete_payload"
+      ],
+      "decoded": {
+        "v": 1,
+        "type": "ready",
+        "run": "11111111111111111111111111111111",
+        "session": "22222222222222222222222222222222",
+        "seq": 1,
+        "body": {
+          "commands": [
+            "assign"
+          ],
+          "points": [
+            "after_read",
+            "before_write"
+          ],
+          "capacity": 2
+        }
+      }
+    },
+    {
+      "id": "zero_length",
+      "input_hex": "00000000",
+      "expect": [
+        "fatal_protocol"
+      ]
+    },
+    {
+      "id": "oversized_length",
+      "input_hex": "00100001",
+      "expect": [
+        "fatal_protocol",
+        "no_payload_allocation"
+      ]
+    },
+    {
+      "id": "partial_header_eof",
+      "input_hex": "0000",
+      "eof": true,
+      "expect": [
+        "fatal_transport"
+      ]
+    },
+    {
+      "id": "partial_payload_eof",
+      "input_hex": "000000027b",
+      "eof": true,
+      "expect": [
+        "fatal_transport"
+      ]
+    },
+    {
+      "id": "invalid_utf8",
+      "input_hex": "00000001ff",
+      "expect": [
+        "fatal_protocol"
+      ]
+    },
+    {
+      "id": "stdout_banner",
+      "input_hex": "537072696e6720426f6f740a",
+      "expect": [
+        "fatal_protocol"
+      ]
+    },
+    {
+      "id": "duplicate_json_key",
+      "input_hex": "0000000d7b2276223a312c2276223a317d",
+      "expect": [
+        "fatal_protocol"
+      ]
+    },
+    {
+      "id": "trailing_value",
+      "input_hex": "000000c97b2276223a312c2274797065223a227265616479222c2272756e223a223131313131313131313131313131313131313131313131313131313131313131222c2273657373696f6e223a223232323232323232323232323232323232323232323232323232323232323232222c22736571223a312c22626f6479223a7b22636f6d6d616e6473223a5b2261737369676e225d2c22706f696e7473223a5b2261667465725f72656164222c226265666f72655f7772697465225d2c226361706163697479223a327d7d7b7d",
+      "expect": [
+        "fatal_protocol"
+      ]
+    },
+    {
+      "id": "unknown_field",
+      "input_hex": "000000d47b2276223a312c2274797065223a227265616479222c2272756e223a223131313131313131313131313131313131313131313131313131313131313131222c2273657373696f6e223a223232323232323232323232323232323232323232323232323232323232323232222c22736571223a312c22626f6479223a7b22636f6d6d616e6473223a5b2261737369676e225d2c22706f696e7473223a5b2261667465725f72656164222c226265666f72655f7772697465225d2c226361706163697479223a327d2c226578747261223a747275657d",
+      "expect": [
+        "fatal_protocol"
+      ]
+    }
+  ]
+}
