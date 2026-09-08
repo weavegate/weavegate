@@ -97,7 +97,7 @@ The `I` body fields below mean `invocation` and `worker`. `A` means `I` plus
 | `release` | E → J | `A` | Send only after that bridge call returns nil while the invocation is still uncanceled. J wakes only the gate with the exact identity. Error or cancellation from Arrive never authorizes release. |
 | `terminal` | J → E | `I`, `transaction`, `connection`, `error` | Only after accepted, proxy exit and verified cleanup; no outstanding arrival. One terminal per invocation. Rules below. |
 | `cancel` | E → J | `I`, `reason` (`context` or `stop`) | Cancel one invocation, including one awaiting accepted. Wake its gate with an exception, request JDBC cancellation, and await transaction cleanup. This is not release or completion. |
-| `stop` | E → J | `budget_ms` (positive integer ≤ 2147483647) | Close admission permanently, cancel all active invocations, await cleanup, close pool and application. Valid during startup as well as after ready. |
+| `stop` | E → J | `budget_ms` (remaining graceful budget, positive integer ≤ 2147483647) | Close admission permanently, cancel all active invocations, await cleanup, close pool and application. Valid during startup as well as after ready. |
 | `stopped` | J → E | empty object | All invocation terminals sent, no worker/lease remains, pool/application closed. Sent only in response to Stop; may be the first J frame (`seq: 1`) when startup was stopped before ready. Flush, close stdout, and exit 0. Cannot be sent after fatal. |
 | `fatal` | Either | `kind`, `message` | Session failure, never a worker terminal. `kind` is `version`, `protocol`, `startup`, `transport`, `transaction`, `cleanup`, or `shutdown`; message is sanitized, at most 1024 UTF-8 bytes. Close admission and begin bounded cleanup. Best effort only if writing remains possible. |
 
@@ -154,10 +154,17 @@ calling the runtime. Cancellation remains allowed until terminal retirement;
 a later cancel is consumed by the tombstone rule.
 
 Stop uses a cleanup context independent of the canceled run. E sets a single
-absolute stop deadline from that context, sends the remaining `budget_ms`, and
-reserves the final half of the initial remaining budget for forced termination
-and reaping. At the halfway deadline it kills the child if graceful completion
-is unproven; it never grants a fresh budget per phase. Writes, draining stderr,
+absolute stop deadline from that context and reserves the final half of the
+initial remaining budget for forced termination and reaping. The halfway point
+is the graceful cutoff. Immediately before writing stop, E sets `budget_ms` to
+the whole milliseconds remaining until that cutoff, rounded down, not the
+remaining total Stop budget. For example, with an initial 5000 ms and no elapsed
+time, stop advertises 2500 ms. If fewer than 1 ms remain, E skips the frame and
+starts forced termination. Time spent writing or delivering the frame consumes
+the grace; J must begin cleanup immediately, and its receipt-relative watchdog
+cannot postpone E's authoritative cutoff. At the cutoff E kills the child if
+graceful completion is unproven; it never grants a fresh budget per phase.
+Writes, draining stderr,
 waiting for workers, child exit, and reaping all respect the same deadline.
 Stop is idempotent; repeated calls retain the original failure and cannot
 restart the child. An expired budget returns an error promptly. The supported
@@ -170,6 +177,16 @@ by `cancel_ms`, attempts rollback and pool cleanup, and terminates itself even
 if a driver cannot be interrupted. Forced exit is never evidence of a known
 transaction outcome. E independently supervises child exit and quarantines the
 fixture after unproven cleanup.
+
+After sending or receiving fatal, a peer may close its control stream and is
+not required to read or respond to a later stop. Fatal permanently disables
+normal completion; no stopped response can clear it. E still performs local
+bounded Stop, with a best-effort stop write only while the pipe is available.
+That write does not establish or refresh J's cleanup watchdog: any existing
+cancellation/cleanup deadline remains authoritative (an expired deadline stays
+expired). If no cleanup deadline exists, J bounds fatal cleanup by `cancel_ms`
+from fatal detection. Failed writes retain the original fault; E proceeds to
+termination/reaping and never waits for a post-fatal stopped acknowledgment.
 
 Normal Stop requires `stopped`, stdout EOF, exit 0, no active worker/lease, and
 no latched session fault. EOF before stopped (even exit 0), nonzero exit, broken

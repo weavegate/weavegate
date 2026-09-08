@@ -262,6 +262,18 @@
       "prefix": "completed",
       "steps": [
         {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "budget_ms": 5000
+          },
+          "expect": [
+            "send_stop",
+            "set_single_deadline"
+          ]
+        },
+        {
           "peer": "java",
           "action": "receive",
           "frame": {
@@ -271,7 +283,7 @@
             "session": "22222222222222222222222222222222",
             "seq": 4,
             "body": {
-              "budget_ms": 5000
+              "budget_ms": 2500
             }
           },
           "expect": [
@@ -1564,7 +1576,7 @@
             "type": "stop",
             "seq": 2,
             "body": {
-              "budget_ms": 5000
+              "budget_ms": 2500
             }
           },
           "expect": [
@@ -2099,27 +2111,10 @@
             "budget_ms": 5000
           },
           "expect": [
-            "send_stop",
-            "set_single_deadline"
-          ]
-        },
-        {
-          "peer": "java",
-          "action": "receive",
-          "frame": {
-            "v": 1,
-            "run": "11111111111111111111111111111111",
-            "session": "22222222222222222222222222222222",
-            "type": "stop",
-            "seq": 4,
-            "body": {
-              "budget_ms": 5000
-            }
-          },
-          "expect": [
-            "close_admission",
-            "continue_cleanup",
-            "no_stopped"
+            "best_effort_stop",
+            "set_single_deadline",
+            "retain_adapter_fault",
+            "no_stopped_required"
           ]
         },
         {

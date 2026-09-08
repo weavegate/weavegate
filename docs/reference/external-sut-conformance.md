@@ -77,14 +77,17 @@ All sequences below are constructed. `E` is the Go adapter, `J` the JVM SDK,
 
 `stop_before_ready` exercises the alternate startup path: E sends start (1),
 requests Stop and sends stop (2), then receives J's first frame stopped (1)
-after cleanup. EOF and exit 0 complete Stop without returning a Handle or running
+after cleanup. The local Stop budget is 5000 ms and the wire stop budget is its
+2500 ms graceful portion, assuming no elapsed delivery time. EOF and exit 0 complete Stop without returning a Handle or running
 a command. `unsolicited_startup_stopped` rejects the same first J frame when E
 has not requested Stop.
 
 `cancel_cleanup_deadline` explicitly cancels the Go invocation and unwinds its
 bridge, delivers Java's cleanup fatal to Go, and invokes Go Stop with a 5000 ms
-budget before advancing its halfway/deadline events. The stop frame is delivered
-to Java explicitly as well. These are distinct fake-clock events: Java's cancel
+total budget before advancing its halfway/deadline events. E's best-effort stop
+would advertise at most the 2500 ms graceful portion; the already-fatal Java
+peer is not required to receive it or extend its expired watchdog. These are
+distinct fake-clock events: Java's cancel
 grace expiring does not establish Go's stop deadline, and a fatal-send
 expectation cannot stand in for Go receiving that frame. The case intentionally
 leaves child exit/reaping unproven to require a Stop error and reject Reset.
