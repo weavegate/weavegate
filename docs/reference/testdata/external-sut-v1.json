@@ -2011,6 +2011,18 @@
       "prefix": "arrived",
       "steps": [
         {
+          "peer": "go",
+          "action": "local",
+          "event": "cancel_context",
+          "args": {
+            "invocation": "33333333333333333333333333333333"
+          },
+          "expect": [
+            "cancel_bridge",
+            "send_cancel"
+          ]
+        },
+        {
           "peer": "java",
           "action": "receive",
           "frame": {
@@ -2032,6 +2044,23 @@
           ]
         },
         {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "cancelled"
+          },
+          "expect": [
+            "no_release"
+          ]
+        },
+        {
           "peer": "java",
           "action": "local",
           "event": "cancel_deadline",
@@ -2039,6 +2068,58 @@
           "expect": [
             "fatal_cleanup",
             "no_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "fatal",
+            "seq": 4,
+            "body": {
+              "kind": "cleanup",
+              "message": "cancellation cleanup deadline exceeded"
+            }
+          },
+          "expect": [
+            "latch_adapter_fault",
+            "no_worker_result",
+            "abort_run",
+            "quarantine_fixture"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "budget_ms": 5000
+          },
+          "expect": [
+            "send_stop",
+            "set_single_deadline"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stop",
+            "seq": 4,
+            "body": {
+              "budget_ms": 5000
+            }
+          },
+          "expect": [
+            "close_admission",
+            "continue_cleanup",
+            "no_stopped"
           ]
         },
         {
@@ -2063,6 +2144,8 @@
         }
       ],
       "covers": [
+        "cancellation",
+        "fatal_delivery",
         "bounded_shutdown",
         "reset_isolation"
       ]

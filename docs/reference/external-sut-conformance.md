@@ -81,6 +81,14 @@ after cleanup. EOF and exit 0 complete Stop without returning a Handle or runnin
 a command. `unsolicited_startup_stopped` rejects the same first J frame when E
 has not requested Stop.
 
+`cancel_cleanup_deadline` explicitly cancels the Go invocation and unwinds its
+bridge, delivers Java's cleanup fatal to Go, and invokes Go Stop with a 5000 ms
+budget before advancing its halfway/deadline events. The stop frame is delivered
+to Java explicitly as well. These are distinct fake-clock events: Java's cancel
+grace expiring does not establish Go's stop deadline, and a fatal-send
+expectation cannot stand in for Go receiving that frame. The case intentionally
+leaves child exit/reaping unproven to require a Stop error and reject Reset.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)
