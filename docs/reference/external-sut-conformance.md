@@ -60,6 +60,9 @@ A command exception such as the rollback case is independently injected through
 
 `stop_call` starts an asynchronous harness call; its `budget_ms` is the total
 local cleanup budget, not the smaller graceful budget advertised on the wire.
+`set_single_deadline` must precede any cancel, stop, or best-effort stop write;
+otherwise a blocked write would escape the cleanup bound. These effects remain
+ordered, including calls that close pipes or force termination without writing.
 An optional `call_id` names the particular caller. `call_pending` requires it
 not to have returned yet. `check_stop_results` only observes the named calls;
 it must not inject or fabricate their return values. It requires every listed

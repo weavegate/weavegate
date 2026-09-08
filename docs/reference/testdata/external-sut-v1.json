@@ -269,8 +269,8 @@
             "budget_ms": 5000
           },
           "expect": [
-            "send_stop",
-            "set_single_deadline"
+            "set_single_deadline",
+            "send_stop"
           ]
         },
         {
@@ -338,11 +338,11 @@
             "budget_ms": 5000
           },
           "expect": [
+            "set_single_deadline",
             "close_admission",
             "cancel_bridge",
             "send_cancel",
             "send_stop",
-            "set_single_deadline",
             "call_pending"
           ]
         },
@@ -2011,8 +2011,8 @@
             "budget_ms": 5000
           },
           "expect": [
-            "send_stop",
             "set_single_deadline",
+            "send_stop",
             "no_invoke"
           ]
         },
@@ -2618,8 +2618,8 @@
             "budget_ms": 5000
           },
           "expect": [
-            "best_effort_stop",
             "set_single_deadline",
+            "best_effort_stop",
             "retain_adapter_fault",
             "no_stopped_required"
           ]
@@ -2665,8 +2665,8 @@
             "call_id": "stop-1"
           },
           "expect": [
-            "send_stop",
             "set_single_deadline",
+            "send_stop",
             "call_pending"
           ]
         },
