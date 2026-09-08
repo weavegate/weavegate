@@ -2156,11 +2156,13 @@
           "action": "local",
           "event": "stop_call",
           "args": {
-            "budget_ms": 5000
+            "budget_ms": 5000,
+            "call_id": "stop-1"
           },
           "expect": [
             "send_stop",
-            "set_single_deadline"
+            "set_single_deadline",
+            "call_pending"
           ]
         },
         {
@@ -2168,11 +2170,13 @@
           "action": "local",
           "event": "stop_call",
           "args": {
-            "budget_ms": 5000
+            "budget_ms": 5000,
+            "call_id": "stop-2"
           },
           "expect": [
             "reuse_deadline",
-            "no_second_child"
+            "no_second_child",
+            "call_pending"
           ]
         },
         {
@@ -2190,8 +2194,55 @@
           "event": "stop_deadline",
           "args": {},
           "expect": [
-            "stop_error",
+            "latch_stop_timeout_failure",
             "quarantine_fixture"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "check_stop_results",
+          "args": {
+            "call_ids": [
+              "stop-1",
+              "stop-2"
+            ],
+            "expected_error": "stop_timeout"
+          },
+          "expect": [
+            "all_calls_return_same_failure",
+            "no_nil_stop_result"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "stop-3",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "return_latched_failure",
+            "no_new_deadline",
+            "no_second_child"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "check_stop_results",
+          "args": {
+            "call_ids": [
+              "stop-1",
+              "stop-2",
+              "stop-3"
+            ],
+            "expected_error": "stop_timeout"
+          },
+          "expect": [
+            "all_calls_return_same_failure",
+            "no_nil_stop_result"
           ]
         }
       ],
@@ -2209,10 +2260,22 @@
           "action": "local",
           "event": "stderr_bytes",
           "args": {
-            "byte_count": 1048577
+            "byte_count": 1048577,
+            "segments": [
+              {
+                "hex": "41",
+                "repeat": 1
+              },
+              {
+                "hex": "42",
+                "repeat": 1048576
+              }
+            ],
+            "retained_bytes": 1048576,
+            "retained_sha256": "5ae9782017a68037004b2bf806c77d324db4d915ed3725d84eb3121b2ad16061"
           },
           "expect": [
-            "retain_last_1048576_bytes",
+            "retained_tail_matches_digest",
             "no_protocol_effect",
             "no_worker_block"
           ]

@@ -38,6 +38,22 @@ forbids emitting any WorkerResult for the affected incomplete invocation.
 A `completion` event supplies independently observed proxy-exit, transaction,
 and lease state; the harness must not treat it as a request to publish terminal.
 
+`stop_call` starts an asynchronous harness call; its `budget_ms` is the total
+local cleanup budget, not the smaller graceful budget advertised on the wire.
+An optional `call_id` names the particular caller. `call_pending` requires it
+not to have returned yet. `check_stop_results` only observes the named calls;
+it must not inject or fabricate their return values. It requires every listed
+call to have returned the latched failure with `expected_error` as its cause,
+never nil. The failure comparison ignores incidental wrapper text. The repeated
+Stop case checks both concurrent callers, then a third call after completion,
+so cached success or an immediate nil from a repeated call cannot pass.
+
+`stderr_bytes.args.segments` supplies exact bytes: decode each `hex`, repeat the
+result `repeat` times, and concatenate in order. Assert the total is `byte_count`.
+The retained tail must have length `retained_bytes` and SHA-256 `retained_sha256`.
+The overflow input starts with one ASCII A followed by one MiB of ASCII B, so
+keeping the oldest bytes produces a different digest from retaining the newest.
+
 Go tests exercise Go steps against a scripted child and runtime double; Java
 tests exercise Java steps against a scripted engine and controllable command/
 DataSource. Each consumes the other peer's steps as the scripted conversation.

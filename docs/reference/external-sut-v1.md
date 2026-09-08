@@ -172,7 +172,11 @@ graceful completion is unproven; it never grants a fresh budget per phase.
 Writes, draining stderr,
 waiting for workers, child exit, and reaping all respect the same deadline.
 Stop is idempotent; repeated calls retain the original failure and cannot
-restart the child. An expired budget returns an error promptly. The supported
+restart the child. Concurrent callers whose own contexts remain live wait for
+the same cleanup outcome; later calls return that latched outcome. A caller's
+earlier context expiry may return its context error, but cannot return nil,
+clear the shared failure, or restart/extend cleanup. An expired budget returns
+an error promptly. The supported
 child must not spawn descendants; if implementation allows any, it must own and
 terminate the whole process tree under this same bound.
 
