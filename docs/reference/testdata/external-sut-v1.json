@@ -906,7 +906,8 @@
             "lease": "returned"
           },
           "expect": [
-            "send_terminal"
+            "send_terminal",
+            "retire_invocation"
           ]
         },
         {
@@ -918,6 +919,29 @@
           },
           "expect": [
             "send_cancel"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "cancel",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "context"
+            }
+          },
+          "expect": [
+            "consume_retired_invocation",
+            "committed_terminal_unchanged",
+            "no_second_terminal",
+            "no_rollback",
+            "no_fatal"
           ]
         },
         {

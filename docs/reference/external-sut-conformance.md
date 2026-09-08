@@ -132,6 +132,12 @@ its future asynchronous outcome API must be decided before this case can run.
 Do not satisfy it by closing the current result channel without a result or by
 inventing a rollback.
 
+`commit_wins_cancel` delivers cancel to Java after it has emitted and retired
+the committed terminal but before Go receives that terminal. Java must consume
+the retired invocation's cancel without changing its stored outcome, issuing
+another terminal, rolling back, or raising fatal. Go still receives the original
+committed result and preserves the canceled operation's context error.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)
