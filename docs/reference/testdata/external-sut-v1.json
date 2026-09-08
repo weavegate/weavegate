@@ -1758,54 +1758,22 @@
         {
           "peer": "java",
           "action": "local",
-          "event": "completion",
+          "event": "command_exception",
           "args": {
-            "proxy_exited": true,
-            "transaction": "rolled_back",
-            "lease": "returned"
-          },
-          "expect": [
-            "send_terminal"
-          ]
-        },
-        {
-          "peer": "go",
-          "action": "receive",
-          "frame": {
-            "v": 1,
-            "type": "terminal",
-            "run": "11111111111111111111111111111111",
-            "session": "22222222222222222222222222222222",
-            "seq": 4,
-            "body": {
-              "invocation": "33333333333333333333333333333333",
-              "worker": "w1",
-              "transaction": "rolled_back",
-              "connection": "returned",
-              "error": {
-                "kind": "mysql",
-                "message": "synthetic failure",
-                "mysql_code": 1213,
-                "sql_state": "40001"
-              }
+            "invocation": "33333333333333333333333333333333",
+            "phase": "jdbc_operation",
+            "exception": {
+              "class": "java.sql.SQLException",
+              "message": "synthetic deadlock",
+              "vendor_code": 1213,
+              "sql_state": "40001"
             }
           },
           "expect": [
-            "worker_result_error",
-            "failure_class_mysql_deadlock",
-            "close_result_channel"
+            "record_source_exception",
+            "no_terminal"
           ]
-        }
-      ],
-      "covers": [
-        "error_metadata",
-        "mysql_deadlock"
-      ]
-    },
-    {
-      "id": "mysql_lock_timeout",
-      "prefix": "released",
-      "steps": [
+        },
         {
           "peer": "java",
           "action": "local",
@@ -1835,7 +1803,77 @@
               "connection": "returned",
               "error": {
                 "kind": "mysql",
-                "message": "synthetic failure",
+                "message": "synthetic deadlock",
+                "mysql_code": 1213,
+                "sql_state": "40001"
+              }
+            }
+          },
+          "expect": [
+            "worker_result_error",
+            "failure_class_mysql_deadlock",
+            "close_result_channel"
+          ]
+        }
+      ],
+      "covers": [
+        "error_metadata",
+        "mysql_deadlock"
+      ]
+    },
+    {
+      "id": "mysql_lock_timeout",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "command_exception",
+          "args": {
+            "invocation": "33333333333333333333333333333333",
+            "phase": "jdbc_operation",
+            "exception": {
+              "class": "java.sql.SQLException",
+              "message": "synthetic lock timeout",
+              "vendor_code": 1205,
+              "sql_state": "HY000"
+            }
+          },
+          "expect": [
+            "record_source_exception",
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "rolled_back",
+              "connection": "returned",
+              "error": {
+                "kind": "mysql",
+                "message": "synthetic lock timeout",
                 "mysql_code": 1205,
                 "sql_state": "HY000"
               }
@@ -1857,6 +1895,25 @@
       "id": "post_commit_exception",
       "prefix": "released",
       "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "command_exception",
+          "args": {
+            "invocation": "33333333333333333333333333333333",
+            "phase": "after_commit_callback",
+            "exception": {
+              "class": "java.lang.IllegalStateException",
+              "message": "synthetic after-commit failure",
+              "vendor_code": 0,
+              "sql_state": ""
+            }
+          },
+          "expect": [
+            "record_source_exception",
+            "no_terminal"
+          ]
+        },
         {
           "peer": "java",
           "action": "local",
@@ -1886,7 +1943,7 @@
               "connection": "returned",
               "error": {
                 "kind": "application",
-                "message": "synthetic failure",
+                "message": "synthetic after-commit failure",
                 "mysql_code": 0,
                 "sql_state": ""
               }
