@@ -158,6 +158,12 @@ read when cancellation starts, E consumes it in the canceled invocation without
 calling the runtime. Cancellation remains allowed until terminal retirement;
 a later cancel is consumed by the tombstone rule.
 
+Normal Stop closes Go admission, cancels each live invocation's bridge context,
+and queues cancel with reason `stop` for those invocations before the stop frame.
+The child's stop handling also cancels any still-active invocation idempotently;
+it must not depend on a separate cancel to close admission or begin cleanup.
+Canceled bridge calls must unwind before Go accepts the corresponding terminals.
+
 Stop uses a cleanup context independent of the canceled run. E sets a single
 absolute stop deadline from that context and reserves the final half of the
 initial remaining budget for forced termination and reaping. The halfway point

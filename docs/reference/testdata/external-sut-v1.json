@@ -326,6 +326,224 @@
       ]
     },
     {
+      "id": "stop_active_invocation",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "active-stop",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "close_admission",
+            "cancel_bridge",
+            "send_cancel",
+            "send_stop",
+            "set_single_deadline",
+            "call_pending"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "cancel",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "stop"
+            }
+          },
+          "expect": [
+            "cancel_latched",
+            "wake_gate_exceptionally",
+            "request_jdbc_cancel",
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stop",
+            "seq": 4,
+            "body": {
+              "budget_ms": 2500
+            }
+          },
+          "expect": [
+            "close_admission",
+            "await_active_cleanup",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "cancelled"
+          },
+          "expect": [
+            "no_release"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": false,
+            "transaction": "rolled_back",
+            "lease": "held"
+          },
+          "expect": [
+            "no_terminal",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "held"
+          },
+          "expect": [
+            "no_terminal",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "rolled_back",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal",
+            "retire_invocation",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "rolled_back",
+              "connection": "returned",
+              "error": {
+                "kind": "cancelled",
+                "message": "cancelled by stop",
+                "mysql_code": 0,
+                "sql_state": ""
+              }
+            }
+          },
+          "expect": [
+            "worker_result_cancelled",
+            "close_result_channel",
+            "retire_invocation",
+            "stop_still_pending"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "application_cleanup_complete",
+          "args": {
+            "active_invocations": 0,
+            "open_leases": 0,
+            "pool_closed": true,
+            "application_closed": true
+          },
+          "expect": [
+            "send_stopped"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stopped",
+            "seq": 5,
+            "body": {}
+          },
+          "expect": [
+            "await_eof_and_exit",
+            "stop_still_pending"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 0
+          },
+          "expect": [
+            "stop_ok",
+            "reset_allowed"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "check_stop_results",
+          "args": {
+            "call_ids": [
+              "active-stop"
+            ],
+            "expected_error": null
+          },
+          "expect": [
+            "all_calls_return_success"
+          ]
+        }
+      ],
+      "covers": [
+        "normal_stop",
+        "active_invocation",
+        "stop_cancellation",
+        "rollback",
+        "connection_return",
+        "reset_isolation"
+      ]
+    },
+    {
       "id": "rollback",
       "prefix": "released",
       "steps": [

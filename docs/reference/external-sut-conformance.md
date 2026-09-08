@@ -54,7 +54,9 @@ An optional `call_id` names the particular caller. `call_pending` requires it
 not to have returned yet. `check_stop_results` only observes the named calls;
 it must not inject or fabricate their return values. It requires every listed
 call to have returned the latched failure with `expected_error` as its cause,
-never nil. The failure comparison ignores incidental wrapper text. The repeated
+never nil. With `expected_error: null`, every named call must instead have
+completed successfully; a still-pending call cannot satisfy that check.
+The failure comparison ignores incidental wrapper text. The repeated
 Stop case checks both concurrent callers, then a third call after completion,
 so cached success or an immediate nil from a repeated call cannot pass.
 
@@ -137,6 +139,18 @@ the committed terminal but before Go receives that terminal. Java must consume
 the retired invocation's cancel without changing its stored outcome, issuing
 another terminal, rolling back, or raising fatal. Go still receives the original
 committed result and preserves the canceled operation's context error.
+
+`stop_active_invocation` begins with a worker gated inside its transaction.
+Go Stop cancels the bridge and explicitly sends cancel with reason stop, then
+stop with the graceful budget. Java's canceled gate supplies the SDK cancellation
+exception (`cancelled by stop`) under rollback rules. Controlled completion
+milestones forbid terminal until proxy exit and lease return, and forbid stopped
+until application/pool cleanup completes. `application_cleanup_complete` supplies
+those independently controlled resource milestones; the harness must not invent
+them from an expected stopped frame. Go checks the canceled worker result after
+bridge unwinding, then requires stopped, EOF and exit 0 before the named Stop
+call succeeds or Reset becomes allowed. `stop_still_pending` forbids early
+success at intermediate receipt steps.
 
 ## Implementation checklist
 
