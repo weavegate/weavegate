@@ -836,8 +836,10 @@
             }
           },
           "expect": [
-            "worker_result_cancelled",
-            "close_result_channel"
+            "unstarted_outcome",
+            "no_worker_result",
+            "no_runtime_finish",
+            "operation_context_error"
           ]
         }
       ],

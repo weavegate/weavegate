@@ -92,6 +92,13 @@ grace expiring does not establish Go's stop deadline, and a fatal-send
 expectation cannot stand in for Go receiving that frame. The case intentionally
 leaves child exit/reaping unproven to require a Stop error and reject Reset.
 
+`cancel_before_accepted` requires a distinct `unstarted_outcome`, preserving
+cancellation and proving no command/transaction/lease began. It forbids a
+WorkerResult and runtime Finish. The Go harness for this case depends on ADR G5;
+its future asynchronous outcome API must be decided before this case can run.
+Do not satisfy it by closing the current result channel without a result or by
+inventing a rollback.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)
@@ -104,7 +111,7 @@ configuration enablement; [Spring evidence #111](https://github.com/weavegate/we
 owns the combined MySQL reproduction. Do not mark this design checklist complete
 on the strength of prose or a mock-only test.
 
-- [ ] Resolve ADR gaps G1–G4 in separately reviewable decisions before enabling external CLI execution: fixture descriptor, asynchronous fault propagation, reset quarantine, and launch/config/budgets.
+- [ ] Resolve ADR gaps G1–G5 in separately reviewable decisions before enabling external CLI execution: fixture descriptor, asynchronous fault propagation, reset quarantine, launch/config/budgets, and asynchronous unstarted outcomes.
 - [ ] Consume all shared vector IDs. Go owns runtime mapping, channel closure, process supervision, and error propagation; Java owns framing, dispatch, gates, proxy/lease tracking, and local cancellation. Both test malformed input and duplicate handling.
 - [ ] Implement only child-JVM launch with framed stdin/stdout. Test fragmented/coalesced frames, invalid JSON/UTF-8/fields/version, unknown names/IDs, gaps, conflicting duplicates, sequence exhaustion, and capacity exhaustion without changing application state on rejection.
 - [ ] Exercise concurrent arrivals and releases with barriers, including a blocked worker while another commits. The pipe reader/writer must remain live; no sleep-based coordination or polling for readiness.

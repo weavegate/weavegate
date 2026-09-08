@@ -126,6 +126,15 @@ boundary decisions**. This documentation does not change those boundaries.
 | G2: Asynchronous adapter failure | [`runCoordinator.invoke`](../../internal/orchestrator/run.go) turns every valid `WorkerResult.Err` into worker terminal data and calls `Finish`. It has no adapter-wide fault signal, especially after all terminals but before/during oracle evaluation. | Define a typed adapter/session failure surface observed through execution, evaluation, and Stop. It must abort with a run error, invalidate any provisional evaluation, and retain failure cause without pretending transaction cleanup completed. Empty result channels are already errors, but are not a sufficient structured fault contract. |
 | G3: Reset after failed shutdown | `Run` defers Stop and joins its error, but returns its run gate even when Stop fails. Replay stops on error; a later direct `Run` can still call Reset. | Define fixture quarantine/invalidation after unproven child or DB-session cleanup; reject reuse until teardown and successful reprovisioning. Process exit alone does not prove server rollback finished. |
 | G4: Adapter selection and budgets | [`config`](../../internal/config/config.go) and [`Resolve`](../../cmd/weavegate/resolve.go) only resolve built-in Go entrypoints. Start consumes the existing run budget, which may be too small for JVM startup. | Specify one launch configuration, command/point preflight, capacity, and startup/run/stop budget composition before adding external dispatch. Keep argv and credentials separate; update config docs and validation markers in that change. |
+| G5: Invocation never started | [`WorkerResult`](../../internal/sut/sut.go) requires command commit/rollback and connection return. The wire can report `not_started` after Invoke has already returned a channel, so a synchronous Invoke error is no longer available. | Define a distinct asynchronous unstarted outcome and its collection/closure semantics; preserve cancellation and initialization errors without calling runtime Finish or publishing WorkerResult for work that never began. This requires a separately reviewed SUT/orchestrator boundary decision before implementation. |
+
+G5 must be resolved before mapping wire `not_started` to a Go API outcome.
+The proposed direction is a distinct asynchronous unstarted outcome carrying
+its cause and cleanup facts, rather than weakening `WorkerResult`'s committed/
+rolled-back contract. The decision must specify result-stream closure, worker
+reservation release, and orchestrator cancellation/error handling when Invoke
+has already returned a channel. A wire terminal is a protocol completion fact;
+it does not by itself authorize a Go WorkerResult or runtime Finish.
 
 For Java MySQL errors, the bridge can preserve vendor code and SQLSTATE using
 the already-used Go MySQL error type so the existing classifier recognizes
@@ -142,7 +151,7 @@ whether an invariant holds. Cancellation and process death can leave outcome
 unknown; preserving that uncertainty is more important than manufacturing a
 terminal to finish a schedule.
 
-The protocol can be implemented against peer doubles before G1–G4 are resolved,
+The protocol can be implemented against peer doubles before G1–G5 are resolved,
 but external execution must not be enabled end to end until those decisions and
 the [shared checklist](../reference/external-sut-conformance.md#implementation-checklist)
 are completed. This ADR is ready for design review, not evidence that either

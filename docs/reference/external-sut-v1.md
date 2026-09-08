@@ -95,7 +95,7 @@ The `I` body fields below mean `invocation` and `worker`. `A` means `I` plus
 | `accepted` | J → E | `I` | Reserve invocation before sending; precedes all arrivals/terminal for it. Acknowledges dispatch, not transaction completion. E may return a result channel from Invoke before receiving this. |
 | `arrive` | J → E | `A` | Worker gate is installed before sending. E validates identity, then calls its session's `Client.Arrive` once in an independent bridge task. |
 | `release` | E → J | `A` | Send only after that bridge call returns nil while the invocation is still uncanceled. J wakes only the gate with the exact identity. Error or cancellation from Arrive never authorizes release. |
-| `terminal` | J → E | `I`, `transaction`, `connection`, `error` | Only after accepted, proxy exit and verified cleanup; no outstanding arrival. One terminal per invocation. Rules below. |
+| `terminal` | J → E | `I`, `transaction`, `connection`, `error` | Only after accepted and verified cleanup; started transactions also require proxy exit. No outstanding arrival. One terminal per invocation. Rules below. |
 | `cancel` | E → J | `I`, `reason` (`context` or `stop`) | Cancel one invocation, including one awaiting accepted. Wake its gate with an exception, request JDBC cancellation, and await transaction cleanup. This is not release or completion. |
 | `stop` | E → J | `budget_ms` (remaining graceful budget, positive integer ≤ 2147483647) | Close admission permanently, cancel all active invocations, await cleanup, close pool and application. Valid during startup as well as after ready. |
 | `stopped` | J → E | empty object | All invocation terminals sent, no worker/lease remains, pool/application closed. Sent only in response to Stop; may be the first J frame (`seq: 1`) when startup was stopped before ready. Flush, close stdout, and exit 0. Cannot be sent after fatal. |
@@ -124,7 +124,12 @@ Explicit rollback without an application exception still needs an application
 error indicating rollback. Wire kinds are not diagnostic codes or verdicts.
 
 E emits exactly one `WorkerResult` then closes its channel only for a validated
-terminal after all invocation bridge tasks have unwound. Null error maps to nil;
+`committed` or `rolled_back` terminal after all invocation bridge tasks have
+unwound. A `not_started` wire terminal must instead use the separate asynchronous
+unstarted outcome required by ADR gap G5; it cannot publish WorkerResult or call
+runtime Finish. That API and its stream closure/worker-reuse rules must be decided
+before implementation; no current Go channel behavior is implied here.
+Null error maps to nil;
 non-null maps to an error, preserving MySQL vendor metadata (1213 deadlock,
 1205 ordinary error) and cancellation identity. E measures Duration locally
 from dispatch to terminal receipt; it is volatile and not sent on the wire.
