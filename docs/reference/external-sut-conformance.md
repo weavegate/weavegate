@@ -51,7 +51,14 @@ the decoder. `read_chunk_sizes` splits the leading reads; feed any remainder in
 one final read. `eof: true` closes the stream afterward. Compare a valid decoded
 object to `decoded` and require no dispatch before the entire payload arrives.
 Also run valid frames coalesced and at every single byte boundary. Invalid cases
-must fail before invoking application code.
+must fail before invoking application code. Where `control_hex` is present,
+first require that fault-free frame to pass framing/schema validation in a
+fresh decoder. Then run `input_hex` in another fresh decoder and require rejection
+without dispatch. The malformed UTF-8 byte is inside a start parameter string;
+top-level and nested duplicate keys otherwise preserve a valid start frame.
+Thus neither a lossy UTF-8 decoder nor a last-key-wins JSON decoder can pass by
+rejecting an unrelated schema or syntax defect. These cases exercise decoding;
+no database startup is required for a control frame to be schema-valid.
 
 A language implementation must report each case ID and its result. Unsupported
 cases remain failing/incomplete acceptance work, not silently skipped coverage.
