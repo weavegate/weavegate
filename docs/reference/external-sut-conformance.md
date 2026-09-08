@@ -35,6 +35,10 @@ forbids emitting any WorkerResult for the affected incomplete invocation.
 `abort_run` requires a run error, not an ordinary worker failure or a verdict.
 `invalidate_evaluation` rejects even a previously obtained passing evaluation.
 `quarantine_fixture` requires `reset_rejected` until teardown/reprovisioning.
+`operation_context_error` is a run-level assertion for the combined harness,
+gated on G6 even when listed beside a terminal observation; it is not another
+Handle result. The standalone Go adapter harness checks only its supplied
+context and worker outcome; it cannot claim the run-level assertion passed.
 A `completion` event supplies independently observed proxy-exit, transaction,
 and lease state; the harness must not treat it as a request to publish terminal.
 
@@ -184,6 +188,15 @@ the faulty ready response, explicitly delivers startup fatal to Java, and runs
 Go's bounded Stop. With graceful cleanup unproven at the cutoff, it kills and
 reaps the child and preserves the startup fault. Child reaping alone does not
 certify application/DB cleanup, so Reset remains blocked by quarantine.
+
+`java_receives_fatal_active` injects an engine protocol fatal into Java while
+a worker is gated. Java must close admission, wake the gate exceptionally and
+attempt rollback under its existing cleanup watchdog. Known rollback, proxy
+exit and lease-return milestones remain local after fatal: no terminal or normal
+stopped is emitted. The case reaches pool/application cleanup and nonzero exit;
+Go reaps the child while retaining the original session fault and quarantine.
+The watchdog remains a bound if those milestones never complete; they do not
+reset its deadline.
 
 ## Implementation checklist
 

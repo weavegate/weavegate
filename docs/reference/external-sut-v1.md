@@ -211,7 +211,13 @@ fixture after unproven cleanup.
 
 After sending or receiving fatal, a peer may close its control stream and is
 not required to read or respond to a later stop. Fatal permanently disables
-normal completion; no stopped response can clear it. E still performs local
+normal completion; no stopped response can clear it. J emits no new worker
+terminals after fatal: known cleanup milestones remain local and must not
+manufacture a result for an already failed session. Previously emitted terminal
+facts are not rewritten. If still active, J wakes gates exceptionally and its
+worker must unwind under rollback rules; cleanup retains the same proxy/lease
+barriers. After bounded cleanup J closes the stream and exits nonzero; a
+watchdog expiry forces exit even when cleanup is unproven. E still performs local
 bounded Stop, with a best-effort stop write only while the pipe is available.
 That write does not establish or refresh J's cleanup watchdog: any existing
 cancellation/cleanup deadline remains authoritative (an expired deadline stays
