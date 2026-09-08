@@ -150,8 +150,11 @@ sync-point gate exceptionally, and prevents future gates/commands from starting.
 A racing release cannot clear that flag; a release received for a canceled gate is consumed without resuming it. A bridge task must recheck cancellation before queuing release, even after a nil runtime return. The command must allow the cancellation
 exception to cross its proxy boundary under rollback rules. JDBC cancel/interrupt
 is a request, not proof that a driver or server has stopped. A transaction already
-committed can truthfully return `committed`; the canceled Go operation still
-returns its context error. Do not rewrite its database outcome as rollback.
+committed must truthfully return `committed`, with nil WorkerResult.Err when the
+wire error is null. Reporting cancellation of the enclosing operation is a
+separate run-level obligation gated on ADR G6; Handle does not publish a second
+asynchronous error. The G6 decision must retain the operation context error
+without rewriting the database outcome as rollback.
 
 Any non-cancellation error from the runtime bridge is a fatal protocol error; it is never converted into release or a successful terminal.
 

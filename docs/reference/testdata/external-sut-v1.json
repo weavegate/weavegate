@@ -805,7 +805,8 @@
           "action": "local",
           "event": "cancel_context",
           "args": {
-            "invocation": "33333333333333333333333333333333"
+            "invocation": "33333333333333333333333333333333",
+            "scope": "invocation"
           },
           "expect": [
             "cancel_bridge",
@@ -860,7 +861,8 @@
             "lease": "returned"
           },
           "expect": [
-            "send_terminal"
+            "send_terminal",
+            "retire_invocation"
           ]
         },
         {
@@ -888,12 +890,107 @@
           "expect": [
             "worker_result_cancelled",
             "close_result_channel",
-            "operation_context_error"
+            "retire_invocation",
+            "supplied_invocation_context_cancelled"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "invoke_call",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "worker": "w1",
+            "command": "assign",
+            "context": "fresh"
+          },
+          "expect": [
+            "reserve_invocation",
+            "send_invoke",
+            "result_channel_created"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "invoke",
+            "seq": 4,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "command": "assign"
+            }
+          },
+          "expect": [
+            "reserve_invocation",
+            "dispatch_once"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "accepted",
+            "seq": 5,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1"
+            }
+          },
+          "expect": [
+            "mark_accepted"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal",
+            "retire_invocation"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "terminal",
+            "seq": 6,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "worker_result_nil",
+            "close_result_channel",
+            "retire_invocation"
           ]
         }
       ],
       "covers": [
-        "cancellation"
+        "cancellation",
+        "cancelled_retirement",
+        "worker_reuse"
       ]
     },
     {
@@ -1200,8 +1297,21 @@
           },
           "expect": [
             "worker_result_nil",
-            "close_result_channel",
-            "operation_context_error"
+            "close_result_channel"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "check_operation_result",
+          "args": {
+            "scope": "run",
+            "expected_error": "context_cancelled",
+            "requires_decision": "G6"
+          },
+          "expect": [
+            "operation_context_error",
+            "worker_outcome_preserved"
           ]
         }
       ],

@@ -127,6 +127,7 @@ boundary decisions**. This documentation does not change those boundaries.
 | G3: Reset after failed shutdown | `Run` defers Stop and joins its error, but returns its run gate even when Stop fails. Replay stops on error; a later direct `Run` can still call Reset. | Define fixture quarantine/invalidation after unproven child or DB-session cleanup; reject reuse until teardown and successful reprovisioning. Process exit alone does not prove server rollback finished. |
 | G4: Adapter selection and budgets | [`config`](../../internal/config/config.go) and [`Resolve`](../../cmd/weavegate/resolve.go) only resolve built-in Go entrypoints. Start consumes the existing run budget, which may be too small for JVM startup. | Specify one launch configuration, command/point preflight, capacity, and startup/run/stop budget composition before adding external dispatch. Keep argv and credentials separate; update config docs and validation markers in that change. |
 | G5: Invocation never started | [`WorkerResult`](../../internal/sut/sut.go) requires command commit/rollback and connection return. The wire can report `not_started` after Invoke has already returned a channel, so a synchronous Invoke error is no longer available. | Define a distinct asynchronous unstarted outcome and its collection/closure semantics; preserve cancellation and initialization errors without calling runtime Finish or publishing WorkerResult for work that never began. This requires a separately reviewed SUT/orchestrator boundary decision before implementation. |
+| G6: Operation cancellation versus worker outcome | `Handle.Invoke` exposes one asynchronous WorkerResult, while [`Run`](../../internal/orchestrator/run.go) separately returns a run error. A committed terminal may race with context cancellation; collection can select the result and the final success path has no unconditional context check. | Decide cancellation precedence and the observation boundary through collection, evaluation and cleanup. Preserve a truthful nil worker error while reporting a canceled operation through the run-level error/status surface. Prefer the existing Run error return; do not invent a second Handle result or reinterpret committed work as failed/rolled back. Gate the combined conformance assertion on this decision. |
 
 G5 must be resolved before mapping wire `not_started` to a Go API outcome.
 The proposed direction is a distinct asynchronous unstarted outcome carrying
@@ -151,7 +152,7 @@ whether an invariant holds. Cancellation and process death can leave outcome
 unknown; preserving that uncertainty is more important than manufacturing a
 terminal to finish a schedule.
 
-The protocol can be implemented against peer doubles before G1–G5 are resolved,
+The protocol can be implemented against peer doubles before G1–G6 are resolved,
 but external execution must not be enabled end to end until those decisions and
 the [shared checklist](../reference/external-sut-conformance.md#implementation-checklist)
 are completed. This ADR is ready for design review, not evidence that either

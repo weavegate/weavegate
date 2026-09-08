@@ -144,7 +144,10 @@ inventing a rollback.
 the committed terminal but before Go receives that terminal. Java must consume
 the retired invocation's cancel without changing its stored outcome, issuing
 another terminal, rolling back, or raising fatal. Go still receives the original
-committed result and preserves the canceled operation's context error.
+committed result. The separate `check_operation_result` observer then requires
+the enclosing Run's cancellation error under the pending G6 decision. It observes
+the run-level result after completion, not another return from Handle or another
+WorkerResult; it must not manufacture an error from the vector's expectation.
 
 `stop_active_invocation` begins with a worker gated inside its transaction.
 Go Stop cancels the bridge and explicitly sends cancel with reason stop, then
@@ -158,6 +161,17 @@ bridge unwinding, then requires stopped, EOF and exit 0 before the named Stop
 call succeeds or Reset becomes allowed. `stop_still_pending` forbids early
 success at intermediate receipt steps.
 
+`cancel_at_arrival` checks retirement on both peers and then calls Invoke for a
+new invocation using w1 and a fresh, uncanceled context. `invoke_call` invokes the
+Go Handle (its invocation ID comes from the harness's deterministic ID source);
+the explicit Java invoke receipt is the corresponding outbound frame. Completion
+may name `invocation` when it differs from the first invocation in the history.
+This adapter-only reuse path cancels only the first invocation's context; it
+checks that supplied context directly, not a run-level error. It does not attempt
+to reuse a terminal worker in the orchestrator's single-use runtime. The second
+scripted command completes without arrivals and must not inherit the first
+invocation's cancellation or consume a leaked capacity reservation.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)
@@ -170,7 +184,7 @@ configuration enablement; [Spring evidence #111](https://github.com/weavegate/we
 owns the combined MySQL reproduction. Do not mark this design checklist complete
 on the strength of prose or a mock-only test.
 
-- [ ] Resolve ADR gaps G1–G5 in separately reviewable decisions before enabling external CLI execution: fixture descriptor, asynchronous fault propagation, reset quarantine, launch/config/budgets, and asynchronous unstarted outcomes.
+- [ ] Resolve ADR gaps G1–G6 in separately reviewable decisions before enabling external CLI execution: fixture descriptor, asynchronous fault propagation, reset quarantine, launch/config/budgets, asynchronous unstarted outcomes, and run-level cancellation precedence.
 - [ ] Consume all shared vector IDs. Go owns runtime mapping, channel closure, process supervision, and error propagation; Java owns framing, dispatch, gates, proxy/lease tracking, and local cancellation. Both test malformed input and duplicate handling.
 - [ ] Implement only child-JVM launch with framed stdin/stdout. Test fragmented/coalesced frames, invalid JSON/UTF-8/fields/version, unknown names/IDs, gaps, conflicting duplicates, sequence exhaustion, and capacity exhaustion without changing application state on rejection.
 - [ ] Exercise concurrent arrivals and releases with barriers, including a blocked worker while another commits. The pipe reader/writer must remain live; no sleep-based coordination or polling for readiness.
