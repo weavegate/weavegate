@@ -550,6 +550,25 @@
         {
           "peer": "java",
           "action": "local",
+          "event": "command_exception",
+          "args": {
+            "invocation": "33333333333333333333333333333333",
+            "phase": "command_body",
+            "exception": {
+              "class": "java.lang.IllegalStateException",
+              "message": "synthetic rollback failure",
+              "vendor_code": 0,
+              "sql_state": ""
+            }
+          },
+          "expect": [
+            "record_source_exception",
+            "no_terminal"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
           "event": "completion",
           "args": {
             "proxy_exited": true,
@@ -576,7 +595,7 @@
               "connection": "returned",
               "error": {
                 "kind": "application",
-                "message": "synthetic failure",
+                "message": "synthetic rollback failure",
                 "mysql_code": 0,
                 "sql_state": ""
               }
@@ -860,7 +879,7 @@
               "connection": "returned",
               "error": {
                 "kind": "cancelled",
-                "message": "synthetic failure",
+                "message": "cancelled by context",
                 "mysql_code": 0,
                 "sql_state": ""
               }
@@ -1047,7 +1066,7 @@
               "connection": "not_acquired",
               "error": {
                 "kind": "cancelled",
-                "message": "cancelled",
+                "message": "cancelled by context",
                 "mysql_code": 0,
                 "sql_state": ""
               }

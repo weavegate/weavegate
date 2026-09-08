@@ -120,6 +120,12 @@ exactly `kind` (`application`, `mysql`, `cancelled`), `message` (sanitized strin
 For `mysql`, code is nonzero and SQLSTATE is five uppercase ASCII letters/digits;
 otherwise code is 0 and SQLSTATE is empty. A committed transaction may carry an
 error, for example an exception after commit; report the observed outcome.
+For `error.kind: cancelled`, the message is canonical: reason `context` maps
+to `cancelled by context`, and reason `stop` maps to `cancelled by stop`. The
+first cancellation reason latched for the invocation determines this message;
+a later Stop or duplicate cancel cannot overwrite it. Cancellation triggered
+by stop without a preceding cancel uses reason stop. Java may retain local
+exception detail internally but sends only this summary for cancellation.
 Explicit rollback without an application exception still needs an application
 error indicating rollback. Wire kinds are not diagnostic codes or verdicts.
 

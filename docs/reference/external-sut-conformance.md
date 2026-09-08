@@ -39,7 +39,7 @@ A `completion` event supplies independently observed proxy-exit, transaction,
 and lease state; the harness must not treat it as a request to publish terminal.
 
 `command_exception` injects the specified source exception into the named
-invocation, at its `jdbc_operation` or `after_commit_callback` barrier. Construct
+invocation, at its `command_body`, `jdbc_operation`, or `after_commit_callback` barrier. Construct
 the exception from `args.exception`, including the SQLException vendor code,
 SQLSTATE and message; non-SQL exceptions use vendor code 0 and empty SQLSTATE.
 The later completion event advances independently controlled proxy/lease
@@ -47,6 +47,12 @@ milestones. It must retain the observed exception, not synthesize one from a
 terminal frame. The Java harness compares its emitted terminal to the explicit
 Go receive frame's body as expected output only. In particular, an after-commit
 exception remains an application error with a committed transaction.
+
+Cancellation terminal messages follow the wire's canonical reason mapping,
+including cancellation before a transaction starts. They are compared exactly;
+no harness should invent a source application exception for a cancel frame.
+A command exception such as the rollback case is independently injected through
+`command_exception` and remains distinct from SDK-generated cancellation.
 
 `stop_call` starts an asynchronous harness call; its `budget_ms` is the total
 local cleanup budget, not the smaller graceful budget advertised on the wire.
