@@ -224,7 +224,10 @@ bounded Stop, with a best-effort stop write only while the pipe is available.
 That write does not establish or refresh J's cleanup watchdog: any existing
 cancellation/cleanup deadline remains authoritative (an expired deadline stays
 expired). If no cleanup deadline exists, J bounds fatal cleanup by `cancel_ms`
-from fatal detection. Failed writes retain the original fault; E proceeds to
+from fatal detection and arms that watchdog before attempting JDBC cancellation
+or potentially blocking cleanup. The watchdog runs independently of worker and
+cleanup threads; expiry forces nonzero process termination without waiting for
+transaction rollback or application shutdown hooks. Failed writes retain the original fault; E proceeds to
 termination/reaping and never waits for a post-fatal stopped acknowledgment.
 
 Normal Stop requires `stopped`, stdout EOF, exit 0, no active worker/lease, and

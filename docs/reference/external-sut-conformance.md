@@ -201,6 +201,24 @@ Go reaps the child while retaining the original session fault and quarantine.
 The watchdog remains a bound if those milestones never complete; they do not
 reset its deadline.
 
+`java_fatal_cleanup_watchdog_expires` is the hanging branch of Java fatal
+receipt. `hold_cleanup` installs an unreleased rollback barrier in the command's
+test transaction manager before fatal arrives. Arming that barrier supplies no
+rollback, proxy-exit, lease-return or application-cleanup completion. Fatal must
+arm the cleanup watchdog before attempting JDBC cancellation or cleanup that
+could block.
+
+`advance_fatal_cleanup_clock.elapsed_ms` sets the fake clock to that elapsed
+time from Java's first fatal receipt, not from the most recent clock event.
+It only advances time and runs already-scheduled callbacks; the harness must
+not directly inject watchdog expiry or child termination. The inherited start
+frame declares `cancel_ms: 1000`: at 999 ms the child remains alive with cleanup
+blocked, and at 1000 ms Java must force a nonzero exit without waiting on the
+barrier or shutdown hooks. No terminal, stopped, or cleanup-success claim is
+allowed. Go's 2500 ms forced-kill cutoff has not elapsed, so it cannot satisfy
+Java's watchdog assertion. The final child-exit observation reaps the process
+and preserves the original fault and fixture quarantine.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)

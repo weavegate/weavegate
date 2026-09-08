@@ -2895,6 +2895,7 @@
             "close_admission",
             "cancel_latched",
             "wake_gate_exceptionally",
+            "arm_cleanup_watchdog",
             "request_jdbc_cancel",
             "begin_bounded_cleanup",
             "no_terminal",
@@ -3001,6 +3002,135 @@
         "fatal_cleanup",
         "rollback",
         "connection_return"
+      ]
+    },
+    {
+      "id": "java_fatal_cleanup_watchdog_expires",
+      "prefix": "arrived",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "hold_cleanup",
+          "args": {
+            "phase": "rollback"
+          },
+          "expect": [
+            "rollback_barrier_armed"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "protocol_error"
+          },
+          "expect": [
+            "no_release",
+            "latch_adapter_fault",
+            "send_fatal",
+            "abort_run"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "fatal",
+            "seq": 3,
+            "body": {
+              "kind": "protocol",
+              "message": "runtime arrival failed"
+            }
+          },
+          "expect": [
+            "close_admission",
+            "cancel_latched",
+            "wake_gate_exceptionally",
+            "arm_cleanup_watchdog",
+            "request_jdbc_cancel",
+            "begin_bounded_cleanup",
+            "no_terminal",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "fatal-stop",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "set_single_deadline",
+            "best_effort_stop",
+            "retain_adapter_fault",
+            "no_stopped_required"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_fatal_cleanup_clock",
+          "args": {
+            "elapsed_ms": 999
+          },
+          "expect": [
+            "cleanup_still_blocked",
+            "no_child_exit",
+            "no_terminal",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_fatal_cleanup_clock",
+          "args": {
+            "elapsed_ms": 1000
+          },
+          "expect": [
+            "force_nonzero_exit",
+            "no_terminal",
+            "no_stopped",
+            "no_cleanup_success"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 1
+          },
+          "expect": [
+            "child_reaped",
+            "no_worker_result",
+            "stop_error",
+            "retain_adapter_fault",
+            "quarantine_fixture",
+            "reset_rejected"
+          ]
+        }
+      ],
+      "covers": [
+        "java_fatal_receipt",
+        "fatal_watchdog",
+        "hung_rollback",
+        "forced_exit",
+        "reset_isolation"
       ]
     }
   ],
