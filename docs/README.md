@@ -20,6 +20,8 @@ Use these pages when you need the exact CLI, configuration, artifact, or diagnos
 - [Configuration](reference/config.md) — Look up configuration keys, their defaults, and the documented behavior of each.
 - [Exit codes](reference/exit-codes.md) — Interpret process status across pass, fail, flaky, and usage outcomes.
 - [Report schema](reference/report-schema.md) — Consume run artifacts without guessing their fields or stability guarantees.
+- [External SUT wire v1 (proposed)](reference/external-sut-v1.md) — Review the planned child-process protocol; external adapters are not implemented.
+- [External SUT conformance (proposed)](reference/external-sut-conformance.md) — Share protocol vectors, lifecycle sequences, and implementation acceptance checks.
 - [WG001](reference/diagnostics/WG001.md) — Understand evidence for an invariant violation under a controlled schedule.
 - [WG090](reference/diagnostics/WG090.md) — Diagnose a determinism check that produced inconsistent normalized evidence.
 
@@ -47,6 +49,7 @@ Use these records when you need the rationale behind a durable design boundary.
 - [ADR 0007: Artifact version policy](adr/0007-artifact-version-policy.md) — Check compatibility rules for persisted run artifacts.
 - [ADR 0008: Diagnostic evidence model](adr/0008-diagnostic-evidence-model.md) — Understand how structured evidence supports a diagnostic verdict.
 - [ADR 0009: Portable schedule artifact and lookup](adr/0009-schedule-portability.md) — Learn how schedules remain portable and are resolved for replay.
+- [ADR 0010: External SUT protocol (proposed)](adr/0010-external-sut-protocol.md) — Review the planned Spring transaction boundary and required engine extension decisions.
 
 ## Measured results
 
