@@ -3,9 +3,7 @@ package diagnostic
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
-	"unicode"
 
 	"github.com/weavegate/weavegate/internal/oracle"
 	shippedrules "github.com/weavegate/weavegate/rules"
@@ -58,10 +56,10 @@ func TestDeriveContract(t *testing.T) {
 			t.Fatalf("unstable result:\nwant %#v\n got %#v", want, next)
 		}
 	}
-	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted keys=printable_or_quoted values=escaped trace=corresponding_run_only observation=always order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
+	fmt.Println("DIAGNOSTIC_DERIVE_RESULT key=violation_kind config_input=none unit=code_and_oracle rows=representative_set evidence_sets=counted row_data=preserved_for_report_boundary trace=corresponding_run_only observation=always order=oracle_declaration flaky=engine_last reserved_trigger=skipped unknown_kind=error implemented_kinds=all_mapped map_iteration=absent stable=true")
 }
 
-func TestRenderObservedEscapesNonPrintableRowKeys(t *testing.T) {
+func TestRenderObservedPreservesDataForReportBoundary(t *testing.T) {
 	tests := []struct {
 		name  string
 		key   string
@@ -72,25 +70,25 @@ func TestRenderObservedEscapesNonPrintableRowKeys(t *testing.T) {
 			name:  "newline_in_key",
 			key:   "count\nreplay: forged",
 			value: int64(2),
-			want:  `check returned 1 row: "count\nreplay: forged"=2`,
+			want:  "check returned 1 row: count\nreplay: forged=2",
 		},
 		{
 			name:  "escape_in_key",
 			key:   "esc\x1b[31m",
 			value: int64(2),
-			want:  `check returned 1 row: "esc\x1b[31m"=2`,
+			want:  "check returned 1 row: esc\x1b[31m=2",
 		},
 		{
-			name:  "printable_key_stays_unquoted",
-			key:   "active_assignment_count",
-			value: int64(2),
-			want:  "check returned 1 row: active_assignment_count=2",
-		},
-		{
-			name:  "newline_in_value_stays_json_encoded",
+			name:  "newline_in_value_uses_json_encoding",
 			key:   "k",
 			value: "val\nreplay: forged",
 			want:  `check returned 1 row: k="val\nreplay: forged"`,
+		},
+		{
+			name:  "unicode_format_character_stays_structured",
+			key:   "k",
+			value: "a\u200bb",
+			want:  "check returned 1 row: k=\"a\u200bb\"",
 		},
 	}
 	for _, test := range tests {
@@ -101,44 +99,6 @@ func TestRenderObservedEscapesNonPrintableRowKeys(t *testing.T) {
 			}
 			if got != test.want {
 				t.Fatalf("renderObserved = %q, want %q", got, test.want)
-			}
-			if strings.ContainsFunc(got, func(r rune) bool { return !unicode.IsPrint(r) }) {
-				t.Fatalf("renderObserved contains a non-printable character: %q", got)
-			}
-		})
-	}
-}
-
-func TestRenderObservedRejectsNonPrintableOutput(t *testing.T) {
-	_, err := renderObserved("check\nforged", nil)
-	if err == nil || !strings.Contains(err.Error(), "non-printable character") {
-		t.Fatalf("renderObserved error = %v", err)
-	}
-}
-
-func TestRenderObservedEscapesNonPrintableRowValues(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-		want  string
-	}{
-		{name: "zero_width_space", value: "a\u200bb", want: `check returned 1 row: k="a\u200bb"`},
-		{name: "next_line", value: "a\u0085b", want: `check returned 1 row: k="a\u0085b"`},
-		{name: "soft_hyphen", value: "a\u00adb", want: `check returned 1 row: k="a\u00adb"`},
-		{name: "right_to_left_override", value: "a\u202eb", want: `check returned 1 row: k="a\u202eb"`},
-		{name: "language_tag", value: "a\U000e0001b", want: `check returned 1 row: k="a\U000e0001b"`},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := renderObserved("check", []oracle.Row{{"k": test.value}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != test.want {
-				t.Fatalf("renderObserved = %q, want %q", got, test.want)
-			}
-			if strings.ContainsFunc(got, func(r rune) bool { return !unicode.IsPrint(r) }) {
-				t.Fatalf("renderObserved contains a non-printable character: %q", got)
 			}
 		})
 	}

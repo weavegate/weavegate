@@ -370,6 +370,112 @@ func TestRenderMarkdownDiagnostics(t *testing.T) {
 	t.Log("REPORT_MARKDOWN_DIAGNOSTIC_RESULT headline=code_suffixed block=compiler_style label_width=constant no_diagnostics=byte_identical_to_previous multi_help=aligned multi_diagnostic=ordered flaky=wg090 render=single_source")
 }
 
+func TestEscapeMarkdownValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "ordinary", value: "concurrent-assign sch_fbf6b1dfaae2 trace.json", want: "concurrent-assign sch_fbf6b1dfaae2 trace.json"},
+		{name: "physical_and_terminal_controls", value: "line\nnext\t\x1b[31m\u200b", want: `line\nnext\t\x1b\[31m\u200b`},
+		{name: "markdown_and_github_context", value: "<tag> *em* _em_ [link] `code` @team #43 | ~~gone~~ &amp; \\", want: "\\<tag\\> \\*em\\* \\_em\\_ \\[link\\] \\`code\\` \\@team \\#43 \\| \\~\\~gone\\~\\~ \\&amp; \\\\"},
+		{name: "leading_list_marker", value: "- item", want: `\- item`},
+		{name: "ordered_list_marker", value: "12. item", want: `12\. item`},
+		{name: "indented_code", value: "    code", want: `\x20   code`},
+		{name: "autolinks", value: "https://example.test www.example.test", want: `https\://example.test www\.example.test`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := escapeMarkdownValue(test.value); got != test.want {
+				t.Fatalf("escapeMarkdownValue(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestRenderMarkdownProtectsEveryVariableField(t *testing.T) {
+	const payload = "unsafe\nreplay: forged\x1b<em>*strong*_[link]_@team#43|`code` https://example.test www.example.test\\"
+	const escapedPayload = "unsafe\\nreplay: forged\\x1b\\<em\\>\\*strong\\*\\_\\[link\\]\\_\\@team\\#43\\|\\`code\\` https\\://example.test www\\.example.test\\\\"
+
+	tests := []struct {
+		name string
+		set  func(*Run)
+		want string
+	}{
+		{name: "verdict.pass", set: func(run *Run) { run.Pass = true }, want: "## weavegate: PASS (WG001)\n"},
+		{name: "verdict.flaky", set: func(run *Run) { run.Flaky = true }, want: "## weavegate: FLAKY\n"},
+		{name: "scenario.name", set: func(run *Run) { run.Scenario.Name = payload }},
+		{name: "scenario.schedule.id", set: func(run *Run) { run.Scenario.Schedule.ID = payload }},
+		{name: "observation.mode", set: func(run *Run) { run.Observation.Mode, run.Pass = "replay", true }, want: "| replayed: sch_fbf6b1dfaae2\n"},
+		{name: "observation.schedules_explored", set: func(run *Run) { run.Observation.SchedulesExplored = 17 }, want: "schedules explored: 17"},
+		{name: "observation.assertion_violations.oracle_id", set: func(run *Run) { run.Observation.AssertionViolations[0].OracleID = payload }},
+		{name: "observation.repeat", set: func(run *Run) { run.Observation.Repeat = 7 }, want: "flaky: false (repeat=7)"},
+		{name: "replay_command", set: func(run *Run) { run.ReplayCommand = payload }},
+		{name: "diagnostics.code", set: func(run *Run) { run.Observation.Diagnostics[0].Code = payload }},
+		{name: "diagnostics.severity", set: func(run *Run) { run.Observation.Diagnostics[0].Severity = payload }},
+		{name: "diagnostics.title", set: func(run *Run) { run.Observation.Diagnostics[0].Title = payload }},
+		{name: "diagnostics.observed", set: func(run *Run) { run.Observation.Diagnostics[0].Observed = payload }},
+		{name: "diagnostics.assertion", set: func(run *Run) { run.Observation.Diagnostics[0].Assertion = payload }},
+		{name: "diagnostics.invariant", set: func(run *Run) { run.Observation.Diagnostics[0].Invariant = payload }},
+		{name: "diagnostics.reason", set: func(run *Run) { run.Observation.Diagnostics[0].Reason = payload }},
+		{name: "diagnostics.help", set: func(run *Run) { run.Observation.Diagnostics[0].Help[0] = payload }},
+		{name: "diagnostics.evidence.schedule_ref", set: func(run *Run) { run.Observation.Diagnostics[0].Evidence.ScheduleRef = payload }},
+		{name: "diagnostics.evidence.rows", set: func(run *Run) { run.Observation.Diagnostics[0].Evidence.Rows = 2 }, want: "2 violating rows"},
+		{name: "diagnostics.evidence.evidence_sets", set: func(run *Run) { run.Observation.Diagnostics[0].Evidence.EvidenceSets = 3 }, want: "3 evidence sets in observation.json"},
+		{name: "diagnostics.evidence.trace", set: func(run *Run) { run.Observation.Diagnostics[0].Evidence.Trace = payload }},
+		{name: "diagnostics.evidence.observation", set: func(run *Run) { run.Observation.Diagnostics[0].Evidence.Observation = payload }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			run := sampleRun(t, "run_20260816T120004.000Z_ffffffff")
+			run.Observation.Diagnostics = []Diagnostic{{
+				Code: "WG001", Severity: "error", Title: "title", Observed: "observed",
+				Assertion: "assertion", Invariant: "invariant", Reason: "reason",
+				Help: []string{"help"},
+				Evidence: DiagnosticEvidence{
+					ScheduleRef: "schedule", Rows: 1, Trace: "trace.json", Observation: "observation.json",
+				},
+			}}
+			test.set(&run)
+
+			markdown := renderMarkdown(run)
+			want := test.want
+			if want == "" {
+				want = escapedPayload
+			}
+			if !strings.Contains(markdown, want) {
+				t.Fatalf("protected value %q absent from %s:\n%s", want, test.name, markdown)
+			}
+			if strings.Contains(markdown, "\nreplay: forged") {
+				t.Fatalf("%s forged a report line:\n%s", test.name, markdown)
+			}
+			if strings.ContainsRune(markdown, '\x1b') || strings.ContainsRune(markdown, '\u200b') {
+				t.Fatalf("%s emitted a terminal or format control: %q", test.name, markdown)
+			}
+		})
+	}
+
+	run := sampleRun(t, "run_20260816T120005.000Z_eeeeeeee")
+	run.Observation.Diagnostics = []Diagnostic{{
+		Code: "WG001", Severity: "error", Title: "title", Observed: payload,
+		Invariant: "invariant", Reason: "reason", Help: []string{"help"},
+	}}
+	dir, err := WriteRun(t.TempDir(), run)
+	if err != nil {
+		t.Fatalf("write run with unsafe diagnostic text: %v", err)
+	}
+	var observation Observation
+	if err := json.Unmarshal(mustRead(t, filepath.Join(dir, ObservationFile)), &observation); err != nil {
+		t.Fatalf("decode observation with unsafe diagnostic text: %v", err)
+	}
+	if got := observation.Diagnostics[0].Observed; got != payload {
+		t.Fatalf("structured diagnostic observed = %q, want original %q", got, payload)
+	}
+
+	t.Log("REPORT_MARKDOWN_SAFETY_RESULT boundary=internal_report fields=all_rendered newline=escaped terminal_control=escaped markdown=escaped structured_json=unchanged replay=pasteable_when_unescaped")
+}
+
 func testRerunIdentical(t *testing.T, base string) string {
 	t.Helper()
 

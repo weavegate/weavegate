@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/weavegate/weavegate/internal/oracle"
 )
@@ -160,7 +158,7 @@ func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("row[%d] key %q: %w", index, key, err)
 			}
-			values = append(values, escapeRowKey(key)+"="+escapeNonPrintable(string(encoded)))
+			values = append(values, key+"="+string(encoded))
 		}
 		rendered = append(rendered, strings.Join(values, " "))
 	}
@@ -168,36 +166,5 @@ func renderObserved(oracleID string, rows []oracle.Row) (string, error) {
 	if len(rendered) > 0 {
 		result += ": " + strings.Join(rendered, "; ")
 	}
-	// Row keys and values are escaped above, so this guard is an invariant
-	// backstop for trusted fields such as the config-validated Oracle ID.
-	if strings.ContainsFunc(result, func(r rune) bool { return !unicode.IsPrint(r) }) {
-		return "", fmt.Errorf("render observed: output contains a non-printable character")
-	}
 	return result, nil
-}
-
-// escapeRowKey renders a column name for the one-line observed field.
-// Printable keys render as-is so ordinary evidence stays unquoted; a key
-// holding a control character is Go-quoted so it cannot forge a report line
-// or emit a terminal escape.
-func escapeRowKey(key string) string {
-	if strings.ContainsFunc(key, func(r rune) bool { return !unicode.IsPrint(r) }) {
-		return strconv.Quote(key)
-	}
-	return key
-}
-
-// escapeNonPrintable keeps printable text intact and renders each
-// non-printable rune with Go escape syntax for safe one-line output.
-func escapeNonPrintable(value string) string {
-	var escaped strings.Builder
-	for _, r := range value {
-		if unicode.IsPrint(r) {
-			escaped.WriteRune(r)
-			continue
-		}
-		quoted := strconv.QuoteRune(r)
-		escaped.WriteString(quoted[1 : len(quoted)-1])
-	}
-	return escaped.String()
 }

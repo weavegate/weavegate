@@ -103,18 +103,22 @@ $ echo $?
 ```
 
 The last stdout line before the exit is always the run directory path. The
-`replay:` line is a complete command — pasting it verbatim from the same
-working directory reproduces the same verdict. String arguments use POSIX
-shell minimal quoting, so whitespace, single quotes, and shell
-metacharacters are preserved as argument data rather than interpreted by the
-shell. `--out` is deliberately
+`replay:` line spells out the complete command. When its values need no
+report-safety escapes, pasting it verbatim from the same working directory
+reproduces the same verdict. String arguments use POSIX shell minimal quoting,
+so whitespace, single quotes, and shell metacharacters are preserved as
+argument data rather than interpreted by the shell. If a control character or
+Markdown delimiter requires an escape in `report.md`, the line is a safe
+display form and must be reconstructed from the original arguments instead of
+pasted. `--out` is deliberately
 absent from it (see [`--replay` resolution order](#--replay-resolution-order)
 above). The example uses the default `.weavegate` output for both commands. A
 reader without the original run directory can place its `schedule.json` in
-`.weavegate/schedules/` and paste the same replay line unchanged. Selecting a
-different `--out` searches that output's own `runs/` and `schedules/` before
-falling back to the entrypoint's embedded schedules. See
-[report-schema.md](report-schema.md) for the full field-by-field contract.
+`.weavegate/schedules/` and, for an unescaped replay line, paste it unchanged.
+Selecting a different `--out` searches that output's own `runs/` and
+`schedules/` before falling back to the entrypoint's embedded schedules. See
+[report-schema.md](report-schema.md) for the full field-by-field contract and
+rendering rule.
 
 ## `weavegate report`
 

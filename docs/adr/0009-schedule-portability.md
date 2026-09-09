@@ -36,8 +36,10 @@ stage after run evidence prevents a user-dropped file from shadowing the run
 that was just produced. Filenames in `<out>/schedules/` are not identifiers;
 the verified `id` inside each file is authoritative.
 
-The `report.md` replay line remains byte-identical and continues to omit
-`--out`. The new file is additive, so `artifact_version` remains 2 under
+The `report.md` replay line remains byte-identical for ordinary values and
+continues to omit `--out`. ADR 0011 later narrows unconditional pasteability
+when the line needs a report-safety escape. The new file is additive, so
+`artifact_version` remains 2 under
 [ADR 0007](0007-artifact-version-policy.md). `schedule.json` joins the
 deterministic artifact set described by
 [ADR 0005](0005-volatile-run-metadata-boundary.md).
@@ -45,7 +47,8 @@ deterministic artifact set described by
 ## Consequences
 
 - A reader can copy only `schedule.json` into `.weavegate/schedules/` and paste
-  the producer's replay line unchanged.
+  an unescaped producer replay line unchanged. ADR 0011 defines the exceptional
+  display-only form.
 - Scheduled runs contain seven files; runs without a selected schedule retain
   the six-file shape.
 - A malformed portable schedule is an input error rather than a silently

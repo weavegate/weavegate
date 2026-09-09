@@ -132,12 +132,9 @@ the run-scoped `artifact_version` or the rest of `scenario.json`.
 | `discovery_fingerprint` | string, optional | The fingerprint of exploration's discovery run. Emitted only when exploration found a schedule; omitted for direct replay and exhausted exploration. Compare it with `fingerprints` to audit discovery/replay determinism. This field does not claim that both complete traces are preserved. |
 
 `assertion_violations` preserves each original column name and value; JSON
-encoding escapes control characters in the artifact. In `report.md`, the
-`observed` field keeps printable column names unquoted and Go-quotes a name
-that contains a non-printable character. Values remain JSON-encoded, with any
-non-printable rune left by that encoding escaped in Go syntax, so neither a
-column name nor a value can forge another report line or emit a terminal
-escape.
+encoding escapes control characters in the artifact. The separate Markdown
+rendering rule below applies when those values reach `report.md`; diagnostic
+production does not alter structured evidence for presentation safety.
 
 Diagnostic evidence names every artifact that supports the diagnostic;
 `schedule_ref` identifies the executed schedule and is not an artifact pointer.
@@ -202,6 +199,18 @@ deterministic set even though `scenario` and `observation` alone would be.
 
 ## `report.md`
 
+Every runtime string inserted into `report.md` passes through one boundary in
+`internal/report`. Non-printable runes use Go escape spelling (`\n`, `\t`,
+`\x1b`, `\u200b`), and active Markdown punctuation is backslash-escaped.
+Intraword underscores such as those in `sch_...` and column names remain
+unchanged; delimiter underscores and leading list markers are escaped. The
+renderer itself appends every physical newline. These rules apply equally to
+the summary, replay command, and every diagnostic field, so a value cannot
+forge a report line, emit terminal controls, or introduce Markdown structure.
+The JSON artifacts retain the original structured values. See
+[ADR 0011](../adr/0011-report-markdown-rendering-boundary.md) for the boundary
+and its replay tradeoff.
+
 ```text
 ## weavegate: FAIL (WG001)
 scenario: concurrent-assign | schedules explored: 1 | violating: sch_7dcb74b1e506
@@ -245,15 +254,21 @@ flaky: false (repeat=20)
 replay: weavegate run ...
 ```
 
-The `replay:` line, when present, is a complete command — every value it
-needs (`--config` exactly as the user passed it, `--scenario`, `--variant`,
-`--replay`, `--repeat`) is spelled out, so pasting it verbatim from the same
-working directory reproduces the same verdict without reconstructing any
-argument by hand. Every string value uses POSIX shell minimal quoting, which
-preserves whitespace, single quotes, and shell metacharacters as literal
-argument data. `--config` is never normalized to an absolute path, so
-this file stays byte-identical between two runs regardless of where in the
-filesystem they happened to execute.
+The `replay:` line, when present, spells out every value it needs (`--config`
+as the user passed it, `--scenario`, `--variant`, `--replay`, `--repeat`). The
+command builder uses POSIX shell minimal quoting, which preserves whitespace,
+single quotes, and shell metacharacters as literal argument data. When the
+result needs no report-safety escapes, pasting it verbatim from the same
+working directory reproduces the same verdict. `--config` is never normalized
+to an absolute path, so this file stays byte-identical between two runs
+regardless of where in the filesystem they happened to execute.
+
+If any command text needs a control-character or Markdown escape, the rendered
+line is a safe representation rather than a pasteable command. Use the original
+argument values to rerun that case; removing backslashes from the report is not
+a general reconstruction rule. This exception is necessary because a POSIX
+shell preserves a newline-bearing argument with a literal newline, which would
+violate the report's one-line boundary.
 
 `--out` is deliberately absent from this line: it is not part of the
 deterministic contract (two runs with different `--out` values must still
@@ -262,10 +277,10 @@ default (or whatever `--out` the paste is run with) rather than the value the
 original run happened to use. A reader replaying from the same directory as
 the original run — the common case — still finds the schedule through stage
 ① of `--replay` resolution. A reader without the original run directory can
-place its `schedule.json` in `.weavegate/schedules/` and paste the same line
-unchanged. When replay uses a different `--out`, lookup examines that output's
-`runs/` and `schedules/` before falling back to schedules embedded in the
-entrypoint. See [cli.md](cli.md#--replay-resolution-order) for the canonical
+place its `schedule.json` in `.weavegate/schedules/` and paste an unescaped
+line unchanged. When replay uses a different `--out`, lookup examines that
+output's `runs/` and `schedules/` before falling back to schedules embedded in
+the entrypoint. See [cli.md](cli.md#--replay-resolution-order) for the canonical
 resolution order.
 
 ## File and directory modes
