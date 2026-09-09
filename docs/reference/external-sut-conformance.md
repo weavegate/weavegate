@@ -170,7 +170,10 @@ success at intermediate receipt steps.
 `cancel_at_arrival` checks retirement on both peers and then calls Invoke for a
 new invocation using w1 and a fresh, uncanceled context. `invoke_call` invokes the
 Go Handle (its invocation ID comes from the harness's deterministic ID source);
-the explicit Java invoke receipt is the corresponding outbound frame. Completion
+the explicit Java invoke receipt is the corresponding outbound frame. Every valid Java invoke receipt in the shared histories has this preceding
+Go call, including the active prefix, database-blocking worker, and successful
+worker-reuse case. Go reservations must never be inferred from a Java receive
+step or a later accepted frame. Completion
 may name `invocation` when it differs from the first invocation in the history.
 This adapter-only reuse path cancels only the first invocation's context; it
 checks that supplied context directly, not a run-level error. It does not attempt

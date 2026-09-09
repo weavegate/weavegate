@@ -91,6 +91,22 @@
         "prefix": "ready"
       },
       {
+        "peer": "go",
+        "action": "local",
+        "event": "invoke_call",
+        "args": {
+          "invocation": "33333333333333333333333333333333",
+          "worker": "w1",
+          "command": "assign",
+          "context": "fresh"
+        },
+        "expect": [
+          "reserve_invocation",
+          "send_invoke",
+          "result_channel_created"
+        ]
+      },
+      {
         "peer": "java",
         "action": "receive",
         "frame": {
@@ -617,6 +633,22 @@
       "prefix": "arrived",
       "steps": [
         {
+          "peer": "go",
+          "action": "local",
+          "event": "invoke_call",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "worker": "w2",
+            "command": "assign",
+            "context": "fresh"
+          },
+          "expect": [
+            "reserve_invocation",
+            "send_invoke",
+            "result_channel_created"
+          ]
+        },
+        {
           "peer": "java",
           "action": "receive",
           "frame": {
@@ -1079,6 +1111,22 @@
       "prefix": "ready",
       "steps": [
         {
+          "peer": "go",
+          "action": "local",
+          "event": "invoke_call",
+          "args": {
+            "invocation": "33333333333333333333333333333333",
+            "worker": "w1",
+            "command": "assign",
+            "context": "fresh"
+          },
+          "expect": [
+            "reserve_invocation",
+            "send_invoke",
+            "result_channel_created"
+          ]
+        },
+        {
           "peer": "java",
           "action": "receive",
           "frame": {
@@ -1428,6 +1476,22 @@
       "id": "retired_invocation_worker_reuse",
       "prefix": "completed",
       "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "invoke_call",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "worker": "w1",
+            "command": "assign",
+            "context": "fresh"
+          },
+          "expect": [
+            "reserve_invocation",
+            "send_invoke",
+            "result_channel_created"
+          ]
+        },
         {
           "peer": "java",
           "action": "receive",
