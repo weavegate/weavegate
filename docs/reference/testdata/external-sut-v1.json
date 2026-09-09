@@ -2476,9 +2476,36 @@
           "event": "startup_deadline",
           "args": {},
           "expect": [
-            "startup_error",
-            "bounded_stop",
+            "latch_startup_error",
+            "begin_detached_cleanup",
+            "close_pipes",
             "no_invoke"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_half_deadline",
+          "args": {},
+          "expect": [
+            "kill_child",
+            "await_reaping",
+            "no_start_return"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 137
+          },
+          "expect": [
+            "child_reaped",
+            "startup_error",
+            "quarantine_fixture",
+            "reset_rejected"
           ]
         }
       ],
@@ -2760,6 +2787,30 @@
           "expect": [
             "send_terminal"
           ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "worker_result_nil",
+            "close_result_channel",
+            "retire_invocation"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -2839,6 +2890,28 @@
             "fatal_transaction",
             "no_terminal"
           ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "kind": "transaction",
+              "message": "transaction outcome unknown"
+            }
+          },
+          "expect": [
+            "latch_adapter_fault",
+            "no_worker_result",
+            "abort_run",
+            "quarantine_fixture"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -4517,6 +4590,15 @@
       "mysql_deadlock",
       "mysql_lock_timeout",
       "post_commit_exception"
+    ],
+    "parent_startup_cleanup": [
+      "startup_deadline"
+    ],
+    "callback_terminal": [
+      "completion_callback_too_early"
+    ],
+    "unknown_outcome_fatal": [
+      "unknown_commit_outcome"
     ]
   }
 }

@@ -31,7 +31,22 @@ wait_arrive_timeout worker_arrives'''.split())
 REQUIRED = set('''duplicate_go duplicate_java late_process_fault late_wire_fault
 startup_watchdog stop_watchdog cancel_watchdog fatal_watchdog active_stop_watchdog
 cancel_wins_enqueue enqueue_wins_cancel readiness_rejection canceled_reuse
-normal_active_stop exception_input'''.split())
+normal_active_stop exception_input parent_startup_cleanup callback_terminal
+unknown_outcome_fatal'''.split())
+FATAL_KINDS = {'version', 'protocol', 'startup', 'transport', 'transaction', 'cleanup', 'shutdown'}
+FRAMING = {
+    'fragmented_valid_frame': ({'id', 'input_hex', 'read_chunk_sizes', 'expect', 'decoded', 'targets'}, ('one_ready_frame_after_complete_payload',)),
+    'zero_length': ({'id', 'input_hex', 'expect', 'targets'}, ('fatal_protocol',)),
+    'oversized_length': ({'id', 'input_hex', 'expect', 'targets'}, ('fatal_protocol', 'no_payload_allocation')),
+    'partial_header_eof': ({'id', 'input_hex', 'eof', 'expect', 'targets'}, ('fatal_transport',)),
+    'partial_payload_eof': ({'id', 'input_hex', 'eof', 'expect', 'targets'}, ('fatal_transport',)),
+    'invalid_utf8': ({'id', 'input_hex', 'expect', 'control_hex', 'targets'}, ('fatal_protocol', 'no_dispatch')),
+    'stdout_banner': ({'id', 'input_hex', 'expect', 'targets'}, ('fatal_protocol',)),
+    'duplicate_json_key': ({'id', 'input_hex', 'expect', 'control_hex', 'targets'}, ('fatal_protocol', 'no_dispatch')),
+    'trailing_value': ({'id', 'input_hex', 'expect', 'targets'}, ('fatal_protocol',)),
+    'unknown_field': ({'id', 'input_hex', 'expect', 'targets'}, ('fatal_protocol',)),
+    'duplicate_nested_json_key': ({'id', 'input_hex', 'control_hex', 'expect', 'targets'}, ('fatal_protocol', 'no_dispatch')),
+}
 
 
 def need(condition, message):
@@ -55,6 +70,19 @@ def integer(value, low, high):
     return type(value) is int and low <= value <= high
 
 
+def string(value, label, *, nonempty=False, max_bytes=None, name=False):
+    need(isinstance(value, str), label + ' string')
+    try:
+        encoded = value.encode('utf-8')
+    except UnicodeEncodeError as err:
+        raise ValueError(label + ' Unicode scalar') from err
+    need(not nonempty or bool(value), label + ' empty')
+    need(max_bytes is None or len(encoded) <= max_bytes, label + ' too long')
+    if name:
+        need(bool(value) and len(encoded) <= 128 and value == value.strip(), label + ' name bounds')
+        need(not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value), label + ' control character')
+
+
 def frame_shape(f):
     need(isinstance(f, dict) and set(f) == {'v', 'type', 'run', 'session', 'seq', 'body'}, 'frame envelope')
     need(integer(f['v'], 1, 2147483647) and integer(f['seq'], 1, 100000), 'version/sequence type or range')
@@ -62,9 +90,10 @@ def frame_shape(f):
         need(isinstance(f[key], str) and re.fullmatch('[a-f0-9]{32}', f[key]), key + ' identity')
     t, b = f['type'], f['body']
     need(t in BODY and isinstance(b, dict) and set(b) == BODY[t], 'message body fields')
+    need(len(json.dumps(f, separators=(',', ':'), ensure_ascii=False).encode('utf-8')) <= 1048576, 'frame too large')
     if 'invocation' in b:
         need(isinstance(b['invocation'], str) and re.fullmatch('[a-f0-9]{32}', b['invocation']), 'invocation identity')
-        need(isinstance(b['worker'], str) and b['worker'].strip() == b['worker'] != '', 'worker name')
+        string(b['worker'], 'worker', name=True)
     if 'arrival' in b:
         need(isinstance(b['arrival'], str) and re.fullmatch('[1-9][0-9]*', b['arrival']) and int(b['arrival']) <= 100000, 'arrival identity')
     for key in ('startup_ms', 'cancel_ms', 'budget_ms'):
@@ -74,12 +103,25 @@ def frame_shape(f):
         need(integer(b['capacity'], 1, 1024), 'capacity')
         for key in ('commands', 'points'):
             a = b[key]
-            need(isinstance(a, list) and all(isinstance(v, str) and v for v in a) and len(a) == len(set(a)), key)
+            need(isinstance(a, list) and len(a) == len(set(a)), key)
+            for value in a:
+                string(value, key, name=True)
     if t == 'start':
+        string(b['variant'], 'variant', name=True)
         db = b['database']
         need(isinstance(db, dict) and set(db) == {'driver', 'host', 'port', 'name', 'username', 'password'}, 'database fields')
         need(db['driver'] == 'mysql' and integer(db['port'], 1, 65535), 'database driver/port')
-        need(isinstance(b['params'], dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in b['params'].items()), 'params')
+        for key in ('host', 'name', 'username'):
+            string(db[key], 'database.' + key, nonempty=True)
+        string(db['password'], 'database.password')
+        need(isinstance(b['params'], dict), 'params')
+        for key, value in b['params'].items():
+            string(key, 'parameter key', name=True)
+            string(value, 'parameter value')
+    if t == 'invoke':
+        string(b['command'], 'command', name=True)
+    if t in ('arrive', 'release'):
+        string(b['point'], 'point', name=True)
     if t == 'cancel':
         need(b['reason'] in ('context', 'stop'), 'cancel reason')
     if t == 'terminal':
@@ -91,9 +133,13 @@ def frame_shape(f):
             need(b['transaction'] == 'committed' and b['connection'] == 'returned', 'nil terminal error')
         else:
             need(isinstance(err, dict) and set(err) == {'kind', 'message', 'mysql_code', 'sql_state'}, 'error fields')
-            need(err['kind'] in ('application', 'mysql', 'cancelled') and isinstance(err['message'], str), 'error kind/message')
+            need(err['kind'] in ('application', 'mysql', 'cancelled'), 'error kind')
+            string(err['message'], 'error message', max_bytes=1024)
             need(integer(err['mysql_code'], 0, 65535), 'MySQL code')
             need((err['mysql_code'] > 0 and isinstance(err['sql_state'], str) and re.fullmatch('[A-Z0-9]{5}', err['sql_state'])) if err['kind'] == 'mysql' else (err['mysql_code'] == 0 and err['sql_state'] == ''), 'SQL error metadata')
+    if t == 'fatal':
+        need(b['kind'] in FATAL_KINDS, 'fatal kind')
+        string(b['message'], 'fatal message', max_bytes=1024)
 
 
 def expand(data, name, seen=()):
@@ -117,13 +163,46 @@ def indices(steps, predicate):
     return [i for i, s in enumerate(steps) if predicate(s)]
 
 
+def injected_premise(case_id, frame, effects, invocations, outstanding, completed, canceled, start, stop_seen):
+    body, kind = frame['body'], frame['type']
+    invocation = body.get('invocation')
+    current = outstanding.get(invocation)
+    if case_id == 'cancel_racing_release':
+        return kind == 'release' and invocation in canceled and current == body
+    if case_id == 'late_arrival_after_cancel':
+        return kind == 'arrive' and invocation in canceled and invocation in invocations
+    if case_id == 'stale_session':
+        return kind == 'arrive' and invocation in invocations and current is None and 'client_arrive_once' in effects
+    if case_id == 'retired_invocation_worker_reuse':
+        return kind in ('arrive', 'release') and invocation in completed
+    if case_id == 'unknown_invocation':
+        return invocation not in invocations
+    if case_id == 'future_release':
+        return kind == 'release' and current is not None and all(body[k] == current[k] for k in ('invocation', 'worker', 'point')) and int(body['arrival']) > int(current['arrival'])
+    if case_id == 'wrong_point_release':
+        return kind == 'release' and current is not None and all(body[k] == current[k] for k in ('invocation', 'worker', 'arrival')) and body['point'] != current['point']
+    if case_id == 'release_before_arrival':
+        return kind == 'release' and invocation in invocations and current is None
+    if case_id == 'terminal_while_arrived':
+        return kind == 'terminal' and current is not None
+    if case_id == 'readiness_mismatch':
+        return kind == 'ready' and start is not None and any(body[k] != start[k] for k in ('commands', 'points', 'capacity'))
+    if case_id == 'unsolicited_startup_stopped':
+        return kind == 'stopped' and not stop_seen
+    if case_id == 'fatal_after_terminals':
+        return kind == 'fatal' and bool(invocations) and set(invocations) <= completed
+    return False
+
+
 def history(case, steps):
     targets = case['targets']
     need(case['execution'] == 'isolated' and targets and len(targets) == len(set(targets)) and set(targets) <= {'go', 'java'}, 'case scope')
     seq = {'go': {}, 'java': {}}
     invocations, active, sources, reasons = {}, {}, {}, {}
+    outstanding, completed, canceled = {}, set(), set()
     binding = None
     start = None
+    stop_seen = False
     for step in steps:
         need(step.get('peer') in seq and isinstance(step.get('expect'), list) and step['expect'] and all(isinstance(v, str) for v in step['expect']), 'step receiver/effects')
         effects = step['expect']
@@ -140,6 +219,9 @@ def history(case, steps):
                 active[a['worker']] = iid
             if event(step, 'command_exception', 'java'):
                 sources[a['invocation']] = a['exception']
+            if event(step, 'cancel_context', 'go'):
+                need(a['invocation'] in invocations, 'cancel lacks invocation')
+                canceled.add(a['invocation'])
             if event(step, 'stderr_bytes'):
                 raw = b''.join(bytes.fromhex(v['hex']) * v['repeat'] for v in a['segments'])
                 need(len(raw) == a['byte_count'] and 0 < a['retained_bytes'] < len(raw), 'stderr input size')
@@ -175,13 +257,21 @@ def history(case, steps):
             if not matches:
                 need(targets == ['go'] and step['delivery'] == 'input' and 'startup_error' in effects, 'mismatched ready must be Go-only input')
         if step['delivery'] == 'input':
+            need(injected_premise(case['id'], f, effects, invocations, outstanding, completed, canceled, start, stop_seen), 'injected input lacks declared lifecycle premise')
             continue
         if t == 'invoke':
             need(invocations.get(b['invocation']) == (b['worker'], b['command']), 'invoke lacks Go Handle call')
         if t == 'accepted':
             need(b['invocation'] in invocations, 'accepted lacks reservation')
+        if t == 'arrive':
+            need(b['invocation'] in invocations and b['invocation'] not in outstanding, 'arrival lacks active invocation/gate')
+            outstanding[b['invocation']] = b
+        if t == 'release':
+            need(outstanding.get(b['invocation']) == b, 'release lacks matching arrival')
+            outstanding.pop(b['invocation'])
         if t == 'cancel':
             reasons.setdefault(b['invocation'], b['reason'])
+            canceled.add(b['invocation'])
             if 'request_jdbc_cancel' in effects and 'java' in targets:
                 # An already-canceled invocation does not need another watchdog.
                 need('cancel_latched' not in effects or ('arm_cleanup_watchdog' in effects and effects.index('arm_cleanup_watchdog') < effects.index('request_jdbc_cancel')), 'Java cancellation watchdog must precede JDBC cancel')
@@ -198,6 +288,9 @@ def history(case, steps):
                 need('no_worker_result' in effects, 'unstarted WorkerResult contradicts G5')
             if 'close_result_channel' in effects:
                 active.pop(b['worker'], None)
+                completed.add(iid)
+        if t == 'stop':
+            stop_seen = True
 
 
 def coverage(rule, case, steps):
@@ -259,12 +352,92 @@ def coverage(rule, case, steps):
         return case['prefix'] == 'arrived' and bool(terminal and stopped and unwind) and unwind[0] < terminal[0] < stopped[0] and 'stop_still_pending' in own[stopped[0]]['expect']
     if rule == 'exception_input':
         return 'java' in targets and any(event(s, 'command_exception', 'java') for s in own) and any(message(s, 'terminal', 'go') and s['frame']['body']['error'] for s in own)
+    if rule == 'parent_startup_cleanup':
+        deadline = indices(own, lambda s: event(s, 'startup_deadline', 'go'))
+        cutoff = indices(own, lambda s: event(s, 'stop_half_deadline', 'go'))
+        exited = indices(own, lambda s: event(s, 'child_exit', 'go'))
+        return targets == ['go'] and bool(deadline and cutoff and exited) and deadline[0] < cutoff[0] < exited[0] and 'kill_child' in own[cutoff[0]]['expect'] and {'child_reaped', 'startup_error', 'reset_rejected'} <= set(own[exited[0]]['expect'])
+    if rule == 'callback_terminal':
+        completions = [s for s in own if event(s, 'completion', 'java')]
+        terminals = [s for s in own if message(s, 'terminal', 'go') and s.get('delivery') == 'exchange']
+        if targets != ['go', 'java'] or len(completions) != 3 or len(terminals) != 1:
+            return False
+        body = terminals[0]['frame']['body']
+        return completions[0]['args'] == {'proxy_exited': False, 'transaction': 'committed', 'lease': 'held'} and completions[1]['args'] == {'proxy_exited': True, 'transaction': 'committed', 'lease': 'held'} and completions[2]['args'] == {'proxy_exited': True, 'transaction': 'committed', 'lease': 'returned'} and body['transaction'] == 'committed' and body['connection'] == 'returned' and body['error'] is None
+    if rule == 'unknown_outcome_fatal':
+        completion = indices(own, lambda s: event(s, 'completion', 'java') and s['args'].get('transaction') == 'unknown')
+        fatal = indices(own, lambda s: message(s, 'fatal', 'go') and s.get('delivery') == 'exchange' and s['frame']['body']['kind'] == 'transaction')
+        return targets == ['go', 'java'] and bool(completion and fatal) and completion[0] < fatal[0] and {'latch_adapter_fault', 'no_worker_result', 'abort_run', 'quarantine_fixture'} <= set(own[fatal[0]]['expect'])
     return False
 
 
 def framed(raw):
     need(len(raw) >= 4 and int.from_bytes(raw[:4], 'big') == len(raw) - 4, 'framing length mismatch')
     return raw[4:]
+
+
+def validate_framing(case):
+    name = case['id']
+    need(name in FRAMING, 'unknown framing case: ' + name)
+    fields, effects = FRAMING[name]
+    need(set(case) == fields and tuple(case['expect']) == effects, name + ': framing fields/effects')
+    need(case['targets'] == ['go', 'java'], name + ': framing decoder scope')
+    value = case['input_hex']
+    need(isinstance(value, str) and len(value) % 2 == 0 and re.fullmatch('[0-9a-f]*', value), name + ': input hex')
+    raw = bytes.fromhex(value)
+
+    if name == 'fragmented_valid_frame':
+        actual = decode(framed(raw))
+        frame_shape(actual)
+        need(actual == case['decoded'], name + ': decoded control differs')
+        chunks = case['read_chunk_sizes']
+        need(isinstance(chunks, list) and all(integer(v, 1, len(raw)) for v in chunks) and sum(chunks) < len(raw), name + ': chunk plan')
+        return
+    if name == 'zero_length':
+        need(raw == b'\x00\x00\x00\x00', name + ': not a zero length header')
+        return
+    if name == 'oversized_length':
+        need(len(raw) == 4 and int.from_bytes(raw, 'big') > 1048576, name + ': not an allocation-free oversized header')
+        return
+    if name == 'partial_header_eof':
+        need(case['eof'] is True and 0 < len(raw) < 4, name + ': not a partial header EOF')
+        return
+    if name == 'partial_payload_eof':
+        need(case['eof'] is True and len(raw) >= 4 and 1 <= int.from_bytes(raw[:4], 'big') <= 1048576 and len(raw) - 4 < int.from_bytes(raw[:4], 'big'), name + ': not a partial payload EOF')
+        return
+    if name == 'stdout_banner':
+        need(raw == b'Spring Boot\n', name + ': banner premise')
+        return
+    if name == 'trailing_value':
+        payload = framed(raw).decode('utf-8')
+        first, end = json.JSONDecoder(object_pairs_hook=unique).raw_decode(payload)
+        frame_shape(first)
+        need(payload[end:] and payload[end:].strip() == '{}', name + ': missing trailing JSON value')
+        return
+    if name == 'unknown_field':
+        invalid = decode(framed(raw))
+        need(set(invalid) == {'v', 'type', 'run', 'session', 'seq', 'body', 'extra'} and invalid['extra'] is True, name + ': unknown-field premise')
+        invalid.pop('extra')
+        frame_shape(invalid)
+        return
+
+    control_value = case['control_hex']
+    need(isinstance(control_value, str) and len(control_value) % 2 == 0 and re.fullmatch('[0-9a-f]+', control_value), name + ': control hex')
+    control = decode(framed(bytes.fromhex(control_value)))
+    frame_shape(control)
+    try:
+        decode(framed(raw))
+    except UnicodeDecodeError:
+        need(name == 'invalid_utf8', name + ': wrong rejection cause')
+    except ValueError as err:
+        need(name in ('duplicate_json_key', 'duplicate_nested_json_key') and str(err).startswith('duplicate JSON key:'), name + ': wrong rejection cause')
+    else:
+        raise ValueError(name + ': negative encoding input accepted strictly')
+    if name == 'invalid_utf8':
+        permissive = json.loads(framed(raw).decode('utf-8', errors='replace'))
+        frame_shape(permissive)
+    else:
+        need(json.loads(framed(raw).decode('utf-8')) == control, name + ': duplicate-key control differs')
 
 
 def validate(data):
@@ -285,24 +458,9 @@ def validate(data):
         need(names and len(names) == len(set(names)), rule + ': empty/duplicate coverage')
         for name in names:
             need(name in cases and coverage(rule, cases[name], expanded[name]), rule + ': missing premise in ' + name)
+    need({c['id'] for c in data['framing']} == set(FRAMING), 'framing inventory')
     for c in data['framing']:
-        need(c['targets'] == ['go', 'java'], 'framing decoder scope')
-        raw = bytes.fromhex(c['input_hex'])
-        if 'decoded' in c:
-            actual = decode(framed(raw))
-            frame_shape(actual)
-            need(actual == c['decoded'], 'decoded framing control differs')
-        if 'control_hex' in c:
-            control = decode(framed(bytes.fromhex(c['control_hex'])))
-            frame_shape(control)
-            try:
-                decode(framed(raw))
-            except (ValueError, UnicodeError):
-                pass
-            else:
-                raise ValueError(c['id'] + ': negative encoding input accepted strictly')
-            permissive = json.loads(framed(raw).decode('utf-8', errors='replace'))
-            frame_shape(permissive)
+        validate_framing(c)
 
 
 def self_test(data):
@@ -322,6 +480,10 @@ def self_test(data):
     reject('VECTOR_SCOPE_CAUGHT', lambda d: case(d, 'readiness_mismatch').update(targets=['java']))
     reject('VECTOR_DELIVERY_CAUGHT', lambda d: next(s for s in case(d, 'readiness_mismatch')['steps'] if message(s, 'ready')).update(delivery='exchange'))
     reject('VECTOR_INPUT_TARGET_CAUGHT', lambda d: case(d, 'future_release').update(targets=['go']))
+    reject('VECTOR_FUTURE_RELEASE_CAUGHT', lambda d: next(s for s in case(d, 'future_release')['steps'] if message(s, 'release'))['frame']['body'].update(arrival='1'))
+    reject('VECTOR_WRONG_POINT_CAUGHT', lambda d: next(s for s in case(d, 'wrong_point_release')['steps'] if message(s, 'release'))['frame']['body'].update(point='after_read'))
+    reject('VECTOR_RELEASE_BEFORE_ARRIVAL_CAUGHT', lambda d: case(d, 'release_before_arrival').update(prefix='arrived'))
+    reject('VECTOR_TERMINAL_WHILE_ARRIVED_CAUGHT', lambda d: case(d, 'terminal_while_arrived').update(prefix='released'))
     reject('VECTOR_MISSING_INVOKE_CAUGHT', lambda d: d['prefixes']['active'].__setitem__(slice(None), [s for s in d['prefixes']['active'] if not event(s, 'invoke_call')]))
     reject('VECTOR_SEQUENCE_CAUGHT', lambda d: next(s for s in d['prefixes']['active'] if message(s, 'accepted'))['frame'].update(seq=99))
     reject('VECTOR_DEADLINE_ORDER_CAUGHT', lambda d: next(s for s in case(d, 'stop_active_invocation')['steps'] if event(s, 'stop_call'))['expect'].reverse())
@@ -331,7 +493,18 @@ def self_test(data):
     reject('VECTOR_CANCEL_ARM_ORDER_CAUGHT', lambda d: next(s for s in case(d, 'stop_active_invocation')['steps'] if message(s, 'cancel'))['expect'].reverse())
     reject('VECTOR_ATOMIC_ORDER_CAUGHT', lambda d: next(s for s in case(d, 'cancel_wins_release_enqueue')['steps'] if event(s, 'resume_release_enqueue'))['expect'].__setitem__(0, 'send_release'))
     reject('VECTOR_EXCEPTION_SOURCE_CAUGHT', lambda d: case(d, 'rollback')['steps'].__setitem__(slice(None), [s for s in case(d, 'rollback')['steps'] if not event(s, 'command_exception')]))
-    reject('VECTOR_FRAMING_CONTROL_CAUGHT', lambda d: next(c for c in d['framing'] if c['id'] == 'duplicate_json_key').update(input_hex='0000000d7b2276223a312c2276223a317d'))
+    reject('VECTOR_FATAL_KIND_CAUGHT', lambda d: next(s for s in case(d, 'unknown_commit_outcome')['steps'] if message(s, 'fatal'))['frame']['body'].update(kind='bogus'))
+    reject('VECTOR_DATABASE_VALUE_CAUGHT', lambda d: next(s for s in d['prefixes']['ready'] if message(s, 'start'))['frame']['body']['database'].update(host=''))
+    reject('VECTOR_NAME_BOUND_CAUGHT', lambda d: next(s for s in d['prefixes']['active'] if message(s, 'invoke'))['frame']['body'].update(command='x' * 129))
+    reject('VECTOR_MESSAGE_BOUND_CAUGHT', lambda d: next(s for s in case(d, 'unknown_commit_outcome')['steps'] if message(s, 'fatal'))['frame']['body'].update(message='x' * 1025))
+    reject('VECTOR_STARTUP_REAP_CAUGHT', lambda d: case(d, 'startup_deadline')['steps'].pop())
+    reject('VECTOR_CALLBACK_TERMINAL_CAUGHT', lambda d: case(d, 'completion_callback_too_early')['steps'].pop())
+    reject('VECTOR_UNKNOWN_FATAL_CAUGHT', lambda d: case(d, 'unknown_commit_outcome')['steps'].pop())
+    valid_hex = next(c for c in data['framing'] if c['id'] == 'fragmented_valid_frame')['input_hex']
+    reject('VECTOR_FRAMING_INVENTORY_CAUGHT', lambda d: d.update(framing=[]))
+    for framing_name in sorted(FRAMING):
+        replacement = '00000000' if framing_name == 'fragmented_valid_frame' else valid_hex
+        reject('VECTOR_FRAMING_' + framing_name.upper() + '_CAUGHT', lambda d, name=framing_name, value=replacement: next(c for c in d['framing'] if c['id'] == name).update(input_hex=value))
     reject('VECTOR_COVERAGE_CAUGHT', lambda d: d['coverage'].pop('duplicate_java'))
     reject('VECTOR_PREFIX_CYCLE_CAUGHT', lambda d: d['prefixes']['new'].append({'prefix': 'new'}))
     print('EXTERNAL_SUT_VECTOR_SELF_TEST_RESULT mutations=rejected')

@@ -147,9 +147,11 @@ python3 scripts/check-external-sut-vectors.py --self-test
 
 The first command checks all expanded histories, scope/delivery metadata,
 sequence and invocation prerequisites, deadline ordering, exception sources,
-framing controls and the required role/lifecycle coverage matrix in the JSON
-`coverage` object. The second mutates valid inputs to prove the guard rejects
-representative regressions. CI runs both and checks their fixed result markers.
+the complete framing inventory, frame value constraints, injected-fault premises,
+and the required role/lifecycle coverage matrix in the JSON `coverage` object.
+The second mutates every framing entry and representative lifecycle inputs to
+prove the guard rejects regressions. CI runs both and checks their fixed result
+markers.
 Python is a maintainer/CI prerequisite for this data check, with no third-party
 package or engine dependency. This guard is not a Go or Java implementation and
 cannot prove network, transaction, timing or race behavior; the implementation
@@ -248,6 +250,13 @@ the faulty ready response, explicitly delivers startup fatal to Java, and runs
 Go's bounded Stop. With graceful cleanup unproven at the cutoff, it kills and
 reaps the child and preserves the startup fault. Child reaping alone does not
 certify application/DB cleanup, so Reset remains blocked by quarantine.
+
+`startup_deadline` likewise crosses Go's detached cleanup cutoff, forces
+termination, and observes reaping before the startup error returns. The
+`completion_callback_too_early` case withholds terminal output until proxy exit,
+commit, and lease return are all observed, then compares the complete terminal
+frame at Go. `unknown_commit_outcome` compares Java's transaction fatal at Go
+and requires run failure without a WorkerResult.
 
 `java_receives_fatal_active` injects an engine protocol fatal into Java while
 a worker is gated. Java must close admission, wake the gate exceptionally and
