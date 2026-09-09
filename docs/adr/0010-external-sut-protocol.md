@@ -130,6 +130,15 @@ boundary decisions**. This documentation does not change those boundaries.
 | G6: Operation cancellation versus worker outcome | `Handle.Invoke` exposes one asynchronous WorkerResult, while [`Run`](../../internal/orchestrator/run.go) separately returns a run error. A committed terminal may race with context cancellation; collection can select the result and the final success path has no unconditional context check. | Decide cancellation precedence and the observation boundary through collection, evaluation and cleanup. Preserve a truthful nil worker error while reporting a canceled operation through the run-level error/status surface. Prefer the existing Run error return; do not invent a second Handle result or reinterpret committed work as failed/rolled back. Gate the combined conformance assertion on this decision. |
 
 G5 must be resolved before mapping wire `not_started` to a Go API outcome.
+Follow-up ownership is [#118](https://github.com/weavegate/weavegate/issues/118)
+for G1, [#119](https://github.com/weavegate/weavegate/issues/119) for the separately
+reviewable G2/G5/G6 decisions, and
+[#120](https://github.com/weavegate/weavegate/issues/120) for G3. G4 remains in
+[CLI integration #110](https://github.com/weavegate/weavegate/issues/110).
+[#121](https://github.com/weavegate/weavegate/issues/121) tracks executable
+conformance acceptance across the Go and Java implementations. These issues
+preserve the blockers without expanding this ADR into engine implementation.
+
 The proposed direction is a distinct asynchronous unstarted outcome carrying
 its cause and cleanup facts, rather than weakening `WorkerResult`'s committed/
 rolled-back contract. The decision must specify result-stream closure, worker

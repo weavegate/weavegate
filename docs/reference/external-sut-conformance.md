@@ -63,6 +63,11 @@ Handle result. The standalone Go adapter harness checks only its supplied
 context and worker outcome; it cannot claim the run-level assertion passed.
 A `completion` event supplies independently observed proxy-exit, transaction,
 and lease state; the harness must not treat it as a request to publish terminal.
+Its optional `invocation` defaults to the first invocation in the history.
+Every compliant terminal has matching preceding completion facts, including
+`not_started/not_acquired`; started outcomes require proxy exit. The guard also
+requires accepted, no pending bridge, and a released or canceled gate. Go-side
+scripts supply these facts independently even when Java is not a target.
 
 `command_exception` injects the specified source exception into the named
 invocation, at its `command_body`, `jdbc_operation`, or `after_commit_callback` barrier. Construct
@@ -156,6 +161,11 @@ the complete framing inventory, frame value constraints, injected-fault premises
 explicit output obligations, immutable invocation/worker bindings, incremented
 arrival identities, watchdog trigger order, and the required role/lifecycle
 coverage matrix in the JSON `coverage` object.
+It checks expectation names against the closed `EXPECTATIONS` vocabulary in the
+guard, terminal cleanup facts and bridge retirement, and the permanent fatal
+state. A post-fatal best-effort stop may be modeled only with
+`no_stopped_required`; it never restores normal completion. Known cleanup
+milestones may still occur locally after fatal.
 The second mutates every framing entry and representative lifecycle inputs to
 prove the guard rejects regressions. CI runs both and checks their fixed result
 markers.
@@ -171,6 +181,31 @@ where its premise can be checked structurally. Update `coverage` and its guard
 predicate together for a new required family. `covers` tags are descriptive;
 they do not by themselves satisfy a coverage requirement. Unlisted combinations
 remain future implementation checks, never inferred passing coverage.
+
+## Design closure and follow-up ownership
+
+The design acceptance boundary is a consistent selected wire contract,
+constructed examples with explicit inputs/outputs, and the documented structural
+checks passing. It does not require implementing a complete protocol state
+machine in the Python guard. Existing checks and wire requirements remain in
+force. New runtime combinations and exhaustive event/argument/assertion dispatch
+belong to [executable conformance #121](https://github.com/weavegate/weavegate/issues/121),
+which tracks the remaining finite coverage and per-target evidence for #108/#109.
+A reproduced contradiction in the selected contract or regression in an existing
+checked premise still needs correction in the design/data.
+
+Implementation prerequisites have explicit owners:
+
+| Work | Owner | Required before |
+| --- | --- | --- |
+| G1 fixture connection descriptor | [#118](https://github.com/weavegate/weavegate/issues/118) | Real database provisioning for the external adapter |
+| G2 session faults, G5 unstarted outcomes, G6 operation cancellation | [#119](https://github.com/weavegate/weavegate/issues/119) | Production Go result mapping and run-level conformance |
+| G3 quarantine and recovery after uncertain cleanup | [#120](https://github.com/weavegate/weavegate/issues/120) | External execution/repeat enablement |
+| G4 launch, configuration and budget composition | [#110](https://github.com/weavegate/weavegate/issues/110) | External CLI enablement |
+| Executable assertion dispatch and remaining wire/lifecycle coverage | [#121](https://github.com/weavegate/weavegate/issues/121), implemented by #108/#109 | Language implementation acceptance; live paired evidence remains #111 |
+
+These are planned implementation gates, not unfinished protocol choices that
+require adding those implementations to this design change.
 
 ## Sequence review
 
@@ -210,6 +245,23 @@ WorkerResult and runtime Finish. The Go harness for this case depends on ADR G5;
 its future asynchronous outcome API must be decided before this case can run.
 Do not satisfy it by closing the current result channel without a result or by
 inventing a rollback.
+
+`process_death` continues past fault detection: the canceled runtime call returns
+without release, then a named detached Stop closes pipes and observes child
+reaping under its single budget. `check_stop_results` observes that call's
+transport failure and rejected Reset. `no_bridge_tasks` requires the invocation's
+bridge tasks to have exited; the observer must not join or cancel them on the
+adapter's behalf. The child-exit event supplies process death, not automatic
+reaping or proof of database rollback. No WorkerResult is fabricated.
+
+`retired_terminal_identical` and `retired_terminal_conflict` start after the first
+invocation's terminal and result-channel closure, then reuse its worker with a
+new invocation. They inject the old terminal under a fresh sequence, exercising
+tombstones rather than the exact-sequence duplicate path. The identical body
+produces no result, reply, or fatal; `no_new_worker_effect` forbids changing the
+new invocation's state or result stream, and that invocation subsequently
+completes normally. The conflicting body instead requires an explicit protocol
+fatal exchange and a failed run. Both cases target Go against a scripted child.
 
 `commit_wins_cancel` delivers cancel to Java after it has emitted and retired
 the committed terminal but before Go receives that terminal. Java must consume

@@ -337,6 +337,16 @@ jobs:
         run: |
           python3 scripts/check-external-sut-vectors.py --self-test | tee /tmp/external-sut-vectors-selftest.out
           grep -qF 'EXTERNAL_SUT_VECTOR_SELF_TEST_RESULT mutations=rejected' /tmp/external-sut-vectors-selftest.out
+          for marker in VECTOR_TERMINAL_GATE_CLEANUP_CAUGHT VECTOR_TERMINAL_ACCEPTED_CAUGHT \
+            VECTOR_TERMINAL_PROXY_CAUGHT VECTOR_TERMINAL_TRANSACTION_CAUGHT \
+            VECTOR_TERMINAL_LEASE_CAUGHT VECTOR_CANCEL_BRIDGE_CLEANUP_CAUGHT \
+            VECTOR_UNKNOWN_EXPECTATION_CAUGHT VECTOR_STOPPED_AFTER_FATAL_CAUGHT \
+            VECTOR_TERMINAL_AFTER_FATAL_CAUGHT VECTOR_RETIRED_IDENTICAL_BODY_CAUGHT \
+            VECTOR_RETIRED_CONFLICT_BODY_CAUGHT VECTOR_RETIRED_RESULT_EFFECT_CAUGHT \
+            VECTOR_RETIRED_FATAL_EXCHANGE_CAUGHT VECTOR_PROCESS_DEATH_REAP_CAUGHT \
+            VECTOR_PROCESS_DEATH_RESET_CAUGHT VECTOR_PROCESS_DEATH_UNWIND_CAUGHT; do
+            grep -qF "$marker" /tmp/external-sut-vectors-selftest.out
+          done
           python3 scripts/check-external-sut-vectors.py | tee /tmp/external-sut-vectors.out
           grep -qF 'EXTERNAL_SUT_VECTOR_RESULT structure=valid scope=explicit coverage=present runtime=not_executed' /tmp/external-sut-vectors.out
 

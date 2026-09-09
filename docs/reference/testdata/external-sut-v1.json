@@ -1388,6 +1388,19 @@
           "delivery": "exchange"
         },
         {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": false,
+            "transaction": "not_started",
+            "lease": "not_acquired"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
           "peer": "go",
           "action": "receive",
           "frame": {
@@ -1616,6 +1629,57 @@
             "no_worker_result",
             "abort_run",
             "quarantine_fixture"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "1",
+              "point": "after_read"
+            },
+            "result": "cancelled"
+          },
+          "expect": [
+            "no_release",
+            "no_bridge_tasks"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "death-stop",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "set_single_deadline",
+            "close_pipes",
+            "child_reaped",
+            "retain_transport_fault",
+            "no_stopped_required"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "check_stop_results",
+          "args": {
+            "call_ids": [
+              "death-stop"
+            ],
+            "expected_error": "transport_failure"
+          },
+          "expect": [
+            "all_calls_return_same_failure",
+            "no_worker_result",
+            "no_bridge_tasks",
+            "reset_rejected"
           ]
         }
       ],
@@ -4738,6 +4802,261 @@
         "java"
       ],
       "execution": "isolated"
+    },
+    {
+      "id": "retired_terminal_identical",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "invoke_call",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "worker": "w1",
+            "command": "assign",
+            "context": "fresh"
+          },
+          "expect": [
+            "reserve_invocation",
+            "send_invoke",
+            "result_channel_created"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "invoke",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "command": "assign"
+            }
+          },
+          "expect": [
+            "reserve_invocation",
+            "dispatch_once"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "accepted",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1"
+            }
+          },
+          "expect": [
+            "mark_accepted"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 6,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "consume_retired_invocation",
+            "no_worker_result",
+            "no_new_worker_effect",
+            "no_fatal",
+            "no_reply"
+          ],
+          "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal",
+            "retire_invocation"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "terminal",
+            "seq": 7,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "worker_result_nil",
+            "close_result_channel",
+            "retire_invocation"
+          ],
+          "delivery": "exchange"
+        }
+      ],
+      "covers": [
+        "retired_terminal",
+        "worker_reuse",
+        "identical_terminal"
+      ],
+      "targets": [
+        "go"
+      ],
+      "execution": "isolated"
+    },
+    {
+      "id": "retired_terminal_conflict",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "invoke_call",
+          "args": {
+            "invocation": "44444444444444444444444444444444",
+            "worker": "w1",
+            "command": "assign",
+            "context": "fresh"
+          },
+          "expect": [
+            "reserve_invocation",
+            "send_invoke",
+            "result_channel_created"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "invoke",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1",
+              "command": "assign"
+            }
+          },
+          "expect": [
+            "reserve_invocation",
+            "dispatch_once"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "accepted",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "invocation": "44444444444444444444444444444444",
+              "worker": "w1"
+            }
+          },
+          "expect": [
+            "mark_accepted"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 6,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": {
+                "kind": "application",
+                "message": "conflicting retired outcome",
+                "mysql_code": 0,
+                "sql_state": ""
+              }
+            }
+          },
+          "expect": [
+            "fatal_protocol",
+            "no_worker_result",
+            "abort_run"
+          ],
+          "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "delivery": "exchange",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "kind": "protocol",
+              "message": "conflicting retired terminal"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ]
+        }
+      ],
+      "covers": [
+        "retired_terminal",
+        "worker_reuse",
+        "conflicting_terminal"
+      ],
+      "targets": [
+        "go"
+      ],
+      "execution": "isolated"
     }
   ],
   "framing": [
@@ -4959,6 +5278,15 @@
     ],
     "incremented_arrival": [
       "incremented_arrival"
+    ],
+    "retired_terminal_identical": [
+      "retired_terminal_identical"
+    ],
+    "retired_terminal_conflict": [
+      "retired_terminal_conflict"
+    ],
+    "process_death_cleanup": [
+      "process_death"
     ]
   }
 }

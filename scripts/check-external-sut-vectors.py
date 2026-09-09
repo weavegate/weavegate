@@ -33,6 +33,42 @@ startup_watchdog stop_watchdog cancel_watchdog fatal_watchdog active_stop_watchd
 cancel_wins_enqueue enqueue_wins_cancel readiness_rejection canceled_reuse
 normal_active_stop exception_input parent_startup_cleanup callback_terminal
 unknown_outcome_fatal version_rejection incremented_arrival'''.split())
+REQUIRED.update({'retired_terminal_identical', 'retired_terminal_conflict', 'process_death_cleanup'})
+# Reviewed harness assertion names, independent of the vector file being checked.
+EXPECTATIONS = set('''abort_run all_calls_return_same_failure all_calls_return_success
+application_cleanup_blocked application_shutdown_barrier_armed arm_cleanup_watchdog
+arm_startup_watchdog arm_stop_watchdog await_active_cleanup await_eof_and_exit await_reaping
+begin_bounded_cleanup begin_detached_cleanup best_effort_stop call_pending cancel_bridge
+cancel_latched cancel_latched_atomically cancel_startup child_reaped cleanup_still_blocked
+client_arrive_once close_admission close_control_stream close_pipes close_pool_and_application
+close_result_channel committed_terminal_unchanged consume_cancelled_arrival
+consume_retired_invocation database_lock_released discard_provisional_evaluation dispatch_once
+drop_foreign_session enqueue_held evaluation_started exit_nonzero failure_class_error
+failure_class_mysql_deadlock fatal_cleanup fatal_protocol fatal_shutdown fatal_startup
+fatal_transaction fatal_version fault_supervision_active force_nonzero_exit hold_evaluation_return
+ignore_cancelled_gate ignore_duplicate initialization_barrier_armed initialization_blocked
+initialization_still_blocked initialize_application install_gate invalidate_evaluation kill_child
+latch_adapter_fault latch_startup_error latch_startup_fault latch_stop_timeout_failure
+latch_transport_fault mark_accepted no_arrive_for_w2 no_child_exit no_cleanup_success
+no_client_arrive no_command_start no_fatal no_handle no_invoke no_new_deadline no_nil_stop_result
+no_protocol_effect no_ready no_redispatch no_release no_release_before_runtime_return no_reply
+no_resume no_rollback no_run_success no_runtime_finish no_second_child no_second_terminal
+no_start_frame no_start_return no_stop_frame no_stop_success no_stopped no_stopped_required
+no_terminal no_transport_fault no_worker_block no_worker_result operation_context_error
+operation_error owned_child_waiting_start pending_arrival_resolves prevent_command_start
+probe_database quarantine_fixture record_source_exception release_barrier_armed
+release_candidate_ready release_enqueued_atomically request_jdbc_cancel reserve_invocation
+reset_allowed reset_rejected result_channel_created retain_adapter_fault
+retain_earlier_cleanup_deadline retain_startup_fault retain_transport_fault
+retained_tail_matches_digest retire_invocation return_latched_failure reuse_deadline
+rollback_barrier_armed runtime_db_blocked script_holds_response script_observes_nonzero_exit
+script_records_cancel script_records_fatal send_arrive send_cancel send_fatal send_invoke
+send_ready send_release send_stop send_stopped send_terminal sequence_unchanged
+set_single_deadline start_returns_handle start_returns_no_handle startup_error
+startup_error_preserved stop_error stop_ok stop_still_pending supplied_invocation_context_cancelled
+unstarted_outcome validate_registration wake_exact_gate wake_gate_exceptionally
+worker_outcome_preserved worker_result_cancelled worker_result_error worker_result_nil
+no_bridge_tasks no_new_worker_effect'''.split())
 FATAL_KINDS = {'version', 'protocol', 'startup', 'transport', 'transaction', 'cleanup', 'shutdown'}
 FRAMING = {
     'fragmented_valid_frame': ({'id', 'input_hex', 'read_chunk_sizes', 'expect', 'decoded', 'targets'}, ('one_ready_frame_after_complete_payload',)),
@@ -231,12 +267,15 @@ def history(case, steps):
     invocations, active, sources, reasons = {}, {}, {}, {}
     outstanding, completed, canceled = {}, set(), set()
     pending_arrivals, last_arrival = {}, {}
+    accepted, bridges, returned, cleanup, terminals = set(), {}, {}, {}, {}
+    fatal_seen = False
     binding = None
     start = None
     stop_seen = False
     for step in steps:
         need(step.get('peer') in seq and isinstance(step.get('expect'), list) and step['expect'] and all(isinstance(v, str) for v in step['expect']), 'step receiver/effects')
         effects = step['expect']
+        need(set(effects) <= EXPECTATIONS, 'unknown expectation label')
         if step.get('action') == 'local':
             need(set(step) == {'peer', 'action', 'event', 'args', 'expect'} and step['event'] in EVENTS and isinstance(step['args'], dict), 'local event shape/vocabulary')
             a = step['args']
@@ -264,6 +303,15 @@ def history(case, steps):
                 identity = a['identity']
                 need(outstanding.get(identity['invocation']) == identity,
                      'runtime return changes arrival binding')
+                need(bridges.pop(identity['invocation'], None) == identity, 'runtime return lacks live bridge')
+                returned[identity['invocation']] = (identity, a['result'])
+            if event(step, 'completion', 'java'):
+                iid = a.get('invocation', next(iter(invocations), None))
+                need(iid in accepted, 'completion lacks accepted invocation')
+                need(type(a.get('proxy_exited')) is bool
+                     and a.get('transaction') in ('committed', 'rolled_back', 'not_started', 'unknown')
+                     and a.get('lease') in ('held', 'returned', 'not_acquired', 'close_failed'), 'completion facts')
+                cleanup[iid] = a
             if event(step, 'stderr_bytes'):
                 raw = b''.join(bytes.fromhex(v['hex']) * v['repeat'] for v in a['segments'])
                 need(len(raw) == a['byte_count'] and 0 < a['retained_bytes'] < len(raw), 'stderr input size')
@@ -292,6 +340,12 @@ def history(case, steps):
                 need(step['delivery'] == 'input' and 'fatal_protocol' in effects, 'unmarked sequence conflict/gap')
             continue
         seen[f['seq']] = payload
+        # A best-effort Stop may still be written after fatal, but cannot ask
+        # for normal completion or replace the fault/cleanup deadline.
+        need(not fatal_seen or t == 'fatal'
+             or (t == 'stop' and 'no_stopped_required' in effects), 'normal frame after fatal')
+        if t == 'fatal':
+            fatal_seen = True
         if t == 'start':
             start = b
         if t == 'ready' and start:
@@ -299,20 +353,32 @@ def history(case, steps):
             if not matches:
                 need(targets == ['go'] and step['delivery'] == 'input' and 'startup_error' in effects, 'mismatched ready must be Go-only input')
         if step['delivery'] == 'input':
+            if t == 'terminal' and b['invocation'] in completed:
+                need(case['id'] in ('retired_terminal_identical', 'retired_terminal_conflict'), 'undeclared retired terminal input')
+                same = b == terminals[b['invocation']]
+                need(same == (case['id'] == 'retired_terminal_identical'), 'retired terminal body premise')
+                required = {'consume_retired_invocation', 'no_worker_result', 'no_new_worker_effect', 'no_fatal', 'no_reply'} if same else {'fatal_protocol', 'no_worker_result', 'abort_run'}
+                need(required <= set(effects), 'retired terminal effects')
+                continue
             need(injected_premise(case['id'], f, effects, invocations, outstanding, completed, canceled, start, stop_seen), 'injected input lacks declared lifecycle premise')
             continue
         if t == 'invoke':
             need(invocations.get(b['invocation']) == (b['worker'], b['command']), 'invoke lacks Go Handle call')
         if t == 'accepted':
             need(invocations.get(b['invocation'], (None,))[0] == b['worker'], 'accepted changes invocation binding')
+            need(b['invocation'] not in accepted, 'invocation accepted twice')
+            accepted.add(b['invocation'])
         if t == 'arrive':
             need(invocations.get(b['invocation'], (None,))[0] == b['worker'], 'arrival changes invocation binding')
             need(pending_arrivals.get(b['invocation']) == b and b['invocation'] not in outstanding, 'arrival lacks matching gate event')
             outstanding[b['invocation']] = b
+            need(b['invocation'] in accepted, 'arrival before accepted')
+            bridges[b['invocation']] = b
             last_arrival[b['invocation']] = int(b['arrival'])
             pending_arrivals.pop(b['invocation'])
         if t == 'release':
             need(outstanding.get(b['invocation']) == b, 'release lacks matching arrival')
+            need(returned.get(b['invocation']) == (b, 'nil'), 'release before successful runtime return')
             outstanding.pop(b['invocation'])
         if t == 'cancel':
             need(invocations.get(b['invocation'], (None,))[0] == b['worker'], 'cancel changes invocation binding')
@@ -324,6 +390,15 @@ def history(case, steps):
         if t == 'terminal':
             iid, err = b['invocation'], b['error']
             need(invocations.get(iid, (None,))[0] == b['worker'], 'terminal changes invocation binding')
+            need(iid in accepted and iid not in terminals, 'terminal before accepted or repeated terminal')
+            need(iid not in bridges and iid not in pending_arrivals, 'terminal before bridge/gate cleanup')
+            need(iid not in outstanding or iid in reasons, 'terminal with outstanding gate')
+            facts = cleanup.get(iid)
+            need(facts is not None and facts['transaction'] == b['transaction']
+                 and facts['lease'] == b['connection'], 'terminal contradicts completion facts')
+            need(b['transaction'] == 'not_started' or facts['proxy_exited'], 'terminal before proxy exit')
+            outstanding.pop(iid, None)
+            terminals[iid] = b
             if err and 'java' in targets:
                 if err['kind'] == 'cancelled':
                     need(iid in reasons and err['message'] == 'cancelled by ' + reasons[iid], 'cancellation message/source')
@@ -342,6 +417,23 @@ def history(case, steps):
 def coverage(rule, case, steps):
     targets = case['targets']
     own = case['steps']
+    if rule.startswith('retired_terminal_'):
+        old = [s for s in steps if message(s, 'terminal') and s.get('delivery') == 'exchange']
+        late = [s for s in own if message(s, 'terminal') and s.get('delivery') == 'input']
+        calls = [s for s in own if event(s, 'invoke_call', 'go')]
+        if targets != ['go'] or not old or len(late) != 1 or not calls:
+            return False
+        previous, incoming = old[0]['frame'], late[0]['frame']
+        reuse = calls[0]['args']
+        valid = reuse['worker'] == previous['body']['worker'] and reuse['invocation'] != previous['body']['invocation']
+        valid &= incoming['seq'] > previous['seq'] and incoming['body']['invocation'] == previous['body']['invocation']
+        return valid and ((incoming['body'] == previous['body']) == (rule == 'retired_terminal_identical'))
+    if rule == 'process_death_cleanup':
+        death = indices(own, lambda s: event(s, 'child_exit', 'go') and 'cancel_bridge' in s['expect'])
+        unwind = indices(own, lambda s: event(s, 'runtime_arrive_returns', 'go') and s['args']['result'] == 'cancelled' and {'no_release', 'no_bridge_tasks'} <= set(s['expect']))
+        stop = indices(own, lambda s: event(s, 'stop_call', 'go') and 'child_reaped' in s['expect'])
+        checked = indices(own, lambda s: event(s, 'check_stop_results', 'go') and s['args']['expected_error'] == 'transport_failure' and {'reset_rejected', 'no_worker_result', 'no_bridge_tasks'} <= set(s['expect']))
+        return targets == ['go'] and case['prefix'] == 'arrived' and bool(death and unwind and stop and checked) and death[0] < unwind[0] < stop[0] < checked[0] and own[stop[0]]['args']['call_id'] in own[checked[0]]['args']['call_ids']
     if rule.startswith('duplicate_'):
         peer = rule.removeprefix('duplicate_')
         duplicates = [s for s in own if s.get('delivery') == 'input' and s['peer'] == peer and 'ignore_duplicate' in s['expect']]
@@ -555,6 +647,51 @@ def self_test(data):
             identity = step.get('args', {}).get('identity') or step.get('frame', {}).get('body')
             if isinstance(identity, dict) and 'arrival' in identity:
                 identity['arrival'] = '1'
+
+    def terminal_before_release(d):
+        probe = copy.deepcopy(case(d, 'success'))
+        probe.update(id='early_terminal_probe', prefix='arrived', targets=['go'],
+                     steps=copy.deepcopy(d['prefixes']['completed'][1:]))
+        d['cases'].append(probe)
+
+    def without_accepted(d):
+        probe = copy.deepcopy(case(d, 'cancel_before_accepted'))
+        probe.update(id='missing_accepted_probe')
+        probe['steps'] = [s for s in probe['steps'] if not message(s, 'accepted')]
+        next(s for s in probe['steps'] if message(s, 'terminal'))['frame']['seq'] = 2
+        d['cases'].append(probe)
+
+    def post_fatal_frame(d, kind):
+        step = copy.deepcopy(d['prefixes']['completed'][-1])
+        if kind == 'stopped':
+            step['frame'].update(type='stopped', seq=5, body={})
+            step['expect'] = ['stop_ok']
+            case(d, 'unknown_commit_outcome')['steps'].append(step)
+        else:
+            # Keep terminal prerequisites valid so only the fatal latch rejects it.
+            fatal = copy.deepcopy(case(d, 'unknown_commit_outcome')['steps'][-1])
+            fatal['frame']['seq'] = 3
+            probe = copy.deepcopy(case(d, 'success'))
+            probe.update(id='post_fatal_terminal_probe', prefix='active', targets=['go'],
+                         steps=[copy.deepcopy(d['prefixes']['completed'][1]), fatal, step])
+            d['cases'].append(probe)
+
+    reject('VECTOR_TERMINAL_GATE_CLEANUP_CAUGHT', terminal_before_release)
+    reject('VECTOR_TERMINAL_ACCEPTED_CAUGHT', without_accepted)
+    reject('VECTOR_TERMINAL_PROXY_CAUGHT', lambda d: d['prefixes']['completed'][1]['args'].update(proxy_exited=False))
+    reject('VECTOR_TERMINAL_TRANSACTION_CAUGHT', lambda d: d['prefixes']['completed'][1]['args'].update(transaction='rolled_back'))
+    reject('VECTOR_TERMINAL_LEASE_CAUGHT', lambda d: d['prefixes']['completed'][1]['args'].update(lease='held'))
+    reject('VECTOR_CANCEL_BRIDGE_CLEANUP_CAUGHT', lambda d: case(d, 'cancel_at_arrival')['steps'].__setitem__(slice(None), [s for s in case(d, 'cancel_at_arrival')['steps'] if not event(s, 'runtime_arrive_returns')]))
+    reject('VECTOR_UNKNOWN_EXPECTATION_CAUGHT', lambda d: d['prefixes']['completed'][-1]['expect'].__setitem__(0, 'worker_result_nill'))
+    reject('VECTOR_STOPPED_AFTER_FATAL_CAUGHT', lambda d: post_fatal_frame(d, 'stopped'))
+    reject('VECTOR_TERMINAL_AFTER_FATAL_CAUGHT', lambda d: post_fatal_frame(d, 'terminal'))
+    reject('VECTOR_RETIRED_IDENTICAL_BODY_CAUGHT', lambda d: next(s for s in case(d, 'retired_terminal_identical')['steps'] if s.get('delivery') == 'input')['frame']['body'].update(error={'kind': 'application', 'message': 'different', 'mysql_code': 0, 'sql_state': ''}))
+    reject('VECTOR_RETIRED_CONFLICT_BODY_CAUGHT', lambda d: next(s for s in case(d, 'retired_terminal_conflict')['steps'] if s.get('delivery') == 'input')['frame']['body'].update(error=None))
+    reject('VECTOR_RETIRED_RESULT_EFFECT_CAUGHT', lambda d: next(s for s in case(d, 'retired_terminal_identical')['steps'] if s.get('delivery') == 'input')['expect'].remove('no_worker_result'))
+    reject('VECTOR_RETIRED_FATAL_EXCHANGE_CAUGHT', lambda d: case(d, 'retired_terminal_conflict')['steps'].pop())
+    reject('VECTOR_PROCESS_DEATH_REAP_CAUGHT', lambda d: next(s for s in case(d, 'process_death')['steps'] if event(s, 'stop_call'))['expect'].remove('child_reaped'))
+    reject('VECTOR_PROCESS_DEATH_RESET_CAUGHT', lambda d: case(d, 'process_death')['steps'][-1]['expect'].remove('reset_rejected'))
+    reject('VECTOR_PROCESS_DEATH_UNWIND_CAUGHT', lambda d: case(d, 'process_death')['steps'].__setitem__(slice(None), [s for s in case(d, 'process_death')['steps'] if not event(s, 'runtime_arrive_returns')]))
 
     reject('VECTOR_SCOPE_CAUGHT', lambda d: case(d, 'readiness_mismatch').update(targets=['java']))
     reject('VECTOR_DELIVERY_CAUGHT', lambda d: next(s for s in case(d, 'readiness_mismatch')['steps'] if message(s, 'ready')).update(delivery='exchange'))
