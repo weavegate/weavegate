@@ -57,6 +57,21 @@ go test ./cmd/... -count=1          # Docker required
 go test ./cmd/... -short -count=1   # no Docker; skips the integration test
 ```
 
+Changes to the proposed external SUT protocol or its shared vectors also run
+the standard-library Python 3.9+ guard (Python is needed for this maintainer/CI
+check only; it is not an engine or adapter dependency):
+
+```bash
+python3 scripts/check-external-sut-vectors.py
+python3 scripts/check-external-sut-vectors.py --self-test
+```
+
+These commands check constructed data and the declared role/lifecycle coverage,
+not a running Go/Java protocol implementation. The smoke docs job runs them and
+checks their fixed result markers. See the
+[conformance plan](docs/reference/external-sut-conformance.md) for scope, input/output
+rules, and the implementation evidence still required.
+
 ## Determinism and evidence rules
 
 - A test that claims something about engine behavior must produce the same

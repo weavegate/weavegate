@@ -12,7 +12,11 @@ must precede end-to-end enablement.
 
 `vector_format: 1` describes this test-data format; `wire_version: 1` describes
 the transport. Every case has a stable `id`, a named `prefix`, ordered `steps`,
-and descriptive `covers` tags. Expand `prefixes` recursively before the steps.
+descriptive `covers` tags, explicit `targets` and `execution: isolated`.
+`targets` lists the implementations under test, independently: Go, Java, or both.
+For each listed target, start a fresh instance against a scripted opposite peer.
+A case listing both is two isolated tests, not a combined live-peer run.
+Expand `prefixes` recursively before the steps.
 A prefix element containing `prefix` expands another named history; all other
 elements are steps. Prefixes are finite histories, not arbitrary internal-state
 snapshots. Every case starts with fresh peers and fake controllable clocks.
@@ -25,7 +29,20 @@ harness seam (runtime release, JDBC barrier, proxy exit, lease return, clock
 advance, stderr, or child exit). These events and `expect` labels are test
 vocabulary, never wire message types. Receipt can deliberately inject a faulty
 peer message, so harnesses must not generate additional implicit receive steps
-from a `send_*` expectation.
+from a `send_*` expectation. Every receive also declares `delivery`:
+`exchange` checks the sender's output when that sender is the target, and injects
+the frame when its receiver is the target; `input` only injects into the receiving
+target and never requires the other implementation to emit it. Opposite-peer
+local steps describe the script and are not assertions against an implementation
+that is not listed in targets. This separates adversarial input from compliant
+output without silently skipping target assertions.
+
+For example, `readiness_mismatch` targets only Go. Its mismatched ready is an
+`input` from a faulty child; Java is not required to echo the wrong registration.
+The same audit covers malformed identity/order, stale traffic and faulty-release
+cases. A future integration runner must build actual paired scenarios separately;
+it must not execute these isolated scripts as if both live implementations could
+produce all injected frames.
 
 `expect` lists required observable effects in order; the assertions named
 `no_*`, `ignore_*`, and `drop_*` forbid the corresponding side effect. For
@@ -35,7 +52,7 @@ forbids emitting any WorkerResult for the affected incomplete invocation.
 `abort_run` requires a run error, not an ordinary worker failure or a verdict.
 `invalidate_evaluation` rejects even a previously obtained passing evaluation.
 `quarantine_fixture` requires `reset_rejected` until teardown/reprovisioning.
-`operation_context_error` is a run-level assertion for the combined harness,
+`operation_context_error` is a run-level assertion for the Go run-level harness,
 gated on G6 even when listed beside a terminal observation; it is not another
 Handle result. The standalone Go adapter harness checks only its supplied
 context and worker outcome; it cannot claim the run-level assertion passed.
@@ -82,7 +99,9 @@ keeping the oldest bytes produces a different digest from retaining the newest.
 Go tests exercise Go steps against a scripted child and runtime double; Java
 tests exercise Java steps against a scripted engine and controllable command/
 DataSource. Each consumes the other peer's steps as the scripted conversation.
-The combined integration runner exercises both roles. Preserve per-worker
+The future integration runner must additionally exercise live peers, after the
+engine decisions are implemented; this file does not currently define paired
+execution. Preserve per-worker
 causality; no total order between independent workers is inferred from pipe
 traffic. Production IDs are random; the fixed hex IDs and credentials here are
 synthetic test inputs only.
@@ -101,12 +120,48 @@ Thus neither a lossy UTF-8 decoder nor a last-key-wins JSON decoder can pass by
 rejecting an unrelated schema or syntax defect. These cases exercise decoding;
 no database startup is required for a control frame to be schema-valid.
 
-A language implementation must report each case ID and its result. Unsupported
-cases remain failing/incomplete acceptance work, not silently skipped coverage.
-This PR validates the data's syntax and internal references only; executing
+A language implementation must report each case ID targeting that language and
+its result. Cases targeting only the other language are not applicable, not
+passes. A missing implementation for an applicable case remains failing/incomplete
+acceptance work, not silently skipped coverage.
+The repository guard validates the constructed data and declared coverage; executing
 protocol semantics and publishing evidence markers belongs to the implementation
 issues. When those tests add fixed-phrase markers, add their exact CI checks in
 the same implementation PR.
+
+## Maintaining the vectors
+
+Compliant exchanges and fault injection need different assertions: an invalid
+input cannot also be a compliant sender's expected output. Coverage also needs
+explicit peer and lifecycle prerequisites; one receiver's duplicate handling or
+one cleanup deadline does not exercise the other receiver or a competing timer.
+Keep these distinctions in the shared data and the repository guard so later
+edits cannot silently remove them.
+
+Run the persistent standard-library Python 3 guard from the repository root:
+
+```bash
+python3 scripts/check-external-sut-vectors.py
+python3 scripts/check-external-sut-vectors.py --self-test
+```
+
+The first command checks all expanded histories, scope/delivery metadata,
+sequence and invocation prerequisites, deadline ordering, exception sources,
+framing controls and the required role/lifecycle coverage matrix in the JSON
+`coverage` object. The second mutates valid inputs to prove the guard rejects
+representative regressions. CI runs both and checks their fixed result markers.
+Python is a maintainer/CI prerequisite for this data check, with no third-party
+package or engine dependency. This guard is not a Go or Java implementation and
+cannot prove network, transaction, timing or race behavior; the implementation
+checklist still requires actual peer tests and repeated MySQL evidence.
+
+When changing a rule, inspect both receivers, startup/active/post-terminal
+phases, success and failure branches, and competing deadlines. Add an applicable
+case with explicit scope and observable input/output, plus a guard regression
+where its premise can be checked structurally. Update `coverage` and its guard
+predicate together for a new required family. `covers` tags are descriptive;
+they do not by themselves satisfy a coverage requirement. Unlisted combinations
+remain future implementation checks, never inferred passing coverage.
 
 ## Sequence review
 
@@ -251,6 +306,23 @@ evaluator returned PASS. The harness must observe the fault while the evaluator
 is held; it cannot stop supervision at evaluation start or synthesize a failure
 from the final expected result. These are lifecycle stubs, not new oracle logic.
 
+`fatal_after_terminals` complements child death by delivering a wire fatal
+while provisional PASS is held. It requires the stdout reader, not merely the
+process watcher, to remain supervised. `duplicate_invoke_java` injects the exact
+previous invoke bytes and forbids redispatch and replies.
+
+`active_stop_cancel_watchdog_expires` delivers reason-stop cancel (1000 ms),
+then stop (2500 ms), with rollback held. It requires the earlier deadline to
+remain active and forces nonzero exit at 1000 ms; the successful active-Stop case
+also checks watchdog arming and deadline retention.
+
+`cancel_wins_release_enqueue` and `release_enqueue_wins_cancel` hold a release
+candidate after runtime return but before the serialization point, then order
+cancellation and `resume_release_enqueue` on opposite sides of that point.
+The first forbids release; the second checks release then cancel in sequence.
+The barrier does not itself set cancellation or queue frames. These are Go-target
+harness cases; Java receives only the emitted frames as the scripted peer.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)
@@ -264,7 +336,7 @@ owns the combined MySQL reproduction. Do not mark this design checklist complete
 on the strength of prose or a mock-only test.
 
 - [ ] Resolve ADR gaps G1–G6 in separately reviewable decisions before enabling external CLI execution: fixture descriptor, asynchronous fault propagation, reset quarantine, launch/config/budgets, asynchronous unstarted outcomes, and run-level cancellation precedence.
-- [ ] Consume all shared vector IDs. Go owns runtime mapping, channel closure, process supervision, and error propagation; Java owns framing, dispatch, gates, proxy/lease tracking, and local cancellation. Both test malformed input and duplicate handling.
+- [ ] Consume all shared vector IDs targeting the implementation under test. Go owns runtime mapping, channel closure, process supervision, and error propagation; Java owns framing, dispatch, gates, proxy/lease tracking, and local cancellation. Both test malformed input and duplicate handling.
 - [ ] Implement only child-JVM launch with framed stdin/stdout. Test fragmented/coalesced frames, invalid JSON/UTF-8/fields/version, unknown names/IDs, gaps, conflicting duplicates, sequence exhaustion, and capacity exhaustion without changing application state on rejection.
 - [ ] Exercise concurrent arrivals and releases with barriers, including a blocked worker while another commits. The pipe reader/writer must remain live; no sleep-based coordination or polling for readiness.
 - [ ] Prove fresh sessions for repeats/exploration, stale-session isolation, invocation identity on worker reuse, and no second command execution on duplicate input. Test immediate repeated point rejection remains consistent with the Go runtime.

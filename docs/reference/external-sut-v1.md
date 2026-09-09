@@ -157,7 +157,20 @@ worker error that would permit an oracle verdict to stand as a successful run.
 Cancellation is irreversible. The Go adapter cancels the invocation's bridge
 context and sends `cancel`; Java atomically records cancellation, wakes any
 sync-point gate exceptionally, and prevents future gates/commands from starting.
-A racing release cannot clear that flag; a release received for a canceled gate is consumed without resuming it. A bridge task must recheck cancellation before queuing release, even after a nil runtime return. The command must allow the cancellation
+A racing release cannot clear that flag; a release received for a canceled gate is consumed without resuming it. Cancellation latching and release enqueueing share one per-invocation
+serialization point (a lock or actor). Under that same serialization, release
+checks the latched state and context and either appends its frame or suppresses
+it; cancellation latches irreversibly and appends cancel. A check outside that
+critical section is advisory only. The writer preserves this queue order and
+assigns sequences only to appended frames. Never hold the serialization while
+doing pipe I/O or a blocking queue send; a bounded queue that cannot accept a
+frame fails the session rather than releasing the ordering constraint.
+
+If cancellation wins that point, release cannot be queued, including when its
+runtime call already returned nil. If release wins, its frame may precede cancel
+and Java may resume before receiving cancellation; do not claim retroactive
+suppression. Observing context.Done and committing the cancellation latch are
+not the same event. The harness must test both orderings at the enqueue barrier. The command must allow the cancellation
 exception to cross its proxy boundary under rollback rules. JDBC cancel/interrupt
 is a request, not proof that a driver or server has stopped. A transaction already
 committed must truthfully return `committed`, with nil WorkerResult.Err when the
@@ -183,6 +196,10 @@ cancels each live invocation's bridge context,
 and queues cancel with reason `stop` for those invocations before the stop frame.
 The child's stop handling also cancels any still-active invocation idempotently;
 it must not depend on a separate cancel to close admission or begin cleanup.
+For each active invocation, reason-stop cancellation arms the same `cancel_ms`
+watchdog as reason-context cancellation, before requesting JDBC cancellation.
+A later stop frame adds its shutdown bound but cannot replace or extend an
+earlier cancellation deadline: the earliest active deadline governs forced exit.
 Canceled bridge calls must unwind before Go accepts the corresponding terminals.
 
 Stop uses a cleanup context independent of the canceled run. E sets a single

@@ -333,6 +333,13 @@ jobs:
             'RELEASE_BODY_RESULT exact=accepted trailing_newlines=normalized expected_empty=rejected actual_empty=rejected mismatch=rejected' \
             /tmp/release-body-selftest.out
 
+      - name: Check proposed external SUT vectors
+        run: |
+          python3 scripts/check-external-sut-vectors.py --self-test | tee /tmp/external-sut-vectors-selftest.out
+          grep -qF 'EXTERNAL_SUT_VECTOR_SELF_TEST_RESULT mutations=rejected' /tmp/external-sut-vectors-selftest.out
+          python3 scripts/check-external-sut-vectors.py | tee /tmp/external-sut-vectors.out
+          grep -qF 'EXTERNAL_SUT_VECTOR_RESULT structure=valid scope=explicit coverage=present runtime=not_executed' /tmp/external-sut-vectors.out
+
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@v24
         with:
