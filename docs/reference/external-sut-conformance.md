@@ -240,6 +240,17 @@ unresponsive scripted child; they are not descriptions of a conforming Java
 peer. Watchdog vectors provide writable, nonblocking pipes, so fatal delivery
 can be checked explicitly; broken-pipe expiry must still force exit without it.
 
+`death_after_terminals` begins oracle evaluation and produces a provisional
+PASS before injecting child exit. `begin_evaluation` installs the evaluator's
+before-return barrier; `provisional_evaluation` supplies the synthetic evaluator
+result while keeping its return blocked. Neither event completes the Run.
+After child death must latch a transport fault and invalidate that provisional
+result, `complete_evaluation` releases the held evaluator return. The final
+run-level observer requires the transport error under G2 even though the
+evaluator returned PASS. The harness must observe the fault while the evaluator
+is held; it cannot stop supervision at evaluation start or synthesize a failure
+from the final expected result. These are lifecycle stubs, not new oracle logic.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)

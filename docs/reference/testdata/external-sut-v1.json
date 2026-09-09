@@ -1401,6 +1401,31 @@
         {
           "peer": "go",
           "action": "local",
+          "event": "begin_evaluation",
+          "args": {
+            "requires_decision": "G2",
+            "barrier": "before_return"
+          },
+          "expect": [
+            "evaluation_started",
+            "fault_supervision_active"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "provisional_evaluation",
+          "args": {
+            "verdict": "pass"
+          },
+          "expect": [
+            "hold_evaluation_return",
+            "no_run_success"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
           "event": "child_exit",
           "args": {
             "stdout_eof": true,
@@ -1412,11 +1437,38 @@
             "abort_run",
             "quarantine_fixture"
           ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "complete_evaluation",
+          "args": {},
+          "expect": [
+            "discard_provisional_evaluation",
+            "retain_transport_fault",
+            "no_run_success"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "check_operation_result",
+          "args": {
+            "scope": "run",
+            "expected_error": "transport_failure",
+            "requires_decision": "G2"
+          },
+          "expect": [
+            "operation_error",
+            "no_run_success"
+          ]
         }
       ],
       "covers": [
         "process_death",
-        "fault_after_terminal"
+        "fault_after_terminal",
+        "fault_during_evaluation",
+        "provisional_pass_invalidated"
       ]
     },
     {
