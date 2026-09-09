@@ -34,10 +34,13 @@ The writer escapes every string value before interpolation and appends the line
 terminator itself.
 
 - Every non-printable rune uses its Go escape spelling, such as `\n`, `\t`,
-  `\x1b`, or `\u200b`.
+  `\x1b`, or `\u200b`. Each malformed UTF-8 byte uses `\xNN` rather than
+  collapsing to U+FFFD.
 - Markdown delimiters that can create inline markup, raw HTML, tables, or GitHub
   references are backslash-escaped. Intraword underscores remain unchanged;
-  delimiter underscores and a leading list marker are escaped.
+  delimiter underscores and a leading list marker are escaped. Dollar signs use
+  `\x24`, because GitHub interprets paired dollar signs as math even when they
+  are backslash-escaped or written as HTML entities.
 - Structured report values remain unmodified. JSON encoding continues to
   provide the JSON artifact's own control-character representation.
 

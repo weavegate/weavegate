@@ -201,13 +201,15 @@ deterministic set even though `scenario` and `observation` alone would be.
 
 Every runtime string inserted into `report.md` passes through one boundary in
 `internal/report`. Non-printable runes use Go escape spelling (`\n`, `\t`,
-`\x1b`, `\u200b`), and active Markdown punctuation is backslash-escaped.
-Intraword underscores such as those in `sch_...` and column names remain
-unchanged; delimiter underscores and leading list markers are escaped. The
-renderer itself appends every physical newline. These rules apply equally to
-the summary, replay command, and every diagnostic field, so a value cannot
-forge a report line, emit terminal controls, or introduce Markdown structure.
-The JSON artifacts retain the original structured values. See
+`\x1b`, `\u200b`), and malformed UTF-8 bytes use `\xNN` without being replaced
+by U+FFFD. Active Markdown punctuation is backslash-escaped; dollar signs use
+`\x24` because GitHub treats backslash-escaped dollar pairs as math. Intraword
+underscores such as those in `sch_...` and column names remain unchanged;
+delimiter underscores and leading list markers are escaped. The renderer itself
+appends every physical newline. These rules apply equally to the summary, replay
+command, and every diagnostic field, so a value cannot forge a report line,
+emit terminal controls, or introduce Markdown structure. The JSON artifacts
+retain the original structured values. See
 [ADR 0011](../adr/0011-report-markdown-rendering-boundary.md) for the boundary
 and its replay tradeoff.
 

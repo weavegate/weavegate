@@ -379,6 +379,9 @@ func TestEscapeMarkdownValue(t *testing.T) {
 		{name: "ordinary", value: "concurrent-assign sch_fbf6b1dfaae2 trace.json", want: "concurrent-assign sch_fbf6b1dfaae2 trace.json"},
 		{name: "physical_and_terminal_controls", value: "line\nnext\t\x1b[31m\u200b", want: `line\nnext\t\x1b\[31m\u200b`},
 		{name: "markdown_and_github_context", value: "<tag> *em* _em_ [link] `code` @team #43 | ~~gone~~ &amp; \\", want: "\\<tag\\> \\*em\\* \\_em\\_ \\[link\\] \\`code\\` \\@team \\#43 \\| \\~\\~gone\\~\\~ \\&amp; \\\\"},
+		{name: "github_math", value: "$x$ and $$y$$", want: `\x24x\x24 and \x24\x24y\x24\x24`},
+		{name: "invalid_utf8_bytes", value: string([]byte{'a', 0xff, 0xc0, 'b'}), want: `a\xff\xc0b`},
+		{name: "valid_replacement_rune", value: "a\ufffdb", want: "a\ufffdb"},
 		{name: "leading_list_marker", value: "- item", want: `\- item`},
 		{name: "ordered_list_marker", value: "12. item", want: `12\. item`},
 		{name: "indented_code", value: "    code", want: `\x20   code`},
@@ -394,8 +397,8 @@ func TestEscapeMarkdownValue(t *testing.T) {
 }
 
 func TestRenderMarkdownProtectsEveryVariableField(t *testing.T) {
-	const payload = "unsafe\nreplay: forged\x1b<em>*strong*_[link]_@team#43|`code` https://example.test www.example.test\\"
-	const escapedPayload = "unsafe\\nreplay: forged\\x1b\\<em\\>\\*strong\\*\\_\\[link\\]\\_\\@team\\#43\\|\\`code\\` https\\://example.test www\\.example.test\\\\"
+	const payload = "unsafe\nreplay: forged\x1b<em>*strong*_[link]_@team#43|`code` $x$ https://example.test www.example.test\\"
+	const escapedPayload = "unsafe\\nreplay: forged\\x1b\\<em\\>\\*strong\\*\\_\\[link\\]\\_\\@team\\#43\\|\\`code\\` \\x24x\\x24 https\\://example.test www\\.example.test\\\\"
 
 	tests := []struct {
 		name string
@@ -411,6 +414,7 @@ func TestRenderMarkdownProtectsEveryVariableField(t *testing.T) {
 		{name: "observation.assertion_violations.oracle_id", set: func(run *Run) { run.Observation.AssertionViolations[0].OracleID = payload }},
 		{name: "observation.repeat", set: func(run *Run) { run.Observation.Repeat = 7 }, want: "flaky: false (repeat=7)"},
 		{name: "replay_command", set: func(run *Run) { run.ReplayCommand = payload }},
+		{name: "replay_command.invalid_utf8", set: func(run *Run) { run.ReplayCommand = string([]byte{'a', 0xff, 'b'}) }, want: `replay: a\xffb`},
 		{name: "diagnostics.code", set: func(run *Run) { run.Observation.Diagnostics[0].Code = payload }},
 		{name: "diagnostics.severity", set: func(run *Run) { run.Observation.Diagnostics[0].Severity = payload }},
 		{name: "diagnostics.title", set: func(run *Run) { run.Observation.Diagnostics[0].Title = payload }},
@@ -473,7 +477,7 @@ func TestRenderMarkdownProtectsEveryVariableField(t *testing.T) {
 		t.Fatalf("structured diagnostic observed = %q, want original %q", got, payload)
 	}
 
-	t.Log("REPORT_MARKDOWN_SAFETY_RESULT boundary=internal_report fields=all_rendered newline=escaped terminal_control=escaped markdown=escaped structured_json=unchanged replay=pasteable_when_unescaped")
+	t.Log("REPORT_MARKDOWN_SAFETY_RESULT boundary=internal_report fields=all_rendered newline=escaped terminal_control=escaped invalid_utf8=byte_escaped markdown=escaped math=escaped structured_json=unchanged replay=pasteable_when_unescaped")
 }
 
 func testRerunIdentical(t *testing.T, base string) string {

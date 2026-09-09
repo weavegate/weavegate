@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const diagnosticLabelWidth = 11
@@ -143,12 +144,20 @@ func writeMarkdownLine(b *strings.Builder, format string, values ...any) {
 // opening Markdown inline/block syntax. Non-printable runes use the same Go
 // escape spelling as strconv.Quote; Markdown punctuation is backslash-escaped.
 func escapeMarkdownValue(value string) string {
-	runes := []rune(value)
+	runes, invalidBytes := decodeMarkdownRunes(value)
 	var escaped strings.Builder
 	for index, r := range runes {
+		if invalidBytes[index] != 0 {
+			fmt.Fprintf(&escaped, `\x%02x`, invalidBytes[index])
+			continue
+		}
 		if !unicode.IsPrint(r) {
 			quoted := strconv.QuoteRune(r)
 			escaped.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		if r == '$' {
+			escaped.WriteString(`\x24`)
 			continue
 		}
 		if index == 0 && r == ' ' && len(runes) >= 4 && runes[1] == ' ' && runes[2] == ' ' && runes[3] == ' ' {
@@ -163,6 +172,25 @@ func escapeMarkdownValue(value string) string {
 		escaped.WriteRune(r)
 	}
 	return escaped.String()
+}
+
+// decodeMarkdownRunes retains malformed UTF-8 bytes separately from genuine
+// U+FFFD runes. A range loop would replace every malformed byte with U+FFFD and
+// make distinct filesystem paths render identically.
+func decodeMarkdownRunes(value string) ([]rune, []byte) {
+	runes := make([]rune, 0, utf8.RuneCountInString(value))
+	invalidBytes := make([]byte, 0, cap(runes))
+	for len(value) > 0 {
+		r, size := utf8.DecodeRuneInString(value)
+		runes = append(runes, r)
+		invalidByte := byte(0)
+		if r == utf8.RuneError && size == 1 {
+			invalidByte = value[0]
+		}
+		invalidBytes = append(invalidBytes, invalidByte)
+		value = value[size:]
+	}
+	return runes, invalidBytes
 }
 
 func markdownDelimiter(r rune) bool {
