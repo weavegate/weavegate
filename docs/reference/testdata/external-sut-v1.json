@@ -3159,6 +3159,267 @@
         "forced_exit",
         "reset_isolation"
       ]
+    },
+    {
+      "id": "java_startup_watchdog_expires",
+      "prefix": "new",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "hold_cleanup",
+          "args": {
+            "phase": "initialization"
+          },
+          "expect": [
+            "initialization_barrier_armed"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "start",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "variant": "fixed",
+              "params": {
+                "request_id": "1"
+              },
+              "commands": [
+                "assign"
+              ],
+              "points": [
+                "after_read",
+                "before_write"
+              ],
+              "capacity": 2,
+              "database": {
+                "driver": "mysql",
+                "host": "127.0.0.1",
+                "port": 33060,
+                "name": "weavegate",
+                "username": "synthetic",
+                "password": "synthetic-only"
+              },
+              "startup_ms": 10000,
+              "cancel_ms": 1000
+            }
+          },
+          "expect": [
+            "arm_startup_watchdog",
+            "initialize_application",
+            "initialization_blocked",
+            "no_ready"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_startup_clock",
+          "args": {
+            "elapsed_ms": 9999
+          },
+          "expect": [
+            "initialization_still_blocked",
+            "no_ready",
+            "no_child_exit"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_startup_clock",
+          "args": {
+            "elapsed_ms": 10000
+          },
+          "expect": [
+            "fatal_startup",
+            "force_nonzero_exit",
+            "no_ready",
+            "no_terminal",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "fatal",
+            "seq": 1,
+            "body": {
+              "kind": "startup",
+              "message": "startup deadline exceeded"
+            }
+          },
+          "expect": [
+            "latch_startup_fault",
+            "startup_error",
+            "no_invoke"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "startup-watchdog-stop",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "set_single_deadline",
+            "await_reaping",
+            "retain_startup_fault",
+            "no_stopped_required"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 1
+          },
+          "expect": [
+            "child_reaped",
+            "startup_error_preserved",
+            "stop_error",
+            "quarantine_fixture",
+            "reset_rejected"
+          ]
+        }
+      ],
+      "covers": [
+        "java_startup_watchdog",
+        "hung_initialization",
+        "forced_exit"
+      ]
+    },
+    {
+      "id": "java_stop_watchdog_expires",
+      "prefix": "completed",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "hold_cleanup",
+          "args": {
+            "phase": "application_shutdown"
+          },
+          "expect": [
+            "application_shutdown_barrier_armed"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "stop_call",
+          "args": {
+            "call_id": "stop-watchdog",
+            "budget_ms": 5000
+          },
+          "expect": [
+            "set_single_deadline",
+            "send_stop",
+            "call_pending"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "stop",
+            "seq": 4,
+            "body": {
+              "budget_ms": 2500
+            }
+          },
+          "expect": [
+            "arm_stop_watchdog",
+            "close_admission",
+            "application_cleanup_blocked",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_stop_clock",
+          "args": {
+            "elapsed_ms": 2499
+          },
+          "expect": [
+            "cleanup_still_blocked",
+            "no_stopped",
+            "no_child_exit"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_stop_clock",
+          "args": {
+            "elapsed_ms": 2500
+          },
+          "expect": [
+            "fatal_shutdown",
+            "force_nonzero_exit",
+            "no_stopped",
+            "no_cleanup_success"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "type": "fatal",
+            "seq": 5,
+            "body": {
+              "kind": "shutdown",
+              "message": "stop deadline exceeded"
+            }
+          },
+          "expect": [
+            "latch_adapter_fault",
+            "no_stop_success",
+            "quarantine_fixture"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 1
+          },
+          "expect": [
+            "child_reaped",
+            "stop_error",
+            "retain_adapter_fault",
+            "quarantine_fixture",
+            "reset_rejected"
+          ]
+        }
+      ],
+      "covers": [
+        "java_stop_watchdog",
+        "hung_application_cleanup",
+        "forced_exit"
+      ]
     }
   ],
   "framing": [

@@ -218,6 +218,25 @@ allowed. Go's 2500 ms forced-kill cutoff has not elapsed, so it cannot satisfy
 Java's watchdog assertion. The final child-exit observation reaps the process
 and preserves the original fault and fixture quarantine.
 
+`java_startup_watchdog_expires` holds initialization before receiving start,
+then advances Java's receipt-relative startup clock to 9999 and 10000 ms.
+`java_stop_watchdog_expires` delivers a normal stop, holds application shutdown,
+and advances its receipt-relative stop clock to 2499 and 2500 ms. Both require
+nonzero self-termination at the advertised deadline with no new cleanup grace.
+The Stop case retains the already-emitted worker terminal; it forbids a normal
+stopped or cleanup-success claim after expiry.
+
+The `advance_*_clock` events advance only the named Java clock and run callbacks
+already armed by that peer. `hold_cleanup.phase` may also be initialization or
+application shutdown; those barriers never release in these cases. The peer
+harness deliberately holds the Go timer callbacks so a parent kill cannot mask
+a missing Java timer. This selects one observable test ordering, not a production
+promise that Java always exits before Go's independent cutoff. Conversely,
+`startup_deadline` and `duplicate_stop_call` exercise Go supervision against an
+unresponsive scripted child; they are not descriptions of a conforming Java
+peer. Watchdog vectors provide writable, nonblocking pipes, so fatal delivery
+can be checked explicitly; broken-pipe expiry must still force exit without it.
+
 ## Implementation checklist
 
 The consumers are [Go adapter #108](https://github.com/weavegate/weavegate/issues/108)

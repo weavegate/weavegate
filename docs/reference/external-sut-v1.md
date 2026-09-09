@@ -39,7 +39,10 @@ rounding up is forbidden. If the child was already launched, E closes the pipes
 and terminates/reaps it under the detached bounded cleanup context. It sends no
 stop as a first frame to an uninitialized peer. J's receipt-relative startup
 watchdog cannot extend E's original deadline; transport delay consumes that
-budget as well. No command can
+budget as well. J arms its startup watchdog before initializing the application.
+If initialization is still incomplete at `startup_ms`, it best-effort sends
+startup fatal and forces nonzero exit; it must not start a new cancellation
+grace after that exhausted deadline. No command can
 run before E validates ready. Startup failure sends fatal when possible; Stop
 during startup may produce `stopped` without `ready` if cleanup is proven.
 In that path, `stopped` is the first J frame with `seq: 1`; E accepts it only
@@ -191,7 +194,10 @@ remaining total Stop budget. For example, with an initial 5000 ms and no elapsed
 time, stop advertises 2500 ms. If fewer than 1 ms remain, E skips the frame and
 starts forced termination. Time spent writing or delivering the frame consumes
 the grace; J must begin cleanup immediately, and its receipt-relative watchdog
-cannot postpone E's authoritative cutoff. At the cutoff E kills the child if
+cannot postpone E's authoritative cutoff. J arms this stop watchdog before
+closing the pool/application or performing other blocking shutdown work. If
+shutdown remains incomplete at `budget_ms`, J best-effort sends shutdown fatal
+and forces nonzero exit without restarting the budget. At the cutoff E kills the child if
 graceful completion is unproven; it never grants a fresh budget per phase.
 Writes, draining stderr,
 waiting for workers, child exit, and reaping all respect the same deadline.
@@ -229,6 +235,9 @@ or potentially blocking cleanup. The watchdog runs independently of worker and
 cleanup threads; expiry forces nonzero process termination without waiting for
 transaction rollback or application shutdown hooks. Failed writes retain the original fault; E proceeds to
 termination/reaping and never waits for a post-fatal stopped acknowledgment.
+
+Watchdog fatal writes are best effort and must not delay forced exit if the
+pipe is blocked or broken. An expiry never grants another cleanup grace.
 
 Normal Stop requires `stopped`, stdout EOF, exit 0, no active worker/lease, and
 no latched session fault. EOF before stopped (even exit 0), nonzero exit, broken
