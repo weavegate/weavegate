@@ -2530,6 +2530,17 @@
       "prefix": "arrived",
       "steps": [
         {
+          "peer": "java",
+          "action": "local",
+          "event": "hold_cleanup",
+          "args": {
+            "phase": "rollback"
+          },
+          "expect": [
+            "rollback_barrier_armed"
+          ]
+        },
+        {
           "peer": "go",
           "action": "local",
           "event": "cancel_context",
@@ -2559,6 +2570,7 @@
           "expect": [
             "cancel_latched",
             "wake_gate_exceptionally",
+            "arm_cleanup_watchdog",
             "request_jdbc_cancel"
           ]
         },
@@ -2582,11 +2594,30 @@
         {
           "peer": "java",
           "action": "local",
-          "event": "cancel_deadline",
-          "args": {},
+          "event": "advance_cancel_cleanup_clock",
+          "args": {
+            "elapsed_ms": 999
+          },
+          "expect": [
+            "cleanup_still_blocked",
+            "no_child_exit",
+            "no_terminal",
+            "no_stopped"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "advance_cancel_cleanup_clock",
+          "args": {
+            "elapsed_ms": 1000
+          },
           "expect": [
             "fatal_cleanup",
-            "no_terminal"
+            "force_nonzero_exit",
+            "no_terminal",
+            "no_stopped",
+            "no_cleanup_success"
           ]
         },
         {
@@ -2619,7 +2650,7 @@
           },
           "expect": [
             "set_single_deadline",
-            "best_effort_stop",
+            "await_reaping",
             "retain_adapter_fault",
             "no_stopped_required"
           ]
@@ -2627,21 +2658,17 @@
         {
           "peer": "go",
           "action": "local",
-          "event": "stop_half_deadline",
-          "args": {},
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 1
+          },
           "expect": [
-            "kill_child"
-          ]
-        },
-        {
-          "peer": "go",
-          "action": "local",
-          "event": "stop_deadline",
-          "args": {},
-          "expect": [
+            "child_reaped",
             "stop_error",
             "quarantine_fixture",
-            "reset_rejected"
+            "reset_rejected",
+            "no_worker_result"
           ]
         }
       ],

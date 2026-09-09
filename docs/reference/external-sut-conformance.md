@@ -130,15 +130,14 @@ after cleanup. The local Stop budget is 5000 ms and the wire stop budget is its
 a command. `unsolicited_startup_stopped` rejects the same first J frame when E
 has not requested Stop.
 
-`cancel_cleanup_deadline` explicitly cancels the Go invocation and unwinds its
-bridge, delivers Java's cleanup fatal to Go, and invokes Go Stop with a 5000 ms
-total budget before advancing its halfway/deadline events. E's best-effort stop
-would advertise at most the 2500 ms graceful portion; the already-fatal Java
-peer is not required to receive it or extend its expired watchdog. These are
-distinct fake-clock events: Java's cancel
-grace expiring does not establish Go's stop deadline, and a fatal-send
-expectation cannot stand in for Go receiving that frame. The case intentionally
-leaves child exit/reaping unproven to require a Stop error and reject Reset.
+`cancel_cleanup_deadline` holds rollback, cancels the invocation, and unwinds
+the Go bridge. `advance_cancel_cleanup_clock` advances Java's clock from cancel
+receipt to 999 ms and then the inherited `cancel_ms: 1000` deadline, without
+releasing the rollback barrier. At expiry Java emits cleanup fatal on the
+available pipe and forces nonzero exit; it cannot acquire a fresh cleanup grace.
+Go receives the buffered fatal, starts bounded local Stop for reaping, and
+observes child exit while retaining the fault and quarantine. No Go halfway
+clock or later kill substitutes for Java self-termination.
 
 `cancel_before_accepted` requires a distinct `unstarted_outcome`, preserving
 cancellation and proving no command/transaction/lease began. It forbids a
