@@ -32,7 +32,7 @@ REQUIRED = set('''duplicate_go duplicate_java late_process_fault late_wire_fault
 startup_watchdog stop_watchdog cancel_watchdog fatal_watchdog active_stop_watchdog
 cancel_wins_enqueue enqueue_wins_cancel readiness_rejection canceled_reuse
 normal_active_stop exception_input parent_startup_cleanup callback_terminal
-unknown_outcome_fatal'''.split())
+unknown_outcome_fatal version_rejection incremented_arrival'''.split())
 FATAL_KINDS = {'version', 'protocol', 'startup', 'transport', 'transaction', 'cleanup', 'shutdown'}
 FRAMING = {
     'fragmented_valid_frame': ({'id', 'input_hex', 'read_chunk_sizes', 'expect', 'decoded', 'targets'}, ('one_ready_frame_after_complete_payload',)),
@@ -170,11 +170,11 @@ def injected_premise(case_id, frame, effects, invocations, outstanding, complete
     if case_id == 'cancel_racing_release':
         return kind == 'release' and invocation in canceled and current == body
     if case_id == 'late_arrival_after_cancel':
-        return kind == 'arrive' and invocation in canceled and invocation in invocations
+        return kind == 'arrive' and invocation in canceled and invocations.get(invocation, (None,))[0] == body['worker']
     if case_id == 'stale_session':
         return kind == 'arrive' and invocation in invocations and current is None and 'client_arrive_once' in effects
     if case_id == 'retired_invocation_worker_reuse':
-        return kind in ('arrive', 'release') and invocation in completed
+        return kind in ('arrive', 'release') and invocation in completed and invocations.get(invocation, (None,))[0] == body['worker']
     if case_id == 'unknown_invocation':
         return invocation not in invocations
     if case_id == 'future_release':
@@ -182,9 +182,9 @@ def injected_premise(case_id, frame, effects, invocations, outstanding, complete
     if case_id == 'wrong_point_release':
         return kind == 'release' and current is not None and all(body[k] == current[k] for k in ('invocation', 'worker', 'arrival')) and body['point'] != current['point']
     if case_id == 'release_before_arrival':
-        return kind == 'release' and invocation in invocations and current is None
+        return kind == 'release' and invocations.get(invocation, (None,))[0] == body['worker'] and current is None
     if case_id == 'terminal_while_arrived':
-        return kind == 'terminal' and current is not None
+        return kind == 'terminal' and current is not None and invocations.get(invocation, (None,))[0] == body['worker']
     if case_id == 'readiness_mismatch':
         return kind == 'ready' and start is not None and any(body[k] != start[k] for k in ('commands', 'points', 'capacity'))
     if case_id == 'unsolicited_startup_stopped':
@@ -194,12 +194,43 @@ def injected_premise(case_id, frame, effects, invocations, outstanding, complete
     return False
 
 
+def emissions(case, steps):
+    message_effects = {
+        'send_ready': 'ready', 'send_invoke': 'invoke', 'send_arrive': 'arrive',
+        'send_release': 'release', 'send_cancel': 'cancel', 'send_stop': 'stop',
+        'send_stopped': 'stopped', 'send_terminal': 'terminal', 'send_fatal': 'fatal',
+    }
+    fatal_effects = {'fatal_' + kind: kind for kind in FATAL_KINDS}
+    used = set()
+    for index, step in enumerate(steps):
+        if step['peer'] not in case['targets']:
+            continue
+        for effect in step['expect']:
+            kind = message_effects.get(effect)
+            fatal_kind = fatal_effects.get(effect)
+            if kind is None and fatal_kind is None:
+                continue
+            expected = kind or 'fatal'
+            outputs = [(later_index, later) for later_index, later in enumerate(steps[index + 1:], index + 1)
+                       if later_index not in used
+                       and later.get('delivery') == 'exchange'
+                       and later['peer'] != step['peer']
+                       and message(later, expected)]
+            need(outputs, case['id'] + ': ' + effect + ' lacks explicit wire exchange')
+            output_index, output = outputs[0]
+            used.add(output_index)
+            if fatal_kind:
+                need(output['frame']['body']['kind'] == fatal_kind,
+                     case['id'] + ': ' + effect + ' emits wrong fatal kind')
+
+
 def history(case, steps):
     targets = case['targets']
     need(case['execution'] == 'isolated' and targets and len(targets) == len(set(targets)) and set(targets) <= {'go', 'java'}, 'case scope')
     seq = {'go': {}, 'java': {}}
     invocations, active, sources, reasons = {}, {}, {}, {}
     outstanding, completed, canceled = {}, set(), set()
+    pending_arrivals, last_arrival = {}, {}
     binding = None
     start = None
     stop_seen = False
@@ -217,11 +248,22 @@ def history(case, steps):
                 need(iid not in invocations and a['worker'] not in active, 'duplicate/unretired Go reservation')
                 invocations[iid] = (a['worker'], a['command'])
                 active[a['worker']] = iid
+            if event(step, 'worker_arrives', 'java'):
+                identity = a['identity']
+                iid = identity['invocation']
+                need(invocations.get(iid, (None,))[0] == identity['worker'], 'arrival event changes invocation binding')
+                need(iid not in outstanding and iid not in pending_arrivals, 'arrival event while gate is live')
+                need(int(identity['arrival']) == last_arrival.get(iid, 0) + 1, 'arrival event does not increment')
+                pending_arrivals[iid] = identity
             if event(step, 'command_exception', 'java'):
                 sources[a['invocation']] = a['exception']
             if event(step, 'cancel_context', 'go'):
                 need(a['invocation'] in invocations, 'cancel lacks invocation')
                 canceled.add(a['invocation'])
+            if event(step, 'runtime_arrive_returns', 'go'):
+                identity = a['identity']
+                need(outstanding.get(identity['invocation']) == identity,
+                     'runtime return changes arrival binding')
             if event(step, 'stderr_bytes'):
                 raw = b''.join(bytes.fromhex(v['hex']) * v['repeat'] for v in a['segments'])
                 need(len(raw) == a['byte_count'] and 0 < a['retained_bytes'] < len(raw), 'stderr input size')
@@ -262,14 +304,18 @@ def history(case, steps):
         if t == 'invoke':
             need(invocations.get(b['invocation']) == (b['worker'], b['command']), 'invoke lacks Go Handle call')
         if t == 'accepted':
-            need(b['invocation'] in invocations, 'accepted lacks reservation')
+            need(invocations.get(b['invocation'], (None,))[0] == b['worker'], 'accepted changes invocation binding')
         if t == 'arrive':
-            need(b['invocation'] in invocations and b['invocation'] not in outstanding, 'arrival lacks active invocation/gate')
+            need(invocations.get(b['invocation'], (None,))[0] == b['worker'], 'arrival changes invocation binding')
+            need(pending_arrivals.get(b['invocation']) == b and b['invocation'] not in outstanding, 'arrival lacks matching gate event')
             outstanding[b['invocation']] = b
+            last_arrival[b['invocation']] = int(b['arrival'])
+            pending_arrivals.pop(b['invocation'])
         if t == 'release':
             need(outstanding.get(b['invocation']) == b, 'release lacks matching arrival')
             outstanding.pop(b['invocation'])
         if t == 'cancel':
+            need(invocations.get(b['invocation'], (None,))[0] == b['worker'], 'cancel changes invocation binding')
             reasons.setdefault(b['invocation'], b['reason'])
             canceled.add(b['invocation'])
             if 'request_jdbc_cancel' in effects and 'java' in targets:
@@ -277,7 +323,7 @@ def history(case, steps):
                 need('cancel_latched' not in effects or ('arm_cleanup_watchdog' in effects and effects.index('arm_cleanup_watchdog') < effects.index('request_jdbc_cancel')), 'Java cancellation watchdog must precede JDBC cancel')
         if t == 'terminal':
             iid, err = b['invocation'], b['error']
-            need(iid in invocations, 'terminal lacks invocation')
+            need(invocations.get(iid, (None,))[0] == b['worker'], 'terminal changes invocation binding')
             if err and 'java' in targets:
                 if err['kind'] == 'cancelled':
                     need(iid in reasons and err['message'] == 'cancelled by ' + reasons[iid], 'cancellation message/source')
@@ -309,13 +355,22 @@ def coverage(rule, case, steps):
     if rule.endswith('watchdog'):
         phase = rule.removesuffix('_watchdog')
         clock = 'advance_' + {'startup': 'startup', 'stop': 'stop', 'cancel': 'cancel_cleanup', 'fatal': 'fatal_cleanup', 'active_stop': 'cancel_cleanup'}[phase] + '_clock'
-        clocks = [s for s in steps if event(s, clock, 'java')]
+        clock_positions = indices(steps, lambda s: event(s, clock, 'java'))
+        clocks = [steps[index] for index in clock_positions]
         start = next((s['frame']['body'] for s in steps if message(s, 'start')), {})
         stops = [s for s in steps if message(s, 'stop', 'java')]
         budget = start.get('startup_ms') if phase == 'startup' else stops[-1]['frame']['body']['budget_ms'] if phase == 'stop' and stops else start.get('cancel_ms')
-        if not ('java' in targets and len(clocks) == 2 and budget):
+        trigger_effect = {'startup': 'arm_startup_watchdog', 'stop': 'arm_stop_watchdog',
+                          'cancel': 'arm_cleanup_watchdog', 'fatal': 'arm_cleanup_watchdog',
+                          'active_stop': 'arm_cleanup_watchdog'}[phase]
+        trigger_type = {'startup': 'start', 'stop': 'stop', 'cancel': 'cancel',
+                        'fatal': 'fatal', 'active_stop': 'cancel'}[phase]
+        triggers = indices(steps, lambda s: message(s, trigger_type, 'java') and trigger_effect in s['expect'])
+        exits = indices(steps, lambda s: event(s, 'child_exit', 'go'))
+        if not ('java' in targets and len(clocks) == 2 and budget and triggers and exits):
             return False
         valid = clocks[0]['args']['elapsed_ms'] == budget - 1 and clocks[1]['args']['elapsed_ms'] == budget and 'no_child_exit' in clocks[0]['expect'] and 'force_nonzero_exit' in clocks[1]['expect'] and 'no_stopped' in clocks[1]['expect']
+        valid &= triggers[-1] < clock_positions[0] < clock_positions[1] < exits[-1]
         valid &= any(event(s, 'hold_cleanup', 'java') for s in steps) and not any(event(s, 'completion') or event(s, 'application_cleanup_complete') or event(s, 'stop_half_deadline') for s in own)
         valid &= event(steps[-1], 'child_exit', 'go') and steps[-1]['args']['exit_code'] != 0 and 'reset_rejected' in steps[-1]['expect']
         if phase == 'active_stop':
@@ -368,6 +423,18 @@ def coverage(rule, case, steps):
         completion = indices(own, lambda s: event(s, 'completion', 'java') and s['args'].get('transaction') == 'unknown')
         fatal = indices(own, lambda s: message(s, 'fatal', 'go') and s.get('delivery') == 'exchange' and s['frame']['body']['kind'] == 'transaction')
         return targets == ['go', 'java'] and bool(completion and fatal) and completion[0] < fatal[0] and {'latch_adapter_fault', 'no_worker_result', 'abort_run', 'quarantine_fixture'} <= set(own[fatal[0]]['expect'])
+    if rule == 'version_rejection':
+        bad = indices(own, lambda s: message(s, 'start', 'java') and s.get('delivery') == 'input' and s['frame']['v'] != 1 and 'fatal_version' in s['expect'])
+        fatal = indices(own, lambda s: message(s, 'fatal', 'go') and s.get('delivery') == 'exchange' and s['frame']['body']['kind'] == 'version' and s['frame']['seq'] == 1)
+        exited = indices(own, lambda s: event(s, 'child_exit', 'go') and s['args']['exit_code'] != 0)
+        return targets == ['java'] and bool(bad and fatal and exited) and bad[0] < fatal[0] < exited[0] and {'no_ready', 'no_terminal', 'no_stopped'} <= set(own[exited[0]]['expect'])
+    if rule == 'incremented_arrival':
+        arrivals = [s for s in own if message(s, 'arrive', 'go') and s.get('delivery') == 'exchange']
+        releases = [s for s in own if message(s, 'release', 'java') and s.get('delivery') == 'exchange']
+        if targets != ['go', 'java'] or len(arrivals) != 1 or len(releases) != 1:
+            return False
+        arrival, release = arrivals[0]['frame']['body'], releases[0]['frame']['body']
+        return case['prefix'] == 'released' and arrival == release and arrival['arrival'] == '2' and arrival['point'] == 'before_write'
     return False
 
 
@@ -451,6 +518,7 @@ def validate(data):
             need(set(case) == {'id', 'prefix', 'steps', 'covers', 'targets', 'execution'}, 'case fields')
             expanded[case['id']] = expand(data, case['prefix']) + case['steps']
             history(case, expanded[case['id']])
+            emissions(case, expanded[case['id']])
         except (ValueError, KeyError, TypeError) as err:
             raise ValueError(case['id'] + ': ' + str(err)) from err
     need(set(data['coverage']) == REQUIRED, 'coverage matrix families')
@@ -477,6 +545,17 @@ def self_test(data):
     def case(d, name):
         return next(c for c in d['cases'] if c['id'] == name)
 
+    def move_clocks_before_trigger(d):
+        steps = case(d, 'java_fatal_cleanup_watchdog_expires')['steps']
+        clocks = [step for step in steps if event(step, 'advance_fatal_cleanup_clock')]
+        steps[:] = clocks + [step for step in steps if not event(step, 'advance_fatal_cleanup_clock')]
+
+    def reset_second_arrival(d):
+        for step in case(d, 'incremented_arrival')['steps']:
+            identity = step.get('args', {}).get('identity') or step.get('frame', {}).get('body')
+            if isinstance(identity, dict) and 'arrival' in identity:
+                identity['arrival'] = '1'
+
     reject('VECTOR_SCOPE_CAUGHT', lambda d: case(d, 'readiness_mismatch').update(targets=['java']))
     reject('VECTOR_DELIVERY_CAUGHT', lambda d: next(s for s in case(d, 'readiness_mismatch')['steps'] if message(s, 'ready')).update(delivery='exchange'))
     reject('VECTOR_INPUT_TARGET_CAUGHT', lambda d: case(d, 'future_release').update(targets=['go']))
@@ -485,11 +564,17 @@ def self_test(data):
     reject('VECTOR_RELEASE_BEFORE_ARRIVAL_CAUGHT', lambda d: case(d, 'release_before_arrival').update(prefix='arrived'))
     reject('VECTOR_TERMINAL_WHILE_ARRIVED_CAUGHT', lambda d: case(d, 'terminal_while_arrived').update(prefix='released'))
     reject('VECTOR_MISSING_INVOKE_CAUGHT', lambda d: d['prefixes']['active'].__setitem__(slice(None), [s for s in d['prefixes']['active'] if not event(s, 'invoke_call')]))
+    reject('VECTOR_ACCEPTED_BINDING_CAUGHT', lambda d: next(s for s in d['prefixes']['active'] if message(s, 'accepted'))['frame']['body'].update(worker='w2'))
+    reject('VECTOR_ARRIVE_BINDING_CAUGHT', lambda d: next(s for s in d['prefixes']['arrived'] if message(s, 'arrive'))['frame']['body'].update(worker='w2'))
+    reject('VECTOR_CANCEL_BINDING_CAUGHT', lambda d: next(s for s in case(d, 'stop_active_invocation')['steps'] if message(s, 'cancel'))['frame']['body'].update(worker='w2'))
+    reject('VECTOR_TERMINAL_BINDING_CAUGHT', lambda d: next(s for s in d['prefixes']['completed'] if message(s, 'terminal'))['frame']['body'].update(worker='w2'))
+    reject('VECTOR_RUNTIME_BINDING_CAUGHT', lambda d: next(s for s in d['prefixes']['released'] if event(s, 'runtime_arrive_returns'))['args']['identity'].update(worker='w2'))
     reject('VECTOR_SEQUENCE_CAUGHT', lambda d: next(s for s in d['prefixes']['active'] if message(s, 'accepted'))['frame'].update(seq=99))
     reject('VECTOR_DEADLINE_ORDER_CAUGHT', lambda d: next(s for s in case(d, 'stop_active_invocation')['steps'] if event(s, 'stop_call'))['expect'].reverse())
     reject('VECTOR_DUPLICATE_EFFECT_CAUGHT', lambda d: case(d, 'duplicate_invoke_java')['steps'][0]['expect'].remove('no_redispatch'))
     reject('VECTOR_LATE_FAULT_CAUGHT', lambda d: case(d, 'fatal_after_terminals')['steps'].__setitem__(slice(None), [s for s in case(d, 'fatal_after_terminals')['steps'] if not event(s, 'provisional_evaluation')]))
     reject('VECTOR_WATCHDOG_CAUGHT', lambda d: next(s for s in case(d, 'active_stop_cancel_watchdog_expires')['steps'] if event(s, 'advance_cancel_cleanup_clock') and s['args']['elapsed_ms'] == 1000)['args'].update(elapsed_ms=2500))
+    reject('VECTOR_WATCHDOG_TRIGGER_ORDER_CAUGHT', move_clocks_before_trigger)
     reject('VECTOR_CANCEL_ARM_ORDER_CAUGHT', lambda d: next(s for s in case(d, 'stop_active_invocation')['steps'] if message(s, 'cancel'))['expect'].reverse())
     reject('VECTOR_ATOMIC_ORDER_CAUGHT', lambda d: next(s for s in case(d, 'cancel_wins_release_enqueue')['steps'] if event(s, 'resume_release_enqueue'))['expect'].__setitem__(0, 'send_release'))
     reject('VECTOR_EXCEPTION_SOURCE_CAUGHT', lambda d: case(d, 'rollback')['steps'].__setitem__(slice(None), [s for s in case(d, 'rollback')['steps'] if not event(s, 'command_exception')]))
@@ -500,6 +585,9 @@ def self_test(data):
     reject('VECTOR_STARTUP_REAP_CAUGHT', lambda d: case(d, 'startup_deadline')['steps'].pop())
     reject('VECTOR_CALLBACK_TERMINAL_CAUGHT', lambda d: case(d, 'completion_callback_too_early')['steps'].pop())
     reject('VECTOR_UNKNOWN_FATAL_CAUGHT', lambda d: case(d, 'unknown_commit_outcome')['steps'].pop())
+    reject('VECTOR_VERSION_FATAL_CAUGHT', lambda d: case(d, 'version_mismatch')['steps'].__setitem__(slice(None), [s for s in case(d, 'version_mismatch')['steps'] if not message(s, 'fatal')]))
+    reject('VECTOR_OUTPUT_EXCHANGE_CAUGHT', lambda d: case(d, 'late_arrival_after_cancel')['steps'].__setitem__(slice(None), [s for s in case(d, 'late_arrival_after_cancel')['steps'] if not message(s, 'cancel')]))
+    reject('VECTOR_ARRIVAL_INCREMENT_CAUGHT', reset_second_arrival)
     valid_hex = next(c for c in data['framing'] if c['id'] == 'fragmented_valid_frame')['input_hex']
     reject('VECTOR_FRAMING_INVENTORY_CAUGHT', lambda d: d.update(framing=[]))
     for framing_name in sorted(FRAMING):

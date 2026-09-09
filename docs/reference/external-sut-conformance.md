@@ -37,6 +37,11 @@ local steps describe the script and are not assertions against an implementation
 that is not listed in targets. This separates adversarial input from compliant
 output without silently skipping target assertions.
 
+A target-side `send_*` or `fatal_<kind>` effect always has one later, explicit
+`exchange` frame. The guard pairs each obligation with a distinct output and,
+for fatal effects, compares the kind. A local effect alone never proves a wire
+write.
+
 For example, `readiness_mismatch` targets only Go. Its mismatched ready is an
 `input` from a faulty child; Java is not required to echo the wrong registration.
 The same audit covers malformed identity/order, stale traffic and faulty-release
@@ -148,7 +153,9 @@ python3 scripts/check-external-sut-vectors.py --self-test
 The first command checks all expanded histories, scope/delivery metadata,
 sequence and invocation prerequisites, deadline ordering, exception sources,
 the complete framing inventory, frame value constraints, injected-fault premises,
-and the required role/lifecycle coverage matrix in the JSON `coverage` object.
+explicit output obligations, immutable invocation/worker bindings, incremented
+arrival identities, watchdog trigger order, and the required role/lifecycle
+coverage matrix in the JSON `coverage` object.
 The second mutates every framing entry and representative lifecycle inputs to
 prove the guard rejects regressions. CI runs both and checks their fixed result
 markers.
@@ -174,6 +181,7 @@ All sequences below are constructed. `E` is the Go adapter, `J` the JVM SDK,
 | Case | Causal sequence | Required observation |
 | --- | --- | --- |
 | Success | Invoke → accepted → transaction begin → arrive → R.Arrive blocks → orchestrator releases → R.Arrive returns nil → targeted release → commit → proxy exit + lease return → terminal → oracle → stop/stopped/EOF/exit 0 | Exactly one result after cleanup; oracle alone judges database invariants. |
+| Incremented arrival | arrival 1 at `after_read` → matching release 1 → arrival 2 at `before_write` → matching release 2 → commit/terminal | One invocation retains its worker binding and increments arrival identity across distinct gates. |
 | Rollback | Invoke → accepted → arrive/release → command exception → proxy rolls back → lease return → terminal with error | Rolled-back outcome, error preserved, no early completion from a callback. |
 | Database blocking | w1 holds row lock at an arrival; w2's SQL blocks before its arrival → Go WaitArrive timeout → release w1 → w1 commits → w2 reaches its point | Go infers blocking; pipe reader stays available and does not release w2 until its own runtime call returns nil. No Java `db_blocked` message. |
 | Cancellation | Go context cancels bridge + sends cancel → Java gate throws → proxy rolls back → lease returns → terminal(cancelled) | No release from cancellation; context failure remains a failed operation. Already-committed work reports committed truthfully. |
@@ -253,6 +261,8 @@ certify application/DB cleanup, so Reset remains blocked by quarantine.
 
 `startup_deadline` likewise crosses Go's detached cleanup cutoff, forces
 termination, and observes reaping before the startup error returns. The
+`version_mismatch` case observes Java's sequence-1 version fatal and nonzero
+exit after an injected v2 start; detection without a wire fatal cannot pass. The
 `completion_callback_too_early` case withholds terminal output until proxy exit,
 commit, and lease return are all observed, then compares the complete terminal
 frame at Go. `unknown_commit_outcome` compares Java's transaction fatal at Go

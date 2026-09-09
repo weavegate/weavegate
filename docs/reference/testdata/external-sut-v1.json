@@ -356,6 +356,135 @@
       "execution": "isolated"
     },
     {
+      "id": "incremented_arrival",
+      "prefix": "released",
+      "steps": [
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "worker_arrives",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "2",
+              "point": "before_write"
+            }
+          },
+          "expect": [
+            "install_gate",
+            "send_arrive"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "arrive",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "2",
+              "point": "before_write"
+            }
+          },
+          "expect": [
+            "client_arrive_once",
+            "no_release_before_runtime_return"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "runtime_arrive_returns",
+          "args": {
+            "identity": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "2",
+              "point": "before_write"
+            },
+            "result": "nil"
+          },
+          "expect": [
+            "send_release"
+          ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "release",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "arrival": "2",
+              "point": "before_write"
+            }
+          },
+          "expect": [
+            "wake_exact_gate"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "java",
+          "action": "local",
+          "event": "completion",
+          "args": {
+            "proxy_exited": true,
+            "transaction": "committed",
+            "lease": "returned"
+          },
+          "expect": [
+            "send_terminal"
+          ]
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "terminal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 5,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "transaction": "committed",
+              "connection": "returned",
+              "error": null
+            }
+          },
+          "expect": [
+            "worker_result_nil",
+            "close_result_channel",
+            "retire_invocation"
+          ],
+          "delivery": "exchange"
+        }
+      ],
+      "covers": [
+        "arrival_increment",
+        "multiple_sync_points"
+      ],
+      "targets": [
+        "go",
+        "java"
+      ],
+      "execution": "isolated"
+    },
+    {
       "id": "stop_active_invocation",
       "prefix": "arrived",
       "steps": [
@@ -1316,6 +1445,26 @@
           ]
         },
         {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "cancel",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "invocation": "33333333333333333333333333333333",
+              "worker": "w1",
+              "reason": "context"
+            }
+          },
+          "expect": [
+            "script_records_cancel"
+          ],
+          "delivery": "exchange"
+        },
+        {
           "peer": "go",
           "action": "receive",
           "frame": {
@@ -1797,6 +1946,25 @@
             "abort_run"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "kind": "protocol",
+              "message": "conflicting duplicate sequence"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -1832,6 +2000,25 @@
             "abort_run"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "kind": "protocol",
+              "message": "sequence gap"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -1868,6 +2055,25 @@
             "abort_run"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "kind": "protocol",
+              "message": "unknown invocation"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -1903,6 +2109,25 @@
             "no_resume"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "kind": "protocol",
+              "message": "future release"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -1938,6 +2163,25 @@
             "no_resume"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "kind": "protocol",
+              "message": "release identity mismatch"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -1973,6 +2217,25 @@
             "no_resume"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "kind": "protocol",
+              "message": "release before arrival"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -2010,6 +2273,25 @@
             "abort_run"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 3,
+            "body": {
+              "kind": "protocol",
+              "message": "terminal while arrival outstanding"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -2063,6 +2345,40 @@
             "no_command_start"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "go",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 1,
+            "body": {
+              "kind": "version",
+              "message": "unsupported wire version 2"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
+        },
+        {
+          "peer": "go",
+          "action": "local",
+          "event": "child_exit",
+          "args": {
+            "stdout_eof": true,
+            "exit_code": 1
+          },
+          "expect": [
+            "script_observes_nonzero_exit",
+            "no_ready",
+            "no_terminal",
+            "no_stopped"
+          ]
         }
       ],
       "covers": [
@@ -2414,6 +2730,25 @@
             "no_invoke"
           ],
           "delivery": "input"
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "fatal",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 2,
+            "body": {
+              "kind": "protocol",
+              "message": "unsolicited stopped before ready"
+            }
+          },
+          "expect": [
+            "script_records_fatal"
+          ],
+          "delivery": "exchange"
         }
       ],
       "covers": [
@@ -3101,6 +3436,25 @@
             "send_stop",
             "call_pending"
           ]
+        },
+        {
+          "peer": "java",
+          "action": "receive",
+          "frame": {
+            "v": 1,
+            "type": "stop",
+            "run": "11111111111111111111111111111111",
+            "session": "22222222222222222222222222222222",
+            "seq": 4,
+            "body": {
+              "budget_ms": 2500
+            }
+          },
+          "expect": [
+            "script_holds_response",
+            "no_stopped"
+          ],
+          "delivery": "exchange"
         },
         {
           "peer": "go",
@@ -4599,6 +4953,12 @@
     ],
     "unknown_outcome_fatal": [
       "unknown_commit_outcome"
+    ],
+    "version_rejection": [
+      "version_mismatch"
+    ],
+    "incremented_arrival": [
+      "incremented_arrival"
     ]
   }
 }
