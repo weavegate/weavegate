@@ -9,7 +9,7 @@ codes.
 | `2` | An invariant violation was detected and reproduced. A SQL assertion violation is named [WG001](diagnostics/WG001.md). |
 | `3` | The determinism check failed (`flaky`) and is named [WG090](diagnostics/WG090.md) — a judgment could not be trusted, not a clean pass or a clean violation. |
 | `4` | Fixture provisioning, database operation, or cleanup failed. |
-| `5` | A configuration, adapter, assertion, schedule, or artifact I/O error. |
+| `5` | A configuration, adapter, assertion, schedule, or artifact production/I/O error. |
 | `130` | The run was interrupted by SIGINT or SIGTERM. |
 
 `weavegate report` streams a stored artifact and does not recalculate its

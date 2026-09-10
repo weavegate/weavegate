@@ -39,8 +39,9 @@ bump; additive fields remain compatible under the same tolerance rule.
 
 ## Consequences
 
-- `diagnostics` remains an additive version 2 field, and the writer continues
-  to emit `"diagnostics": []` when no diagnostic was derived.
+- `diagnostics` remains an additive version 2 field, and the writer always
+  emits it. An empty array records either that no diagnostic applied or, under
+  ADR 0012, that a completed run was retained after derivation failed.
 - Pre-release version 2 directories can have different field sets. There is no
   released consumer of the older shape, so this does not break a published
   compatibility promise.
@@ -56,11 +57,13 @@ would advance the format to version 5 or 6 through ordinary pre-release work
 and turn the number into development noise rather than a breaking-change
 signal.
 
-There is a real counter-argument. This project treats omission and an explicit
-empty array as different facts: an absent `diagnostics` field cannot prove that
-diagnostics were derived and found empty, while `"diagnostics": []` can. An
-older version 2 artifact and a current version 2 artifact therefore cannot make
-that distinction from the version number alone.
+There is a real counter-argument. The original decision treated omission and an
+explicit empty array as different facts: an absent `diagnostics` field could
+not prove that the current writer emitted the field, while `"diagnostics": []`
+could. ADR 0012 later added a second current-writer meaning for the empty array:
+the run may have been retained after derivation failed. The field therefore
+still distinguishes the older shape from the current shape, but only the live
+exit status and stderr distinguish the two current empty-array outcomes.
 
 That objection does not fail because the distinction is unimportant. It is
 accepted here only because no released consumer of the earlier version 2 shape

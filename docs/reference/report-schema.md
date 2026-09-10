@@ -231,14 +231,16 @@ error[WG001]: invariant violated under a controlled schedule
   evidence:  schedule sch_7dcb74b1e506 · trace.json · observation.json · 1 violating row
 ```
 
-The headline is `PASS`, `FAIL`, or `FLAKY` — matching the exit code's three
-verdict outcomes (0, 2, 3; see [exit-codes.md](exit-codes.md)). A stable
-violation appends its first violation code to `FAIL`. A flaky run appends
-WG090 to `FLAKY`, even when a WG001 block precedes WG090 in the body, because
-the determinism failure takes verdict priority. Every diagnostic is rendered
-below the unchanged summary lines. An exhausted exploration with no diagnostic
-has the previous output shape and no `replay:` line because there is no
-schedule to reproduce:
+The headline records the semantic verdict as `PASS`, `FAIL`, or `FLAKY`. On an
+ordinary completed run these correspond to exit 0, 2, or 3, but the headline
+does not mirror every process result: cleanup can raise PASS to exit 4, and
+diagnostic derivation failure retains the semantic headline while exiting 5
+(see [exit-codes.md](exit-codes.md)). A stable violation appends its first
+violation code to `FAIL`. A flaky run appends WG090 to `FLAKY`, even when a
+WG001 block precedes WG090 in the body, because the determinism failure takes
+verdict priority. Every diagnostic is rendered below the unchanged summary
+lines. An exhausted exploration with no diagnostic has the previous output
+shape and no `replay:` line because there is no schedule to reproduce:
 
 ```text
 ## weavegate: PASS
