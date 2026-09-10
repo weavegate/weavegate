@@ -51,7 +51,7 @@ func InputError(err error) error {
 	return &inputError{err: err}
 }
 
-// OutputError marks err as an artifact I/O failure (exit 5).
+// OutputError marks err as an artifact production or I/O failure (exit 5).
 func OutputError(err error) error {
 	if err == nil {
 		return nil

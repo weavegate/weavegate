@@ -241,6 +241,69 @@ func TestWriteRunArtifacts(t *testing.T) {
 	)
 }
 
+func TestWriteRunUsesSeparateDiagnosticFailureVersion(t *testing.T) {
+	base := t.TempDir()
+	tests := []struct {
+		name                       string
+		runID                      string
+		diagnosticDerivationFailed bool
+		wantVersion                int
+	}{
+		{
+			name:        "ordinary",
+			runID:       "run_20260816T120010.000Z_aaaaaaaa",
+			wantVersion: ArtifactVersion,
+		},
+		{
+			name:                       "diagnostic_failure",
+			runID:                      "run_20260816T120011.000Z_bbbbbbbb",
+			diagnosticDerivationFailed: true,
+			wantVersion:                DiagnosticFailureArtifactVersion,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			run := sampleRun(t, test.runID)
+			run.DiagnosticDerivationFailed = test.diagnosticDerivationFailed
+			dir, err := WriteRun(base, run)
+			if err != nil {
+				t.Fatalf("write %s run: %v", test.name, err)
+			}
+
+			for _, name := range []string{ManifestFile, ScenarioFile, ObservationFile, TraceFile, MergedFile} {
+				var doc struct {
+					ArtifactVersion int `json:"artifact_version"`
+				}
+				if err := json.Unmarshal(mustRead(t, filepath.Join(dir, name)), &doc); err != nil {
+					t.Fatalf("parse %s: %v", name, err)
+				}
+				if doc.ArtifactVersion != test.wantVersion {
+					t.Fatalf("%s artifact_version = %d, want %d", name, doc.ArtifactVersion, test.wantVersion)
+				}
+			}
+
+			var merged Merged
+			if err := json.Unmarshal(mustRead(t, filepath.Join(dir, MergedFile)), &merged); err != nil {
+				t.Fatalf("parse %s: %v", MergedFile, err)
+			}
+			if merged.Manifest.ArtifactVersion != test.wantVersion ||
+				merged.Scenario.ArtifactVersion != test.wantVersion ||
+				merged.Observation.ArtifactVersion != test.wantVersion {
+				t.Fatalf("%s nested artifact versions = manifest:%d scenario:%d observation:%d, want %d",
+					MergedFile,
+					merged.Manifest.ArtifactVersion,
+					merged.Scenario.ArtifactVersion,
+					merged.Observation.ArtifactVersion,
+					test.wantVersion,
+				)
+			}
+		})
+	}
+
+	t.Log("ARTIFACT_VERSION_RESULT ordinary=v2 retained_diagnostic_failure=v3 run_scoped_json=consistent copied_evidence=distinguishable")
+}
+
 func TestWriteRunPreservesExistingDestination(t *testing.T) {
 	base := t.TempDir()
 	run := sampleRun(t, "run_20260816T120003.000000000Z_22222222222222222222222222222222")
@@ -299,7 +362,7 @@ func TestPassingDirectReplayUsesNeutralEvidenceSemantics(t *testing.T) {
 		t.Fatalf("flaky replay lost violating label: %s", flakyMarkdown)
 	}
 
-	t.Log("ARTIFACT_V2_RESULT files=6_or_7 writer=v2 schedule=neutral schedule_file=canonical mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2")
+	t.Log("ARTIFACT_V2_RESULT files=6_or_7 writer=v2 schedule=neutral schedule_file=canonical mode=recorded direct_replay_discovery=omitted passing_replay=replayed legacy_reader=v1+v2+v3")
 }
 
 func TestRenderMarkdownDiagnostics(t *testing.T) {

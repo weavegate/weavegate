@@ -14,6 +14,13 @@ workflow fails before publication if the placeholder remains.
 
 ## [Unreleased]
 
+### Changed
+
+- A completed run whose diagnostic derivation fails now retains its evidence as
+  `artifact_version` 3 and exits 5. Ordinary runs remain version 2, preserving
+  the released meaning that version 2 `diagnostics: []` means derivation
+  completed and no diagnostic applied.
+
 ## [0.1.0-alpha] - 2026-09-02
 
 ### Added

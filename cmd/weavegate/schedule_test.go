@@ -190,10 +190,10 @@ func TestReplayLookupIsEmbeddedAndLiteral(t *testing.T) {
 		t.Fatalf("agreeing candidates resolved = %+v, %v; want %+v", resolved, err, firstCandidate)
 	}
 
-	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true content_id_collision=ambiguous_exit5 reader=v1+v2")
+	t.Log("CLI_REPLAY_LOOKUP_RESULT embedded=true schedules_dir=true stage_order=run_evidence,schedules_dir,embedded outside_repo=true literal_out=true id_grammar=strict run_dir_grammar=enforced staging_dir=skipped run_evidence_id=verified unverified_run_evidence=falls_through malformed_schedules_file=error unresolved_names_all_stages=true content_id_collision=ambiguous_exit5 reader=v1+v2+v3")
 }
 
-func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
+func TestScenarioScheduleReaderAcceptsV3V2AndLegacyV1(t *testing.T) {
 	scheduleValue, err := scenario.NewSchedule([]scenario.CoordinationStep{{Worker: "w1", Point: "p1"}})
 	if err != nil {
 		t.Fatalf("build schedule: %v", err)
@@ -206,8 +206,12 @@ func TestScenarioScheduleReaderAcceptsV2AndLegacyV1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal v1 scenario: %v", err)
 	}
+	v3, err := json.Marshal(map[string]any{"artifact_version": 3, "schedule": scheduleValue})
+	if err != nil {
+		t.Fatalf("marshal v3 scenario: %v", err)
+	}
 
-	for name, content := range map[string][]byte{"v2": v2, "v1": v1} {
+	for name, content := range map[string][]byte{"v3": v3, "v2": v2, "v1": v1} {
 		t.Run(name, func(t *testing.T) {
 			got, err := extractRunDirectorySchedule(content)
 			if err != nil || got == nil || got.ID != scheduleValue.ID {

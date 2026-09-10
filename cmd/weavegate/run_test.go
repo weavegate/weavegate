@@ -530,6 +530,90 @@ func TestRun(t *testing.T) {
 		observed["fixture_failure_during_replay"] = "4"
 	})
 
+	t.Run("diagnostic_derivation_failure", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		outDir := t.TempDir()
+		flags := runFlags{
+			config:    configPath,
+			scenario:  "concurrent-assign",
+			replay:    "sch_ba00582f9632",
+			replaySet: true,
+			repeat:    20,
+			repeatSet: true,
+			out:       outDir,
+		}
+		deriveCalls := 0
+		err := runScenarioWithDiagnosticDeriver(
+			context.Background(), &stdout, &stderr, flags, fixture.NewMySQLFixture,
+			func(input diagnostic.Input) ([]diagnostic.Diagnostic, error) {
+				deriveCalls++
+				if len(input.Violations) == 0 {
+					t.Fatal("diagnostic derivation was reached without the completed Oracle violation")
+				}
+				return nil, errors.New("simulated diagnostic invariant failure")
+			},
+		)
+		exit := exitCodeFromError(err)
+		if exit != ci.ExitInput {
+			t.Fatalf("diagnostic derivation failure exit = %d, want %d; stderr=%s", exit, ci.ExitInput, stderr.String())
+		}
+		if deriveCalls != 1 {
+			t.Fatalf("diagnostic derivation calls = %d, want 1", deriveCalls)
+		}
+		if !strings.Contains(stderr.String(), "run: derive diagnostics: simulated diagnostic invariant failure") {
+			t.Fatalf("diagnostic derivation stderr = %q, want classified failure", stderr.String())
+		}
+
+		dir := latestRunDir(t, outDir)
+		entries := listRunFiles(t, dir)
+		if len(entries) != 7 {
+			t.Fatalf("diagnostic derivation failure artifacts = %d, want 7", len(entries))
+		}
+		for _, name := range []string{
+			report.ManifestFile,
+			report.ScenarioFile,
+			report.ObservationFile,
+			report.TraceFile,
+			report.MergedFile,
+		} {
+			var doc struct {
+				ArtifactVersion int `json:"artifact_version"`
+			}
+			content, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatalf("read diagnostic derivation failure %s: %v", name, err)
+			}
+			if err := json.Unmarshal(content, &doc); err != nil {
+				t.Fatalf("parse diagnostic derivation failure %s: %v", name, err)
+			}
+			if doc.ArtifactVersion != report.DiagnosticFailureArtifactVersion {
+				t.Fatalf("diagnostic derivation failure %s artifact_version = %d, want %d",
+					name, doc.ArtifactVersion, report.DiagnosticFailureArtifactVersion)
+			}
+		}
+		observation := readObservation(t, dir)
+		if observation.Repeat != 20 || observation.ViolationRuns != 20 || len(observation.AssertionViolations) == 0 {
+			t.Fatalf("diagnostic derivation failure observation = %+v, want 20/20 preserved Oracle violations", observation)
+		}
+		if len(observation.Diagnostics) != 0 {
+			t.Fatalf("diagnostic derivation failure diagnostics = %+v, want none", observation.Diagnostics)
+		}
+		scenarioDoc := readScenario(t, dir)
+		if scenarioDoc.Schedule == nil || scenarioDoc.Schedule.ID != "sch_ba00582f9632" {
+			t.Fatalf("diagnostic derivation failure schedule = %+v, want preserved replay schedule", scenarioDoc.Schedule)
+		}
+		if !strings.Contains(stdout.String(), "## weavegate: FAIL\n") || strings.Contains(stdout.String(), "WG001") {
+			t.Fatalf("diagnostic derivation failure stdout = %q, want diagnostic-free FAIL report", stdout.String())
+		}
+		if !strings.HasSuffix(stdout.String(), dir+"\n") {
+			t.Fatalf("diagnostic derivation failure stdout = %q, want final run directory %q", stdout.String(), dir)
+		}
+
+		observed["diagnostic_derivation_failure"] = "5"
+		observed["diagnostic_failure_artifacts"] = "7"
+		observed["diagnostic_failure_version"] = "3"
+	})
+
 	t.Run("stdout_write_failure", func(t *testing.T) {
 		var stderr bytes.Buffer
 		flags := runFlags{
@@ -549,7 +633,8 @@ func TestRun(t *testing.T) {
 	order := []string{
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
 		"unverifiable_run_evidence", "unwritable_out", "missing_fixture_source",
-		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay", "stdout_write_failure",
+		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay",
+		"diagnostic_derivation_failure", "diagnostic_failure_artifacts", "diagnostic_failure_version", "stdout_write_failure",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {

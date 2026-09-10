@@ -3,6 +3,12 @@
 - Status: Accepted
 - Date: 2026-08-19
 
+> Amended by [ADR 0012](0012-diagnostic-derivation-failure-evidence.md): a
+> completed run whose diagnostic derivation fails is also written with
+> `"diagnostics": []` and exits 5, but its run-scoped JSON uses
+> `artifact_version` 3. Version 2's released empty-array meaning remains
+> unchanged.
+
 ## Context
 
 The diagnostic feature adds `diagnostics` to every newly written
@@ -35,14 +41,17 @@ bump; additive fields remain compatible under the same tolerance rule.
 ## Consequences
 
 - `diagnostics` remains an additive version 2 field, and the writer continues
-  to emit `"diagnostics": []` when no diagnostic was derived.
+  to emit `"diagnostics": []` when derivation completed and no diagnostic
+  applied.
+- A run retained after diagnostic derivation fails uses artifact version 3, so
+  it does not broaden the released version 2 empty-array meaning.
 - Pre-release version 2 directories can have different field sets. There is no
   released consumer of the older shape, so this does not break a published
   compatibility promise.
 - The version number remains a useful signal for readers that need migration
   logic instead of increasing for routine additions.
 - The existing reader continues to accept version 1 `violating_schedule` while
-  newly written artifacts use the version 2 `schedule` field.
+  newly written version 2 and 3 artifacts use the neutral `schedule` field.
 
 ## What didn't work
 
@@ -57,8 +66,7 @@ diagnostics were derived and found empty, while `"diagnostics": []` can. An
 older version 2 artifact and a current version 2 artifact therefore cannot make
 that distinction from the version number alone.
 
-That objection does not fail because the distinction is unimportant. It is
-accepted here only because no released consumer of the earlier version 2 shape
-exists. The same argument is not available after the first release; its v2
-compatibility baseline is a public contract, and a change that invalidates an
-artifact conforming to that baseline is breaking.
+That objection did not fail because the distinction was unimportant. It was
+accepted because no released consumer of the earlier version 2 shape existed
+at the time. The first release subsequently froze v2 as a public contract, so
+ADR 0012 uses version 3 rather than giving v2's empty array another meaning.
