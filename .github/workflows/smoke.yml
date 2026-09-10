@@ -245,6 +245,7 @@ jobs:
       - name: Check the generated NOTICE inventory
         run: |
           ./scripts/gen-notice.sh
+          git ls-files --error-unmatch NOTICE > /dev/null
           git diff --exit-code -- NOTICE
 
   dependency-review:
