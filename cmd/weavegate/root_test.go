@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -12,6 +13,49 @@ func run(args ...string) (stdout, stderr string, exitCode int) {
 	var outBuf, errBuf bytes.Buffer
 	exitCode = Execute(args, &outBuf, &errBuf)
 	return outBuf.String(), errBuf.String(), exitCode
+}
+
+func TestReportedVersion(t *testing.T) {
+	originalVersion, originalReadBuildInfo := version, readBuildInfo
+	t.Cleanup(func() {
+		version = originalVersion
+		readBuildInfo = originalReadBuildInfo
+	})
+
+	t.Run("linker value wins", func(t *testing.T) {
+		version = "v0.2.0"
+		readBuildInfo = func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Main: debug.Module{Version: "v0.1.0"}}, true
+		}
+		if got := reportedVersion(); got != "v0.2.0" {
+			t.Fatalf("reportedVersion() = %q, want linker value", got)
+		}
+	})
+
+	t.Run("installed module version", func(t *testing.T) {
+		version = "0.0.0-dev"
+		readBuildInfo = func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Main: debug.Module{
+				Version: "v0.1.0-alpha",
+				Sum:     "h1:installed-module-checksum",
+			}}, true
+		}
+		if got := reportedVersion(); got != "v0.1.0-alpha" {
+			t.Fatalf("reportedVersion() = %q, want installed module version", got)
+		}
+	})
+
+	t.Run("source checkout", func(t *testing.T) {
+		version = "0.0.0-dev"
+		readBuildInfo = func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Main: debug.Module{
+				Version: "v0.1.0-alpha.0.20260910022214-fdbf5c4307ad",
+			}}, true
+		}
+		if got := reportedVersion(); got != "0.0.0-dev" {
+			t.Fatalf("reportedVersion() = %q, want development version", got)
+		}
+	})
 }
 
 func TestRootCommand(t *testing.T) {

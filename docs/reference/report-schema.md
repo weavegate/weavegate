@@ -61,7 +61,7 @@ deterministic or stripping timestamps everywhere.
 | `artifact_version` | int | `2` for an ordinary run; `3` for a run retained after diagnostic derivation failed. The value is consistent across every run-scoped JSON file in one directory. |
 | `run_id` | string | Opaque identity: `run_<YYYYMMDDTHHMMSS.nnnnnnnnnZ>_<32 lowercase hex>`. The timestamp is readable context and the suffix is 128 random bits; ordering comes from `started_at`, with run ID used only to break identical-time ties. |
 | `started_at` | string (RFC3339, UTC) | |
-| `weavegate_version` | string | `0.0.0-dev` unless built with `-ldflags "-X main.version=..."`. |
+| `weavegate_version` | string | The release linker value when built with `-ldflags "-X main.version=..."`; otherwise the module version embedded by `go install github.com/weavegate/weavegate/cmd/weavegate@<version>`, or `0.0.0-dev` for a source-checkout build. |
 | `schema_version` | string | Full `sha256:<64 lowercase hex>` of the prepared migration snapshot. Each sorted file is framed as decimal byte length of name + LF, name bytes, decimal byte length of content + LF, content bytes. |
 | `seed_data` | string | Full `sha256:<64 lowercase hex>` of the prepared seed bytes. |
 | `isolation_level` | string | The literal result of `SELECT @@global.transaction_isolation`, read from the fixture's managing connection immediately after provisioning — the **global** value, not the session value a worker connection might override. If the SUT changes its session isolation level, this field will not reflect that. |

@@ -5,15 +5,36 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 
 	"github.com/weavegate/weavegate/internal/ci"
 )
 
-// version is the reported weavegate version. It is overridden at build time
-// with -ldflags "-X main.version=...".
+// version is the reported weavegate version. Release builds override it with
+// -ldflags "-X main.version=...".
 var version = "0.0.0-dev"
+
+var readBuildInfo = debug.ReadBuildInfo
+
+// reportedVersion keeps source-checkout builds on the development version,
+// while preserving the module version embedded by `go install module@version`.
+// A release build's linker value remains authoritative.
+func reportedVersion() string {
+	if version != "0.0.0-dev" {
+		return version
+	}
+
+	info, ok := readBuildInfo()
+	// go build from a checkout can synthesize a VCS pseudo-version. Installed
+	// modules carry their module checksum, so only accept build metadata that
+	// identifies a resolved module version.
+	if !ok || info.Main.Sum == "" || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return version
+	}
+	return info.Main.Version
+}
 
 // exitError carries a decided process exit code through cobra's error-based
 // control flow. A subcommand whose outcome is a verdict rather than a
@@ -62,7 +83,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		Short:         "Reach a verdict on a concurrent workflow and save the evidence.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Version:       version,
+		Version:       reportedVersion(),
 		// No positional argument is meaningful directly on the root command.
 		// A subcommand ("run", "report", ...) is matched by Cobra before this
 		// validator runs; anything left unmatched is reported as an unknown
