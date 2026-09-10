@@ -228,6 +228,25 @@ jobs:
           version: v2.13.1
           args: ./...
 
+  notice:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check the generated NOTICE inventory
+        run: |
+          ./scripts/gen-notice.sh
+          git diff --exit-code -- NOTICE
+
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
