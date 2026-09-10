@@ -28,9 +28,10 @@ print the report without diagnostics, then return the derivation failure as a
 - Derivation runs once, after execution and teardown. Any partial diagnostic
   result returned with an error is discarded.
 - The CLI writes the normal atomic six- or seven-file run directory with an
-  empty `diagnostics` array. Oracle declarations, assertion violations,
-  schedule, trace, fingerprints, replay command, and the semantic FAIL, FLAKY,
-  or PASS headline remain unchanged.
+  empty `diagnostics` array. Every run-scoped JSON artifact uses
+  `artifact_version` 3, while ordinary runs remain version 2. Oracle
+  declarations, assertion violations, schedule, trace, fingerprints, replay
+  command, and the semantic FAIL, FLAKY, or PASS headline remain unchanged.
 - After `report.md` and the run-directory path are printed to stdout, the
   derivation error is printed to stderr and wins over the semantic verdict.
   Artifact write or stdout failures still take precedence at the point where
@@ -39,11 +40,12 @@ print the report without diagnostics, then return the derivation failure as a
   as artifact I/O. No new exit code is added: exit 5 already means the command
   did not complete its output contract.
 
-For a normal verdict exit, `diagnostics: []` means no diagnostic applied. For an
-exit 5 caused by derivation failure, it means the run evidence was deliberately
-preserved but no diagnostic was successfully produced. The live process exit
-and stderr carry that distinction; the saved JSON does not persist the internal
-error text.
+In a version 2 artifact, `diagnostics: []` retains its released meaning:
+derivation completed and no diagnostic applied. Version 3 identifies evidence
+retained because derivation failed, so a copied run directory remains
+distinguishable without its original process result. Stderr carries the
+specific internal error text; the saved JSON records only its versioned failure
+category.
 
 ## Consequences
 
@@ -51,6 +53,8 @@ error text.
   presentation failed.
 - The run directory remains an all-at-once atomic publication rather than a
   partially visible directory that is mutated after publication.
+- Released version 2 consumers never see a retained derivation failure labeled
+  as version 2; version-aware consumers can reject or handle version 3.
 - Deterministic artifacts remain functions of execution evidence. They do not
   embed potentially volatile internal error text.
 - A diagnostic-free FAIL or FLAKY report is valid retained evidence, but exit 5
@@ -72,6 +76,10 @@ error text.
 3. **Return the semantic verdict after saving.** Exit 0, 2, or 3 would claim the
    command completed its output contract even though diagnostic production
    failed. Error priority requires exit 5 instead.
-4. **Persist the derivation error in deterministic artifacts.** Internal error
-   text is not execution evidence and can change independently of an identical
-   schedule and verdict. Stderr is the appropriate channel for that cause.
+4. **Keep version 2 and rely on the live exit and stderr.** The first release
+   fixed version 2 field meanings. A copied directory would lose the only
+   distinction and could be silently misclassified by an existing consumer.
+5. **Persist the derivation error text in deterministic artifacts.** Internal
+   error text is not execution evidence and can change independently of an
+   identical schedule and verdict. Version 3 records the stable failure
+   category; stderr is the appropriate channel for the specific cause.

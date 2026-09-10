@@ -13,8 +13,14 @@ import (
 	"github.com/weavegate/weavegate/internal/trace"
 )
 
-// ArtifactVersion is the current on-disk JSON contract written by weavegate.
-const ArtifactVersion = 2
+const (
+	// ArtifactVersion is the released contract used by ordinary run evidence.
+	ArtifactVersion = 2
+	// DiagnosticFailureArtifactVersion preserves ArtifactVersion's released
+	// diagnostics semantics while identifying evidence retained after
+	// diagnostic derivation failed.
+	DiagnosticFailureArtifactVersion = 3
+)
 
 // Manifest is volatile per-run metadata: identifiers, timestamps, and
 // environment facts collected immediately after fixture provisioning
@@ -264,6 +270,12 @@ type Merged struct {
 
 // Run is everything needed to write one run directory.
 type Run struct {
+	// DiagnosticDerivationFailed selects DiagnosticFailureArtifactVersion for
+	// every run-scoped JSON artifact. Keeping the semantic input rather than an
+	// arbitrary version number makes version 3 exclusive to retained diagnostic
+	// derivation failures.
+	DiagnosticDerivationFailed bool
+
 	Manifest    Manifest
 	Scenario    Scenario
 	Observation Observation

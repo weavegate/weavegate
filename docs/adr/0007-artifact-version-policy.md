@@ -5,8 +5,9 @@
 
 > Amended by [ADR 0012](0012-diagnostic-derivation-failure-evidence.md): a
 > completed run whose diagnostic derivation fails is also written with
-> `"diagnostics": []` and exits 5. The field remains always emitted, but an
-> empty array alone no longer proves that derivation completed successfully.
+> `"diagnostics": []` and exits 5, but its run-scoped JSON uses
+> `artifact_version` 3. Version 2's released empty-array meaning remains
+> unchanged.
 
 ## Context
 
@@ -39,16 +40,18 @@ bump; additive fields remain compatible under the same tolerance rule.
 
 ## Consequences
 
-- `diagnostics` remains an additive version 2 field, and the writer always
-  emits it. An empty array records either that no diagnostic applied or, under
-  ADR 0012, that a completed run was retained after derivation failed.
+- `diagnostics` remains an additive version 2 field, and the writer continues
+  to emit `"diagnostics": []` when derivation completed and no diagnostic
+  applied.
+- A run retained after diagnostic derivation fails uses artifact version 3, so
+  it does not broaden the released version 2 empty-array meaning.
 - Pre-release version 2 directories can have different field sets. There is no
   released consumer of the older shape, so this does not break a published
   compatibility promise.
 - The version number remains a useful signal for readers that need migration
   logic instead of increasing for routine additions.
 - The existing reader continues to accept version 1 `violating_schedule` while
-  newly written artifacts use the version 2 `schedule` field.
+  newly written version 2 and 3 artifacts use the neutral `schedule` field.
 
 ## What didn't work
 
@@ -57,16 +60,13 @@ would advance the format to version 5 or 6 through ordinary pre-release work
 and turn the number into development noise rather than a breaking-change
 signal.
 
-There is a real counter-argument. The original decision treated omission and an
-explicit empty array as different facts: an absent `diagnostics` field could
-not prove that the current writer emitted the field, while `"diagnostics": []`
-could. ADR 0012 later added a second current-writer meaning for the empty array:
-the run may have been retained after derivation failed. The field therefore
-still distinguishes the older shape from the current shape, but only the live
-exit status and stderr distinguish the two current empty-array outcomes.
+There is a real counter-argument. This project treats omission and an explicit
+empty array as different facts: an absent `diagnostics` field cannot prove that
+diagnostics were derived and found empty, while `"diagnostics": []` can. An
+older version 2 artifact and a current version 2 artifact therefore cannot make
+that distinction from the version number alone.
 
-That objection does not fail because the distinction is unimportant. It is
-accepted here only because no released consumer of the earlier version 2 shape
-exists. The same argument is not available after the first release; its v2
-compatibility baseline is a public contract, and a change that invalidates an
-artifact conforming to that baseline is breaking.
+That objection did not fail because the distinction was unimportant. It was
+accepted because no released consumer of the earlier version 2 shape existed
+at the time. The first release subsequently froze v2 as a public contract, so
+ADR 0012 uses version 3 rather than giving v2's empty array another meaning.

@@ -139,7 +139,7 @@ func renderFiles(run Run) (map[string][]byte, error) {
 	files[TraceFile] = traceJSON
 
 	mergedJSON, err := canonicalJSON(Merged{
-		ArtifactVersion: ArtifactVersion,
+		ArtifactVersion: run.Manifest.ArtifactVersion,
 		Manifest:        run.Manifest,
 		Scenario:        run.Scenario,
 		Observation:     run.Observation,
@@ -180,10 +180,14 @@ func canonicalJSON(value any) ([]byte, error) {
 // normalizeRun replaces nil slices with non-nil empty slices so JSON
 // encodes them as [] rather than null.
 func normalizeRun(run Run) Run {
-	run.Manifest.ArtifactVersion = ArtifactVersion
-	run.Scenario.ArtifactVersion = ArtifactVersion
-	run.Observation.ArtifactVersion = ArtifactVersion
-	run.Trace.ArtifactVersion = ArtifactVersion
+	artifactVersion := ArtifactVersion
+	if run.DiagnosticDerivationFailed {
+		artifactVersion = DiagnosticFailureArtifactVersion
+	}
+	run.Manifest.ArtifactVersion = artifactVersion
+	run.Scenario.ArtifactVersion = artifactVersion
+	run.Observation.ArtifactVersion = artifactVersion
+	run.Trace.ArtifactVersion = artifactVersion
 	if run.Scenario.Workers == nil {
 		run.Scenario.Workers = []Worker{}
 	}

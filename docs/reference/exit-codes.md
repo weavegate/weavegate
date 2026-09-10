@@ -144,8 +144,11 @@ The atomic writer leaves no half-written final directory in that case.
 
 Diagnostic derivation failure is deliberately different. The Oracle verdict
 and its execution evidence already exist, so weavegate writes the usual six or
-seven artifacts with `diagnostics: []`, prints `report.md` and the run-directory
-path, then reports the derivation failure and exits 5. The retained report keeps
-the semantic PASS, FAIL, or FLAKY headline, but exit 5 takes priority because
-the diagnostic output contract was not completed. A later `weavegate report`
-only streams that stored artifact and does not recreate the original error.
+seven artifacts with `artifact_version` 3 and `diagnostics: []`, prints
+`report.md` and the run-directory path, then reports the derivation failure and
+exits 5. Ordinary runs remain version 2, where an empty diagnostics array keeps
+its released meaning that derivation completed and no diagnostic applied. The
+retained report keeps the semantic PASS, FAIL, or FLAKY headline, but exit 5
+takes priority because the diagnostic output contract was not completed. A
+later `weavegate report` only streams that stored artifact and does not recreate
+the original error.

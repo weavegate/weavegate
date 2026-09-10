@@ -240,6 +240,9 @@ func runScenarioWithDiagnosticDeriver(
 		Flaky:         outcome.Verdict.Flaky,
 		ReplayCommand: replayCommand,
 	}
+	if diagnosticErr != nil {
+		run.DiagnosticDerivationFailed = true
+	}
 
 	dir, err := report.WriteRun(plan.Out, run)
 	if err != nil {

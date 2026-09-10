@@ -16,13 +16,13 @@ schedule omits it.
 └── schedule.json       (deterministic; present only when scheduled)
 ```
 
-Every run-scoped JSON document written by the current CLI carries
-`"artifact_version": 2`. The portable `schedule.json` instead uses the
-standalone schedule contract accepted by `--replay`, with only `id` and
-`steps`. The database schema identity remains the separate
-`manifest.schema_version` field. Replay lookup reads both the v2 neutral
-`schedule` field and the legacy v1 `violating_schedule` field; newly written
-run-scoped artifacts are always v2.
+Every run-scoped JSON document for an ordinary run carries
+`"artifact_version": 2`. If diagnostic derivation fails after execution, all
+run-scoped JSON in the retained directory carries `"artifact_version": 3`.
+The portable `schedule.json` instead uses the standalone schedule contract
+accepted by `--replay`, with only `id` and `steps`. The database schema identity
+remains the separate `manifest.schema_version` field. Replay lookup reads the
+v2/v3 neutral `schedule` field and the legacy v1 `violating_schedule` field.
 
 ## Artifact version policy
 
@@ -33,10 +33,12 @@ field. Adding a field does not bump the version; consumers must ignore fields
 they do not know and tolerate their absence in older artifacts of the same
 pre-release version.
 
-Before 1.0, v2 is an in-progress format. The first release freezes its
-compatibility baseline: existing names and meanings then require a version
-bump to change, while additive fields remain compatible under the tolerance
-rule above. The legacy v1 `violating_schedule` reader remains supported.
+The first release froze v2's compatibility baseline: existing names and
+meanings require a version bump to change, while additive fields remain
+compatible under the tolerance rule above. Version 3 is reserved for a run
+retained after diagnostic derivation failed, preserving v2's meaning that an
+empty diagnostics array followed successful derivation. The legacy v1
+`violating_schedule` reader remains supported.
 
 ## Volatile vs. deterministic
 
@@ -56,7 +58,7 @@ deterministic or stripping timestamps everywhere.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `artifact_version` | int | Always `2` for newly written artifacts. |
+| `artifact_version` | int | `2` for an ordinary run; `3` for a run retained after diagnostic derivation failed. The value is consistent across every run-scoped JSON file in one directory. |
 | `run_id` | string | Opaque identity: `run_<YYYYMMDDTHHMMSS.nnnnnnnnnZ>_<32 lowercase hex>`. The timestamp is readable context and the suffix is 128 random bits; ordering comes from `started_at`, with run ID used only to break identical-time ties. |
 | `started_at` | string (RFC3339, UTC) | |
 | `weavegate_version` | string | `0.0.0-dev` unless built with `-ldflags "-X main.version=..."`. |
@@ -85,7 +87,9 @@ when none are set). It is recorded here, not only in the config, so the
 evidence still shows which parameters produced this verdict even if the
 referenced config is later edited or deleted.
 
-Every field here is `internal/report`'s own JSON contract, not the engine's
+The example below is an ordinary version 2 run. A retained diagnostic failure
+has the same scenario fields with `artifact_version` 3. Every field here is
+`internal/report`'s own JSON contract, not the engine's
 internal types re-serialized — the report package defines its own
 `Worker`/`Schedule`/`CoordinationStep` shapes and converts into them, so this
 schema stays independent from unrelated changes to the engine's internal
@@ -117,12 +121,12 @@ the run-scoped `artifact_version` or the rest of `scenario.json`.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `artifact_version` | int | Always `2` for newly written artifacts. |
+| `artifact_version` | int | `2` for an ordinary run; `3` for a run retained after diagnostic derivation failed. |
 | `mode` | string | `explore` or `replay`, describing how the schedule was selected. |
 | `schedules_explored` | int | The number of candidates **actually evaluated**, not the total size of the candidate space. Explore mode stops at the first violation, so this is often smaller than the full candidate count. |
 | `explore_passes` | int | How many full sweeps ran before stopping — 1 if a violation was found on the first pass, up to `run.explore_passes` if every pass exhausted its candidates. `0` in replay mode, where no exploration happens. |
 | `assertion_violations` | array of objects | One entry per distinct violation found across the replay runs, plus exploration's own discovery run when replay never reproduced it (the 0/repeat flaky case — see `flaky` below). Each entry is `{"oracle_id": "...", "rows": [...]}` — `oracle_id` names the assertion, and `rows` is that oracle's own evidence rows, so a saved verdict shows *which* rows violated it, not only that it did. Each row is a plain object keyed by the query's column names, restricted to deterministic, JSON-safe scalar values (no `NaN`/`Inf`, no non-UTF-8 strings). Two violations sharing an `oracle_id` are only collapsed into one entry when their rows are also identical; a later run reproducing the same assertion with different rows is kept as a separate entry so each stays individually auditable. `[]` when nothing violated. |
-| `diagnostics` | array of objects | Named verdict classifications derived from Oracle violation kinds and engine signals. Each entry contains `code`, `severity`, `title`, `observed`, optional `assertion`, `invariant`, `reason`, `help`, and `evidence` (`schedule_ref`, `rows`, optional `evidence_sets`, `trace`, optional `observation`). Declaration order is preserved and an engine-derived WG090 is last. Always emitted. On a normal verdict exit, `[]` means no diagnostic applied; on exit 5 from diagnostic derivation failure, `[]` means the evidence was retained without a successfully produced diagnostic. See [diagnostic references](diagnostics/WG001.md) and [exit codes](exit-codes.md#completed-execution-and-run-directories). |
+| `diagnostics` | array of objects | Named verdict classifications derived from Oracle violation kinds and engine signals. Each entry contains `code`, `severity`, `title`, `observed`, optional `assertion`, `invariant`, `reason`, `help`, and `evidence` (`schedule_ref`, `rows`, optional `evidence_sets`, `trace`, optional `observation`). Declaration order is preserved and an engine-derived WG090 is last. Always emitted. In version 2, `[]` means derivation completed and no diagnostic applied; in version 3, `[]` identifies evidence retained after derivation failed. See [diagnostic references](diagnostics/WG001.md) and [exit codes](exit-codes.md#completed-execution-and-run-directories). |
 | `oracles` | array of objects | Every configured assertion's effective `id`, `sql`, and `expect_rows` — the same fields as `oracle.assertions` in config, snapshotted here so a saved verdict stays auditable against the query that produced it even after the referenced config is edited or deleted. `[]` when the scenario declares none. |
 | `repeat` | int | The effective repeat count used (config default or `--repeat` override). |
 | `timeouts` | object | The effective arrive timeout and its four derived orchestrator deadlines, in milliseconds: `arrive_timeout_ms` (config default or resolved value), `block_inference_timeout_ms` (equal to `arrive_timeout_ms`), `step_timeout_ms` (20×), `run_timeout_ms` (60×), `stop_timeout_ms` (20×) — see [Timing](config.md#timing) for how these are derived. These deadlines affect terminal timing classifications and normalized fingerprints, and therefore potentially the `flaky` verdict, so they are snapshotted here even after the referenced config is edited or deleted. |
@@ -169,6 +173,9 @@ never ran.
 
 ## `trace.json`
 
+An ordinary version 2 trace has this shape; a retained diagnostic failure uses
+the same fields with `artifact_version` 3:
+
 ```json
 {"artifact_version": 2, "schedule_ref": "...", "events": [...], "terminals": [...]}
 ```
@@ -192,8 +199,10 @@ above found anything to show.
 
 ## `report.json`
 
-`{"artifact_version": 2, "manifest": ..., "scenario": ..., "observation": ...}` — the three files
-above merged into one, for a reader who wants everything in a single fetch.
+`{"artifact_version": 2, "manifest": ..., "scenario": ..., "observation": ...}`
+is the ordinary version 2 shape; a retained diagnostic failure uses version 3
+at the top level and in each nested run-scoped document. The file merges the
+three documents above for a reader who wants everything in a single fetch.
 Because it inherits `manifest`'s volatile fields, it is not part of the
 deterministic set even though `scenario` and `observation` alone would be.
 

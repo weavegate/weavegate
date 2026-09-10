@@ -569,6 +569,28 @@ func TestRun(t *testing.T) {
 		if len(entries) != 7 {
 			t.Fatalf("diagnostic derivation failure artifacts = %d, want 7", len(entries))
 		}
+		for _, name := range []string{
+			report.ManifestFile,
+			report.ScenarioFile,
+			report.ObservationFile,
+			report.TraceFile,
+			report.MergedFile,
+		} {
+			var doc struct {
+				ArtifactVersion int `json:"artifact_version"`
+			}
+			content, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatalf("read diagnostic derivation failure %s: %v", name, err)
+			}
+			if err := json.Unmarshal(content, &doc); err != nil {
+				t.Fatalf("parse diagnostic derivation failure %s: %v", name, err)
+			}
+			if doc.ArtifactVersion != report.DiagnosticFailureArtifactVersion {
+				t.Fatalf("diagnostic derivation failure %s artifact_version = %d, want %d",
+					name, doc.ArtifactVersion, report.DiagnosticFailureArtifactVersion)
+			}
+		}
 		observation := readObservation(t, dir)
 		if observation.Repeat != 20 || observation.ViolationRuns != 20 || len(observation.AssertionViolations) == 0 {
 			t.Fatalf("diagnostic derivation failure observation = %+v, want 20/20 preserved Oracle violations", observation)
@@ -589,6 +611,7 @@ func TestRun(t *testing.T) {
 
 		observed["diagnostic_derivation_failure"] = "5"
 		observed["diagnostic_failure_artifacts"] = "7"
+		observed["diagnostic_failure_version"] = "3"
 	})
 
 	t.Run("stdout_write_failure", func(t *testing.T) {
@@ -611,7 +634,7 @@ func TestRun(t *testing.T) {
 		"bad_config", "missing_scenario", "unknown_scenario", "nonpositive_repeat_override", "unknown_schedule",
 		"unverifiable_run_evidence", "unwritable_out", "missing_fixture_source",
 		"artifacts_written_on_pass", "cleanup_failure_on_pass", "fixture_failure_during_replay",
-		"diagnostic_derivation_failure", "diagnostic_failure_artifacts", "stdout_write_failure",
+		"diagnostic_derivation_failure", "diagnostic_failure_artifacts", "diagnostic_failure_version", "stdout_write_failure",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {
