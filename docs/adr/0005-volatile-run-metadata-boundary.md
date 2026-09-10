@@ -37,11 +37,12 @@ further:
   feature existed — there is no `t_ms` field to strip. A timeline view that
   needs wall-clock offsets is a `report --timeline` feature yet to be built,
   not part of this file.
-- `report.md`'s `replay:` line embeds `--config` exactly as the user passed
-  it on the command line, never normalized to an absolute path. Normalizing
-  it would make the file depend on the filesystem location a run happened to
+- `report.md`'s `replay:` line derives `--config` from the value the user passed
+  on the command line, never from a normalized absolute path. Normalizing it
+  would make the file depend on the filesystem location a run happened to
   execute from, which is exactly the kind of incidental variation the
-  deterministic set exists to exclude.
+  deterministic set exists to exclude. ADR 0011 later defines the Markdown
+  safety representation for values that need escaping.
 
 ## Consequences
 

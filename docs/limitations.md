@@ -22,8 +22,10 @@ A schedule ID identifies canonical coordination steps; it is not a network
 locator and does not transfer those steps to another machine. A replay command
 is portable only when its schedule content moves with it. Copy the producing
 run's `schedule.json` into the reader's `.weavegate/schedules/` directory, then
-paste the `replay:` line unchanged. Moving the ID alone leaves replay
-unresolved and exits 5.
+paste an unescaped `replay:` line unchanged. A line containing report-safety
+escapes must instead be reconstructed from its original arguments, as described
+in the [report schema](reference/report-schema.md#reportmd). Moving the ID alone
+leaves replay unresolved and exits 5.
 
 The complete lookup order and strict file contract are documented under
 [`--replay` resolution order](reference/cli.md#--replay-resolution-order), and

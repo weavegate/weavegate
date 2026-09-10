@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const diagnosticLabelWidth = 11
@@ -22,7 +24,7 @@ func renderMarkdown(run Run) string {
 	if code := headlineDiagnosticCode(run); code != "" {
 		headline += " (" + code + ")"
 	}
-	fmt.Fprintf(&b, "## weavegate: %s\n", headline)
+	writeMarkdownLine(&b, "## weavegate: %s", headline)
 
 	scheduleLabel := "violating"
 	scheduleID := "none"
@@ -32,9 +34,9 @@ func renderMarkdown(run Run) string {
 			scheduleLabel = "replayed"
 		}
 	}
-	fmt.Fprintf(
+	writeMarkdownLine(
 		&b,
-		"scenario: %s | schedules explored: %s | %s: %s\n",
+		"scenario: %s | schedules explored: %s | %s: %s",
 		run.Scenario.Name,
 		explorationSummary(run),
 		scheduleLabel,
@@ -42,13 +44,13 @@ func renderMarkdown(run Run) string {
 	)
 
 	if ids := violatedAssertionIDs(run.Observation.AssertionViolations); len(ids) > 0 {
-		fmt.Fprintf(&b, "assertion: %s\n", strings.Join(ids, ", "))
+		writeMarkdownLine(&b, "assertion: %s", strings.Join(ids, ", "))
 	}
 
-	fmt.Fprintf(&b, "flaky: %t (repeat=%d)\n", run.Flaky, run.Observation.Repeat)
+	writeMarkdownLine(&b, "flaky: %t (repeat=%d)", run.Flaky, run.Observation.Repeat)
 
 	if run.ReplayCommand != "" {
-		fmt.Fprintf(&b, "replay: %s\n", run.ReplayCommand)
+		writeMarkdownLine(&b, "replay: %s", run.ReplayCommand)
 	}
 	for _, diagnostic := range run.Observation.Diagnostics {
 		b.WriteByte('\n')
@@ -77,7 +79,7 @@ func headlineDiagnosticCode(run Run) string {
 }
 
 func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
-	fmt.Fprintf(b, "%s[%s]: %s\n", diagnostic.Severity, diagnostic.Code, diagnostic.Title)
+	writeMarkdownLine(b, "%s[%s]: %s", diagnostic.Severity, diagnostic.Code, diagnostic.Title)
 	writeDiagnosticField(b, "observed:", diagnostic.Observed)
 	if diagnostic.Assertion != "" {
 		writeDiagnosticField(b, "assertion:", diagnostic.Assertion)
@@ -118,7 +120,136 @@ func renderDiagnostic(b *strings.Builder, diagnostic Diagnostic) {
 }
 
 func writeDiagnosticField(b *strings.Builder, label, value string) {
-	fmt.Fprintf(b, "  %-*s%s\n", diagnosticLabelWidth, label, value)
+	writeMarkdownLine(b, "  %-*s%s", diagnosticLabelWidth, label, value)
+}
+
+// writeMarkdownLine is the only boundary where variable text enters
+// report.md. Callers supply the fixed Markdown shape as format and each
+// runtime value separately; the boundary makes every value safe before it is
+// interpolated and terminates the physical line itself.
+func writeMarkdownLine(b *strings.Builder, format string, values ...any) {
+	safe := make([]any, len(values))
+	for index, value := range values {
+		if text, ok := value.(string); ok {
+			safe[index] = escapeMarkdownValue(text)
+			continue
+		}
+		safe[index] = value
+	}
+	fmt.Fprintf(b, format+"\n", safe...)
+}
+
+// escapeMarkdownValue preserves ordinary text while preventing a runtime
+// value from creating another physical line, emitting terminal controls, or
+// opening Markdown inline/block syntax. Non-printable runes use the same Go
+// escape spelling as strconv.Quote; Markdown punctuation is backslash-escaped.
+func escapeMarkdownValue(value string) string {
+	runes, invalidBytes := decodeMarkdownRunes(value)
+	var escaped strings.Builder
+	for index, r := range runes {
+		if invalidBytes[index] != 0 {
+			fmt.Fprintf(&escaped, `\x%02x`, invalidBytes[index])
+			continue
+		}
+		if !unicode.IsPrint(r) {
+			quoted := strconv.QuoteRune(r)
+			escaped.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		if r == '$' {
+			escaped.WriteString(`\x24`)
+			continue
+		}
+		if index == 0 && r == ' ' && len(runes) >= 4 && runes[1] == ' ' && runes[2] == ' ' && runes[3] == ' ' {
+			escaped.WriteString(`\x20`)
+			continue
+		}
+		if markdownDelimiter(r) || r == '_' && !intraWordUnderscore(runes, index) ||
+			markdownListDelimiter(runes, index) ||
+			markdownAutolinkDelimiter(runes, index) {
+			escaped.WriteByte('\\')
+		}
+		escaped.WriteRune(r)
+	}
+	return escaped.String()
+}
+
+// decodeMarkdownRunes retains malformed UTF-8 bytes separately from genuine
+// U+FFFD runes. A range loop would replace every malformed byte with U+FFFD and
+// make distinct filesystem paths render identically.
+func decodeMarkdownRunes(value string) ([]rune, []byte) {
+	runes := make([]rune, 0, utf8.RuneCountInString(value))
+	invalidBytes := make([]byte, 0, cap(runes))
+	for len(value) > 0 {
+		r, size := utf8.DecodeRuneInString(value)
+		runes = append(runes, r)
+		invalidByte := byte(0)
+		if r == utf8.RuneError && size == 1 {
+			invalidByte = value[0]
+		}
+		invalidBytes = append(invalidBytes, invalidByte)
+		value = value[size:]
+	}
+	return runes, invalidBytes
+}
+
+func markdownDelimiter(r rune) bool {
+	switch r {
+	case '\\', '`', '*', '[', ']', '<', '>', '&', '~', '@', '#', '|':
+		return true
+	default:
+		return false
+	}
+}
+
+func intraWordUnderscore(runes []rune, index int) bool {
+	return index > 0 && index+1 < len(runes) &&
+		wordRune(runes[index-1]) && wordRune(runes[index+1])
+}
+
+func wordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func markdownListDelimiter(runes []rune, index int) bool {
+	if index+1 >= len(runes) || !unicode.IsSpace(runes[index+1]) {
+		return false
+	}
+	start := 0
+	for start < index && start < 4 && runes[start] == ' ' {
+		start++
+	}
+	if start == index {
+		return runes[index] == '-' || runes[index] == '+'
+	}
+	if start > 3 || index-start == 0 || index-start > 9 ||
+		(runes[index] != '.' && runes[index] != ')') {
+		return false
+	}
+	for _, r := range runes[start:index] {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func markdownAutolinkDelimiter(runes []rune, index int) bool {
+	if runes[index] == ':' && index > 0 && index+2 < len(runes) &&
+		runes[index+1] == '/' && runes[index+2] == '/' {
+		start := index - 1
+		for start > 0 && schemeRune(runes[start-1]) {
+			start--
+		}
+		return unicode.IsLetter(runes[start])
+	}
+	return runes[index] == '.' && index >= 3 &&
+		strings.EqualFold(string(runes[index-3:index]), "www") &&
+		(index == 3 || !wordRune(runes[index-4]))
+}
+
+func schemeRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '+' || r == '-' || r == '.'
 }
 
 func explorationSummary(run Run) string {

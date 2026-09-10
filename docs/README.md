@@ -50,6 +50,7 @@ Use these records when you need the rationale behind a durable design boundary.
 - [ADR 0008: Diagnostic evidence model](adr/0008-diagnostic-evidence-model.md) — Understand how structured evidence supports a diagnostic verdict.
 - [ADR 0009: Portable schedule artifact and lookup](adr/0009-schedule-portability.md) — Learn how schedules remain portable and are resolved for replay.
 - [ADR 0010: External SUT protocol (proposed)](adr/0010-external-sut-protocol.md) — Review the planned Spring transaction boundary and required engine extension decisions.
+- [ADR 0011: Report Markdown rendering boundary](adr/0011-report-markdown-rendering-boundary.md) — See how runtime values remain one-line and inert in Markdown reports.
 
 ## Measured results
 

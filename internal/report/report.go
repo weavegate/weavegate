@@ -275,8 +275,9 @@ type Run struct {
 	Pass  bool
 	Flaky bool
 
-	// ReplayCommand is the literal command line a reader can copy, paste,
-	// and run to reproduce this run's schedule (A-5). Empty when the run
-	// has no schedule to replay (an exhausted PASS with no discovery).
+	// ReplayCommand is the shell-correct command line for this run's schedule
+	// (A-5). The Markdown boundary may escape its display; it is pasteable
+	// only when that rendering leaves it unchanged. Empty when the run has no
+	// schedule to replay (an exhausted PASS with no discovery).
 	ReplayCommand string
 }
