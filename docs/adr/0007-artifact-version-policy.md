@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-08-19
 
+> Amended by [ADR 0012](0012-diagnostic-derivation-failure-evidence.md): a
+> completed run whose diagnostic derivation fails is also written with
+> `"diagnostics": []` and exits 5. The field remains always emitted, but an
+> empty array alone no longer proves that derivation completed successfully.
+
 ## Context
 
 The diagnostic feature adds `diagnostics` to every newly written

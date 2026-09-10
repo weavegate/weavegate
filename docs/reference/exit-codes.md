@@ -126,8 +126,26 @@ syntax:
 - a run-directory write failure — permission, disk, or rename — writing the
   six base artifacts and the schedule artifact when present (see
   [report-schema.md](report-schema.md))
+- a diagnostic derivation failure after execution completed; this is an
+  artifact-production error, so weavegate preserves a diagnostic-free run
+  directory, prints its path, reports the cause on stderr, and exits 5
 - an existing destination run directory or a short stdout write from `run`
   or `report`
 
 An unclassified internal error also resolves to 5 rather than silently
 succeeding.
+
+## Completed execution and run directories
+
+A completed scenario execution can still exit without a run directory when the
+directory itself cannot be written or published. Completion of the database
+work does not make a permission, disk, encoding, or rename failure recoverable.
+The atomic writer leaves no half-written final directory in that case.
+
+Diagnostic derivation failure is deliberately different. The Oracle verdict
+and its execution evidence already exist, so weavegate writes the usual six or
+seven artifacts with `diagnostics: []`, prints `report.md` and the run-directory
+path, then reports the derivation failure and exits 5. The retained report keeps
+the semantic PASS, FAIL, or FLAKY headline, but exit 5 takes priority because
+the diagnostic output contract was not completed. A later `weavegate report`
+only streams that stored artifact and does not recreate the original error.

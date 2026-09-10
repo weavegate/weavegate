@@ -93,6 +93,19 @@ func runScenario(
 	flags runFlags,
 	newFixture func() fixture.Provisioner,
 ) (finalErr error) {
+	return runScenarioWithDiagnosticDeriver(ctx, stdout, stderr, flags, newFixture, diagnostic.Derive)
+}
+
+// runScenarioWithDiagnosticDeriver keeps diagnostic production injectable at
+// the CLI boundary. Production always supplies diagnostic.Derive; the seam lets
+// a CLI test force the post-execution failure that must still preserve evidence.
+func runScenarioWithDiagnosticDeriver(
+	ctx context.Context,
+	stdout, stderr io.Writer,
+	flags runFlags,
+	newFixture func() fixture.Provisioner,
+	deriveDiagnostics func(diagnostic.Input) ([]diagnostic.Diagnostic, error),
+) (finalErr error) {
 	startedAt := time.Now().UTC()
 
 	plan, err := buildRunPlan(flags)
@@ -181,7 +194,7 @@ func runScenario(
 	}
 
 	replayCommand := buildReplayCommand(flags, plan.Resolved.Scenario.SUTConfig.Variant, plan.Repeat, outcome.ViolatingSchedule)
-	diagnostics, err := diagnostic.Derive(diagnostic.Input{
+	diagnostics, diagnosticErr := deriveDiagnostics(diagnostic.Input{
 		Table:                plan.Resolved.Diagnostics,
 		Violations:           diagnosticViolations(violationEvidenceRuns(outcome)),
 		OracleOrder:          oracleOrder(plan.Config.Oracle.Assertions),
@@ -191,8 +204,12 @@ func runScenario(
 		DiscoveryFingerprint: discoveryFingerprint(outcome),
 		ScheduleRef:          violatingScheduleID(outcome),
 	})
-	if err != nil {
-		return reportRunFailure(stderr, fmt.Errorf("run: derive diagnostics: %w", err))
+	if diagnosticErr != nil {
+		// A diagnostic is a presentation of an already-decided verdict. Drop
+		// any partial result, preserve the execution evidence without
+		// diagnostics, and report the production failure after publication.
+		diagnostics = nil
+		diagnosticErr = ci.OutputError(fmt.Errorf("run: derive diagnostics: %w", diagnosticErr))
 	}
 
 	run := report.Run{
@@ -238,6 +255,9 @@ func runScenario(
 	}
 	if err := writeAll(stdout, []byte(dir+"\n")); err != nil {
 		return reportRunFailure(stderr, ci.OutputError(fmt.Errorf("run: write run directory to stdout: %w", err)))
+	}
+	if diagnosticErr != nil {
+		return reportRunFailure(stderr, diagnosticErr)
 	}
 
 	return &exitError{verdict: semanticVerdict}
