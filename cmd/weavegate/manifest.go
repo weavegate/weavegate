@@ -45,7 +45,7 @@ func collectManifest(
 	return report.Manifest{
 		RunID:            runID,
 		StartedAt:        startedAt,
-		WeavegateVersion: version,
+		WeavegateVersion: reportedVersion(),
 		SchemaVersion:    prepared.MigrationDigest(),
 		SeedData:         prepared.SeedDigest(),
 		IsolationLevel:   isolationLevel,
