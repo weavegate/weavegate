@@ -67,23 +67,43 @@ oracle:
     - id: active-assignment-is-unique
       sql: SELECT ...
       expect_rows: 0
+  reference:
+    mode: serial
   differentials:
     - id: account-outcome-matches-clean-run
-      reference_schedule: sch_0123456789ab
       projection_sql: |
         SELECT account_id, balance FROM account ORDER BY account_id
       key_columns: [account_id]
 ```
 
-`reference_schedule` resolves through the same content-addressed schedule
-lookup and validation rules as `--replay`. For each candidate or replay repeat,
-the engine resets the fixture, executes the reference schedule with the same
-scenario, adapter, variant, parameters, and timeout policy, and captures the
-configured read-only projection. It then resets again, executes the selected
-schedule, and gives the captured projection to the Oracle through
+`oracle.reference` is required exactly when `differentials` is nonempty. v0.2.0
+accepts only `mode: serial`; the effective worker order is the selected
+scenario's existing declaration order. Keeping scenario-specific worker IDs out
+of the global Oracle configuration allows one differential declaration to apply
+to every compatible scenario. One reference execution supplies every
+configured differential projection; individual differentials cannot select
+another reference or trigger another SUT execution.
+
+The ordinary replay path cannot implement this reference mode. Its current
+[`runCoordinator.execute`](../../internal/orchestrator/run.go) invokes and
+bootstraps every worker before traversing the schedule, and a worker-grouped
+schedule does not wait for one worker's terminal before releasing the next.
+The implementation issue therefore owns an explicit reference-execution
+extension point: reset the fixture, invoke only the next worker in
+scenario declaration order, release that worker's declared sync-points in
+order, collect its terminal after commit or rollback and connection return, and
+only then invoke the next worker. This terminal barrier, rather than schedule
+grouping, defines `serial`.
+
+For each candidate or replay repeat, the reference executor uses the same
+scenario, adapter, variant, parameters, and timeout policy and captures every
+configured read-only projection. The engine then resets again, executes the
+selected schedule, and gives the captured projections to the Oracles through
 `RunContext.Golden`. The selected run remains the run reported to the user;
 reference-run failure, timeout, or incomplete terminal state is a run error and
-cannot become a candidate violation or PASS.
+cannot become a candidate violation or PASS. A repeat performs exactly one
+reference execution plus one selected execution regardless of the number of
+differentials.
 
 The projection query follows the existing SQL assertion restrictions: one
 read-only transaction, no locking read, and the shared run deadline. IDs must
@@ -101,53 +121,58 @@ classes:
 
 | Difference | `oracle.Violation.Kind` | Diagnostic trigger | Planned code |
 | --- | --- | --- | --- |
-| key exists only in the scheduled projection | `duplicate` | `oracle.duplicate` | `WG002` |
+| key exists only in the scheduled projection | `extra` | `oracle.extra` | `WG002` |
 | key exists only in the clean projection | `missing` | `oracle.missing` | `WG003` |
 | the same key has different non-key values | `stale` | `oracle.stale` | `WG004` |
 
-Duplicate and missing evidence contains the complete normalized scheduled or
-clean row respectively. Stale evidence contains each key plus paired
+Extra and missing evidence contain the complete normalized scheduled or clean
+row respectively. Stale evidence contains each key plus paired
 `expected_<column>` and `observed_<column>` values for changed columns. Column
 names that would collide after prefixing are rejected during preflight. Rows
 are ordered by canonical key, and changed fields by column name, before the
-existing evaluation fingerprint is built. Repeating the same selected and
-reference schedules must therefore produce the same verdict and evidence or
-the existing flaky classification applies.
+existing evaluation fingerprint is built. Repeating the same serial reference
+execution and selected schedule must therefore produce the same verdict and
+evidence or the existing flaky classification applies.
 
-The implementation change must ship `rules/WG002.json`, `rules/WG003.json`,
-and `rules/WG004.json` together with one-to-one reference pages at
-`docs/reference/diagnostics/WG002.md`, `WG003.md`, and `WG004.md`. Diagnostic
-derivation continues to name an Oracle verdict; neither the orchestrator nor a
-fixture classifies the difference.
+The implementation adds `oracle.extra` to the closed trigger vocabulary and
+must ship `rules/WG002.json`, `rules/WG003.json`, and `rules/WG004.json`
+together with one-to-one reference pages at
+`docs/reference/diagnostics/WG002.md`, `WG003.md`, and `WG004.md`. The reserved
+`oracle.duplicate` trigger remains unimplemented until an Oracle can identify
+actual duplicate identities; this differential rejects duplicate projection
+keys as ambiguous input and does not mislabel extra rows. Diagnostic derivation
+continues to name an Oracle verdict; neither the orchestrator nor a fixture
+classifies the difference.
 
 ### Artifact compatibility
 
-The implementation records the resolved differential declarations, including
-the full reference schedule, projection SQL, and key columns, as an additive
-field in `observation.json`. It records `duplicate_rows`, `missing_rows`, and
-`stale_rows` as separate additive violation arrays; it does not reinterpret
-`assertion_violations` or `oracles`. The ordinary artifact version remains 2
-under [ADR 0007](0007-artifact-version-policy.md): these are additive fields
-and consumers already must tolerate their absence. Version 3 remains reserved
-for retained diagnostic-derivation failures.
+The implementation records the resolved global reference mode and effective
+scenario worker order, plus each differential's projection SQL and key columns,
+as additive fields in `observation.json`. It records `extra_rows`,
+`missing_rows`, and `stale_rows` as separate additive violation arrays; it does
+not reinterpret `assertion_violations` or `oracles`. The ordinary artifact
+version remains 2 under [ADR 0007](0007-artifact-version-policy.md): these are
+additive fields and consumers already must tolerate their absence. Version 3
+remains reserved for retained diagnostic-derivation failures.
 
-The complete reference schedule is embedded in the deterministic observation
+The deterministic observation embeds the complete serial reference declaration
 instead of adding an eighth file. A copied run directory therefore retains the
-inputs needed to audit and resolve both executions without changing the public
+inputs needed to audit both executions without changing the public
 six-or-seven-file artifact count.
 
 ## Consequences
 
-- v0.2.0 has one concrete richer-Oracle outcome: detect duplicate, missing, and
+- v0.2.0 has one concrete richer-Oracle outcome: detect extra, missing, and
   stale result rows relative to a declared clean serial execution.
 - Fixtures with predicates that depend only on final state continue to compose
   zero-row assertions; they do not pay for a reference execution.
 - Differential runs execute the SUT twice per candidate or repeat and reset
   between executions. This is a correctness cost, not hidden setup work, and
   the shared timeout/accounting contract must expose it.
-- A reference schedule is declared evidence, not an automatically discovered
-  proof of correctness. Its projection states the expected result for the
-  selected invariant; reviewers must inspect it like any other Oracle input.
+- The selected scenario's declared worker order is reference evidence, not an
+  automatically discovered proof of correctness. Its projection states the
+  expected result for the selected invariant; reviewers must inspect it like
+  any other Oracle input.
 - Schema-constraint and fault-injection Oracles remain deferred. They answer
   different questions and are not implied by the v0.2.0 richer-Oracle promise.
 
@@ -159,7 +184,11 @@ six-or-seven-file artifact count.
    decide a verdict and violate the Oracle boundary.
 3. **Treat a fixed or Spring variant as the reference automatically.** Variant
    changes can alter domain behavior beyond concurrency control. The reference
-   must be an explicit schedule over the same resolved SUT inputs.
+   must be an explicit serial execution over the same resolved SUT inputs.
 4. **Implement schema-constraint inspection first.** Constraints provide useful
    defense-in-depth evidence, but they do not compare application outcomes and
    are unnecessary for the first Spring race.
+5. **Use a worker-grouped ordinary schedule as the serial reference.** The
+   orchestrator starts every worker before schedule traversal and does not put a
+   terminal barrier between worker groups. Reusing it would permit overlap in
+   the supposedly clean execution.
