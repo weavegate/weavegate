@@ -53,7 +53,8 @@ Implement one clean-run differential Oracle as the v0.2.0 richer-Oracle
 deliverable. The implementation is required before v0.2.0 is complete, but it
 is not a prerequisite for the first Spring/CI vertical slice: that slice keeps
 using existing SQL assertions. A bounded follow-up issue owns implementation;
-#115 closes only the scope decision and executable limitation evidence.
+[issue #115](https://github.com/weavegate/weavegate/issues/115) closes only the
+scope decision and executable limitation evidence.
 
 ### Execution and configuration boundary
 
