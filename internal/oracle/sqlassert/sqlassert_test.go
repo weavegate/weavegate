@@ -86,6 +86,64 @@ func TestSQLAssertionReturnsCanonicalViolationAndPass(t *testing.T) {
 	)
 }
 
+func TestSQLAssertionCannotCompareGoldenProjection(t *testing.T) {
+	config := &testDriverConfig{
+		columns:       []string{"account_id", "balance"},
+		databaseTypes: []string{"BIGINT", "BIGINT"},
+	}
+	db := openTestDB(t, config)
+	assertion := mustZeroRow(
+		t,
+		"account-outcome",
+		"SELECT account_id, balance FROM account WHERE balance <> 90",
+	)
+	observedProjection := []oracle.Row{{"account_id": int64(1), "balance": int64(90)}}
+	histories := []struct {
+		name   string
+		golden []oracle.Row
+	}{
+		{name: "matches serial reference", golden: []oracle.Row{{"account_id": int64(1), "balance": int64(90)}}},
+		{name: "differs from serial reference", golden: []oracle.Row{{"account_id": int64(1), "balance": int64(100)}}},
+	}
+
+	wantDifferentialViolations := make([]bool, 0, len(histories))
+	sqlViolationCounts := make([]int, 0, len(histories))
+	for _, history := range histories {
+		t.Run(history.name, func(t *testing.T) {
+			wantDifferentialViolations = append(
+				wantDifferentialViolations,
+				!reflect.DeepEqual(history.golden, observedProjection),
+			)
+			violations, err := assertion.Evaluate(context.Background(), db, oracle.RunContext{
+				Golden: &oracle.Snapshot{Projections: map[string][]oracle.Row{
+					"accounts": history.golden,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("evaluate SQL assertion: %v", err)
+			}
+			sqlViolationCounts = append(sqlViolationCounts, len(violations))
+		})
+	}
+
+	if !reflect.DeepEqual(wantDifferentialViolations, []bool{false, true}) {
+		t.Fatalf("differential verdicts = %v, want [false true]", wantDifferentialViolations)
+	}
+	if !reflect.DeepEqual(sqlViolationCounts, []int{0, 0}) {
+		t.Fatalf("SQL assertion violation counts = %v, want indistinguishable [0 0]", sqlViolationCounts)
+	}
+	observed := config.snapshot()
+	if len(observed.queries) != 2 || observed.queries[0] != observed.queries[1] {
+		t.Fatalf("SQL queries = %#v, want the same post-state query twice", observed.queries)
+	}
+
+	t.Log(
+		"SQL_ASSERT_SCOPE_RESULT post_state=identical golden_projection=ignored " +
+			"differential_verdicts=pass,violation sql_verdicts=pass,pass " +
+			"differential_oracle=required",
+	)
+}
+
 func TestSQLAssertionSortsEvidenceAndRejectsColumns(t *testing.T) {
 	config := &testDriverConfig{
 		columns:       []string{"key", "count"},
