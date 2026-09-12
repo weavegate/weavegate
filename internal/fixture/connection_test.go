@@ -31,7 +31,7 @@ func TestConnectionDescriptorRedactsAndInvalidatesCopies(t *testing.T) {
 	}
 
 	for _, formatted := range []string{
-		fmt.Sprintf("%s", descriptor),
+		descriptor.String(),
 		fmt.Sprintf("%v", descriptor),
 		fmt.Sprintf("%+v", descriptor),
 		fmt.Sprintf("%#v", descriptor),
