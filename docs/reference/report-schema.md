@@ -163,7 +163,7 @@ complete, individually auditable list remains in `assertion_violations`.
 ]
 ```
 
-**Fields not emitted yet:** `duplicate_rows`, `missing_rows`, `stale_rows`,
+**Fields not emitted yet:** `extra_rows`, `missing_rows`, `stale_rows`,
 `constraint_violations`, `aborted_transactions`, `retries`, and
 `recoverable` are not present in this file. They belong to oracles
 (differential, schema-constraint, fault injection) that are not implemented.

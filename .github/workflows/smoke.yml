@@ -117,6 +117,7 @@ jobs:
           grep -F 'TRACE_MODEL_RESULT events=3 terminals=2 json=stable orchestrator_aliases=compatible' fixture.log
           grep -F 'ORACLE_SET_RESULT oracles=2 results=2 pass_results=1 violations=2 declaration_order=preserved fingerprint_order=canonical missing_oracle=changes_fingerprint invalid_result=error' fixture.log
           grep -F 'SQL_ASSERT_ORACLE_RESULT id=active-assignment-is-unique expect_rows=0 observed_rows=1 violations=1 evidence_json={"active_assignment_count":2,"project_request_id":42} invalid_utf8=error scan_error=error' fixture.log
+          grep -F 'SQL_ASSERT_SCOPE_RESULT post_state=identical golden_projection=ignored differential_verdicts=pass,violation sql_verdicts=pass,pass differential_oracle=required' fixture.log
           grep -F 'SQL_ASSERT_MYSQL_READONLY_RESULT write=error state_unchanged=true' fixture.log
 
       - name: Assert the matching assignment invariants
