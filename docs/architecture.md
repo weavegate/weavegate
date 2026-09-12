@@ -28,9 +28,11 @@ flowchart TD
 
 The CLI/control layer asks the fixture package to provision MySQL from an
 immutable migration and seed snapshot, then constructs the orchestrator with
-that database and fixture handle. The orchestrator requests a reset before each
-schedule; it does not provision the fixture. The adapter starts the selected
-application integration and invokes worker commands on dedicated connections.
+that database and fixture handle. The handle contains both the Go pool and a
+[fixture-owned application connection descriptor](reference/fixture-connection.md)
+for adapters that cannot consume that pool. The orchestrator requests a reset
+before each schedule; it does not provision the fixture. The adapter starts the
+selected application integration and invokes worker commands on dedicated connections.
 The orchestrator executes a validated schedule through the sync-point runtime
 and waits for every worker's terminal state before evaluating the oracle set.
 Only then does it fingerprint the complete oracle evaluation together with the
@@ -42,7 +44,7 @@ determinism signal. The report package writes the public artifacts.
 
 | Boundary | Owns | Must not own |
 | --- | --- | --- |
-| Fixture | Synthetic schema, seed, reset behavior, scenario data | Engine control flow or verdict logic |
+| Fixture | Synthetic schema, seed, reset behavior, scenario data, and prepared-database connection ownership | Engine control flow or verdict logic |
 | CLI/control layer | Config resolution, fixture provisioning and cleanup, dependency composition | Per-schedule coordination or invariant judgment |
 | Adapter | Starting and stopping a SUT; asynchronous worker invocation | Schedule policy or invariant judgment |
 | Sync-point runtime | Named arrival, targeted release, and worker lifecycle state | Database assertions |

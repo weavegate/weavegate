@@ -267,8 +267,9 @@ the fixture (G3); killing the JVM does not prove server-side rollback is complet
 
 ## Provisioning, reset, logs, and evidence
 
-E provisions and resets migrations/seed before starting J. G1 must supply the
-application connection descriptor from that same prepared fixture. J disables
+E provisions and resets migrations/seed before starting J. The
+[fixture connection contract](fixture-connection.md) supplies the application
+descriptor from that same prepared fixture. J disables
 schema creation, migration runners, web listeners, scheduled/background DB
 writers, and health jobs that mutate the database. The worker executor and pool
 have at least the declared capacity; unrelated application work cannot consume
