@@ -90,10 +90,14 @@ bootstraps every worker before traversing the schedule, and a worker-grouped
 schedule does not wait for one worker's terminal before releasing the next.
 The implementation issue therefore owns an explicit reference-execution
 extension point: reset the fixture, invoke only the next worker in
-scenario declaration order, release that worker's declared sync-points in
-order, collect its terminal after commit or rollback and connection return, and
-only then invoke the next worker. This terminal barrier, rather than schedule
-grouping, defines `serial`.
+scenario declaration order, then traverse only that worker's declared
+sync-points in order. At each point, wait for either its arrival or terminal;
+release an arrival, but let a successful terminal end traversal and record all
+remaining points as `terminal_skipped`. After the last release, wait for the
+terminal. Only a successful terminal published after commit or rollback and
+connection return permits the next worker to be invoked; a failed terminal is a
+reference-run error. This terminal barrier, rather than schedule grouping,
+defines `serial`.
 
 For each candidate or replay repeat, the reference executor uses the same
 scenario, adapter, variant, parameters, and timeout policy and captures every
