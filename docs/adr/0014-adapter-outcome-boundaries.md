@@ -51,8 +51,10 @@ cleanup, permitting identity reuse only after closure. Collectors verify identit
 exclusive outcome shape, a non-nil unstarted cause, and exactly one outcome plus
 closure. Empty, multiple, or unfinished streams are protocol errors. A truthful
 WorkerResult authorizes Finish immediately; oracle evaluation additionally waits
-for stream closure. Shutdown keeps collectors alive through Stop so unbuffered
-producers can finish, then drains available evidence within the cleanup boundary.
+for stream closure. A Finish failure remains a run error while the collector
+continues validating stream closure and multiplicity. Shutdown keeps collectors
+alive through Stop so unbuffered producers can finish, then drains available
+evidence within the cleanup boundary.
 
 ## G6: Cancellation and finalization
 

@@ -37,7 +37,9 @@ fault; neither outcome type can represent it. A fault is latched before closing
 an affected stream without an outcome. Empty streams, multiple outcomes,
 malformed identities or outcome variants, and streams left open at cleanup are
 protocol errors. Worker completion can advance runtime coordination before
-stream closure, but oracle evaluation waits for all streams to close.
+stream closure, but oracle evaluation waits for all streams to close. A runtime
+Finish error is retained while the collector still checks for closure and extra
+outcomes.
 
 ## Session fault and cancellation observation
 

@@ -74,7 +74,6 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 		value.result = *outcome.Worker
 		if err := r.runtime.Finish(workerID, value.result.Err); err != nil {
 			value.err = fmt.Errorf("finish worker %q: %w", workerID, err)
-			return
 		}
 	} else {
 		if outcome.Unstarted.WorkerID != workerID || outcome.Unstarted.Err == nil {

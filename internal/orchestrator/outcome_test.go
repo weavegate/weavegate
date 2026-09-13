@@ -49,6 +49,7 @@ func outcomeStream(values ...sut.InvocationOutcome) <-chan sut.InvocationOutcome
 type outcomeRuntime struct {
 	syncpoint.Runtime
 	finishes    atomic.Int32
+	finishErr   error
 	afterFinish func()
 	afterClose  func()
 }
@@ -59,7 +60,7 @@ func (r *outcomeRuntime) Finish(worker string, err error) error {
 	if r.afterFinish != nil {
 		r.afterFinish()
 	}
-	return result
+	return errors.Join(result, r.finishErr)
 }
 func (r *outcomeRuntime) Close() {
 	r.Runtime.Close()
@@ -326,6 +327,18 @@ func TestOutcomeStreamValidation(t *testing.T) {
 			}
 		})
 	}
+	t.Run("finish_error_with_multiple_results", func(t *testing.T) {
+		finishErr := errors.New("finish failed")
+		a := &outcomeAdapter{invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
+			return outcomeStream(worker, worker), nil
+		}}
+		r := &outcomeRuntime{Runtime: syncpoint.New(), finishErr: finishErr}
+		result, err := runOutcomeTest(t, context.Background(), a, r, nil, stableEvaluator)
+		if !errors.Is(err, finishErr) || !strings.Contains(err.Error(), "more than one result") {
+			t.Fatalf("combined Finish/stream error = %v", err)
+		}
+		assertNoProvisionalEvaluation(t, result)
+	})
 	t.Log("SUT_OUTCOME_STREAM_RESULT empty=rejected multiple=rejected malformed=rejected unfinished=rejected closure=before_evaluation")
 }
 
