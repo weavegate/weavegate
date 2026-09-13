@@ -19,6 +19,7 @@ Use these pages when you need the exact CLI, configuration, artifact, or diagnos
 - [CLI](reference/cli.md) — Look up commands, flags, output, and replay behavior.
 - [Configuration](reference/config.md) — Look up configuration keys, their defaults, and the documented behavior of each.
 - [Exit codes](reference/exit-codes.md) — Interpret process status across pass, fail, flaky, and usage outcomes.
+- [Fixture application connection descriptor](reference/fixture-connection.md) — Consume the prepared database's application endpoint without leaking its ephemeral credential.
 - [Report schema](reference/report-schema.md) — Consume run artifacts without guessing their fields or stability guarantees.
 - [External SUT wire v1 (proposed)](reference/external-sut-v1.md) — Review the planned child-process protocol; external adapters are not implemented.
 - [External SUT conformance (proposed)](reference/external-sut-conformance.md) — Share protocol vectors, lifecycle sequences, and implementation acceptance checks.

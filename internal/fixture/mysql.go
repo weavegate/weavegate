@@ -2,9 +2,13 @@ package fixture
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +20,7 @@ import (
 const (
 	fixtureDatabase               = "weavegate"
 	fixtureUsername               = "weavegate"
-	fixturePassword               = "weavegate"
+	rootUsername                  = "root"
 	failedProvisionCleanupTimeout = 30 * time.Second
 	// Leave most of the cleanup deadline for terminating the external
 	// container: a local pool can be abandoned on process exit, while a
@@ -27,12 +31,14 @@ const (
 type mysqlFixture struct {
 	mu sync.Mutex
 
-	container          *mysqlcontainer.MySQLContainer
-	admin              *sql.DB
-	db                 *DB
-	prepared           Prepared
-	provisioned        bool
-	terminateContainer func(context.Context, *mysqlcontainer.MySQLContainer) error
+	container           *mysqlcontainer.MySQLContainer
+	admin               *sql.DB
+	db                  *DB
+	prepared            Prepared
+	provisioned         bool
+	adminPassword       string
+	applicationPassword string
+	terminateContainer  func(context.Context, *mysqlcontainer.MySQLContainer) error
 }
 
 // NewMySQLFixture returns a fixture backed by a Testcontainers MySQL instance.
@@ -43,7 +49,7 @@ func NewMySQLFixture() Provisioner {
 func (f *mysqlFixture) Provision(
 	ctx context.Context,
 	prepared Prepared,
-) (_ *DB, returnErr error) {
+) (handle *DB, returnErr error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -56,13 +62,34 @@ func (f *mysqlFixture) Provision(
 	if !prepared.valid || strings.TrimSpace(prepared.image) == "" {
 		return nil, fmt.Errorf("provision MySQL fixture: prepared fixture is required")
 	}
+	adminPassword, err := randomCredential()
+	if err != nil {
+		return nil, fmt.Errorf("provision MySQL fixture: generate administrative credential: %w", err)
+	}
+	applicationPassword, err := randomCredential()
+	if err != nil {
+		return nil, fmt.Errorf("provision MySQL fixture: generate application credential: %w", err)
+	}
+	if applicationPassword == adminPassword {
+		return nil, fmt.Errorf("provision MySQL fixture: generated credentials are not distinct")
+	}
+	defer func() {
+		returnErr = redactConnectionError(returnErr, adminPassword, applicationPassword)
+		if returnErr != nil {
+			handle = nil
+			if f.container != nil {
+				f.adminPassword = adminPassword
+				f.applicationPassword = applicationPassword
+			}
+		}
+	}()
 
 	container, err := mysqlcontainer.Run(
 		ctx,
 		prepared.image,
 		mysqlcontainer.WithDatabase(fixtureDatabase),
-		mysqlcontainer.WithUsername(fixtureUsername),
-		mysqlcontainer.WithPassword(fixturePassword),
+		mysqlcontainer.WithUsername(rootUsername),
+		mysqlcontainer.WithPassword(adminPassword),
 	)
 	if err != nil {
 		if container != nil {
@@ -87,12 +114,19 @@ func (f *mysqlFixture) Provision(
 		)
 	}()
 
-	admin, err = openAdminDatabase(ctx, container)
+	admin, err = openAdminDatabase(ctx, container, adminPassword)
 	if err != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
 	}
 
-	app, err = openApplicationDatabase(ctx, container)
+	if err := createApplicationUser(ctx, admin, applicationPassword); err != nil {
+		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
+	}
+	descriptor, err := newMySQLConnectionDescriptor(ctx, container, applicationPassword)
+	if err != nil {
+		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
+	}
+	app, err = openApplicationDatabase(ctx, descriptor)
 	if err != nil {
 		return nil, fmt.Errorf("provision MySQL fixture: %w", err)
 	}
@@ -100,12 +134,14 @@ func (f *mysqlFixture) Provision(
 		return nil, fmt.Errorf("provision MySQL fixture: apply SQL: %w", err)
 	}
 
-	handle := &DB{SQL: app}
+	handle = &DB{SQL: app, Connection: descriptor}
 	f.container = container
 	f.admin = admin
 	f.db = handle
 	f.prepared = prepared.clone()
 	f.provisioned = true
+	f.adminPassword = adminPassword
+	f.applicationPassword = applicationPassword
 
 	return handle, nil
 }
@@ -141,12 +177,18 @@ func withProvisionCleanupContext(
 	return cleanup(cleanupCtx)
 }
 
-func (f *mysqlFixture) Reset(ctx context.Context) error {
+func (f *mysqlFixture) Reset(ctx context.Context) (returnErr error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	defer func() {
+		returnErr = redactConnectionError(returnErr, f.adminPassword, f.applicationPassword)
+	}()
 
 	if !f.provisioned {
 		return fmt.Errorf("reset MySQL fixture: not provisioned")
+	}
+	if f.db == nil || !f.db.Connection.Valid() {
+		return fmt.Errorf("reset MySQL fixture: connection descriptor invalid; call Teardown before reuse")
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("reset MySQL fixture: %w", err)
@@ -155,22 +197,27 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 	// Reset runs only after every worker is terminal, so unlike teardown it
 	// does not need to abandon a pool close to preserve a cleanup deadline.
 	if err := closeDatabase("application database", f.db.SQL); err != nil {
+		f.db.Connection.invalidate()
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
 	f.db.SQL = nil
 
 	if _, err := f.admin.ExecContext(ctx, "DROP DATABASE IF EXISTS `"+fixtureDatabase+"`"); err != nil {
+		f.db.Connection.invalidate()
 		return fmt.Errorf("reset MySQL fixture: drop database: %w", err)
 	}
 	if _, err := f.admin.ExecContext(ctx, "CREATE DATABASE `"+fixtureDatabase+"`"); err != nil {
+		f.db.Connection.invalidate()
 		return fmt.Errorf("reset MySQL fixture: create database: %w", err)
 	}
 
-	app, err := openApplicationDatabase(ctx, f.container)
+	app, err := openApplicationDatabase(ctx, f.db.Connection)
 	if err != nil {
+		f.db.Connection.invalidate()
 		return fmt.Errorf("reset MySQL fixture: %w", err)
 	}
 	if err := applyFixtureSQL(ctx, app, f.prepared); err != nil {
+		f.db.Connection.invalidate()
 		return errors.Join(
 			fmt.Errorf("reset MySQL fixture: apply SQL: %w", err),
 			closeDatabase("application database", app),
@@ -181,7 +228,7 @@ func (f *mysqlFixture) Reset(ctx context.Context) error {
 	return nil
 }
 
-func (f *mysqlFixture) Teardown(ctx context.Context) error {
+func (f *mysqlFixture) Teardown(ctx context.Context) (returnErr error) {
 	if ctx == nil {
 		return errors.New("teardown MySQL fixture: context is required")
 	}
@@ -191,6 +238,11 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	adminPassword := f.adminPassword
+	applicationPassword := f.applicationPassword
+	defer func() {
+		returnErr = redactConnectionError(returnErr, adminPassword, applicationPassword)
+	}()
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("teardown MySQL fixture: %w", err)
 	}
@@ -201,6 +253,7 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 
 	var app *sql.DB
 	if f.db != nil {
+		f.db.Connection.invalidate()
 		app = f.db.SQL
 		f.db.SQL = nil
 	}
@@ -222,6 +275,8 @@ func (f *mysqlFixture) Teardown(ctx context.Context) error {
 	f.db = nil
 	f.prepared = Prepared{}
 	f.provisioned = false
+	f.adminPassword = ""
+	f.applicationPassword = ""
 
 	return err
 }
@@ -240,17 +295,19 @@ func (f *mysqlFixture) terminate(
 func openAdminDatabase(
 	ctx context.Context,
 	container *mysqlcontainer.MySQLContainer,
+	password string,
 ) (*sql.DB, error) {
-	endpoint, err := container.PortEndpoint(ctx, "3306/tcp", "")
+	host, port, err := mysqlEndpoint(ctx, container)
 	if err != nil {
 		return nil, fmt.Errorf("get administrative endpoint: %w", err)
 	}
 
 	config := mysqldriver.NewConfig()
-	config.User = "root"
-	config.Passwd = fixturePassword
+	config.User = rootUsername
+	config.Passwd = password
 	config.Net = "tcp"
-	config.Addr = endpoint
+	config.Addr = net.JoinHostPort(host, strconv.Itoa(port))
+	config.DBName = fixtureDatabase
 
 	db, err := sql.Open("mysql", config.FormatDSN())
 	if err != nil {
@@ -266,16 +323,79 @@ func openAdminDatabase(
 	return db, nil
 }
 
-func openApplicationDatabase(
+func createApplicationUser(ctx context.Context, admin *sql.DB, password string) error {
+	// randomCredential returns lowercase hexadecimal text, so the generated
+	// value cannot terminate or escape this single-quoted MySQL literal.
+	if _, err := admin.ExecContext(
+		ctx,
+		"CREATE USER '"+fixtureUsername+"'@'%' IDENTIFIED BY '"+password+"'",
+	); err != nil {
+		return fmt.Errorf("create application user: %w", err)
+	}
+	if _, err := admin.ExecContext(
+		ctx,
+		"GRANT ALL PRIVILEGES ON `"+fixtureDatabase+"`.* TO '"+fixtureUsername+"'@'%'",
+	); err != nil {
+		return fmt.Errorf("grant application database access: %w", err)
+	}
+	return nil
+}
+
+func newMySQLConnectionDescriptor(
 	ctx context.Context,
 	container *mysqlcontainer.MySQLContainer,
-) (*sql.DB, error) {
-	dsn, err := container.ConnectionString(ctx, "parseTime=true")
+	password string,
+) (ConnectionDescriptor, error) {
+	host, port, err := mysqlEndpoint(ctx, container)
 	if err != nil {
-		return nil, fmt.Errorf("get application connection string: %w", err)
+		return ConnectionDescriptor{}, fmt.Errorf("get application endpoint: %w", err)
 	}
+	return newConnectionDescriptor(
+		"mysql",
+		host,
+		port,
+		fixtureDatabase,
+		fixtureUsername,
+		password,
+	), nil
+}
 
-	db, err := sql.Open("mysql", dsn)
+func mysqlEndpoint(
+	ctx context.Context,
+	container *mysqlcontainer.MySQLContainer,
+) (string, int, error) {
+	host, err := container.Host(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	mappedPort, err := container.MappedPort(ctx, "3306/tcp")
+	if err != nil {
+		return "", 0, err
+	}
+	port := int(mappedPort.Num())
+	if port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("mapped port %d is outside 1-65535", port)
+	}
+	return host, port, nil
+}
+
+func openApplicationDatabase(
+	ctx context.Context,
+	descriptor ConnectionDescriptor,
+) (*sql.DB, error) {
+	password, err := descriptor.Password()
+	if err != nil {
+		return nil, fmt.Errorf("get application credential: %w", err)
+	}
+	config := mysqldriver.NewConfig()
+	config.User = descriptor.Username
+	config.Passwd = password
+	config.Net = "tcp"
+	config.Addr = net.JoinHostPort(descriptor.Host, strconv.Itoa(descriptor.Port))
+	config.DBName = descriptor.Name
+	config.ParseTime = true
+
+	db, err := sql.Open("mysql", config.FormatDSN())
 	if err != nil {
 		return nil, fmt.Errorf("open application database: %w", err)
 	}
@@ -287,6 +407,14 @@ func openApplicationDatabase(
 	}
 
 	return db, nil
+}
+
+func randomCredential() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }
 
 func closeDatabase(name string, db *sql.DB) error {
