@@ -257,3 +257,45 @@ func TestGoNativeCleanupSessionFault(t *testing.T) {
 		t.Fatalf("Stop lost retired worker cleanup cause: %v", err)
 	}
 }
+
+func TestWorkerAcceptanceSerializesCancellation(t *testing.T) {
+	t.Run("cancellation wins", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		workerCtx, cancelWorker := context.WithCancelCause(context.Background())
+		worker := &activeWorker{cancel: cancelWorker, done: make(chan struct{})}
+		cause := errors.New("cancel before command acceptance")
+
+		worker.requestCancel(cause)
+		if err := worker.accept(parentCtx); !errors.Is(err, cause) {
+			t.Fatalf("accept error = %v, want cancellation cause", err)
+		}
+		if worker.accepted {
+			t.Fatal("worker accepted after cancellation won")
+		}
+		if !errors.Is(context.Cause(workerCtx), cause) {
+			t.Fatalf("worker context cause = %v, want %v", context.Cause(workerCtx), cause)
+		}
+		cancelParent(nil)
+	})
+
+	t.Run("acceptance wins", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		workerCtx, cancelWorker := context.WithCancelCause(context.Background())
+		worker := &activeWorker{cancel: cancelWorker, done: make(chan struct{})}
+		cause := errors.New("cancel after command acceptance")
+
+		if err := worker.accept(parentCtx); err != nil {
+			t.Fatalf("accept worker: %v", err)
+		}
+		worker.requestCancel(cause)
+		if !worker.accepted {
+			t.Fatal("accepted worker lost its started state")
+		}
+		if !errors.Is(context.Cause(workerCtx), cause) {
+			t.Fatalf("worker context cause = %v, want %v", context.Cause(workerCtx), cause)
+		}
+		cancelParent(nil)
+	})
+
+	t.Log("SUT_COMMAND_ACCEPT_RESULT cancellation_wins=unstarted acceptance_wins=worker_result ordering=serialized")
+}

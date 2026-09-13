@@ -31,9 +31,13 @@ const (
 )
 
 type activeWorker struct {
+	mu sync.Mutex
+
 	workerID   string
 	command    string
-	cancel     context.CancelFunc
+	cancel     context.CancelCauseFunc
+	accepted   bool
+	cancelErr  error
 	results    chan sut.InvocationOutcome
 	done       chan struct{}
 	cleanupErr error
@@ -166,7 +170,9 @@ func (a *adapter) Invoke(
 		)
 	}
 
-	workerCtx, cancel := context.WithCancel(ctx)
+	// Parent cancellation is observed through the worker state below so command
+	// acceptance and cancellation have one serialized ordering point.
+	workerCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	worker := &activeWorker{
 		workerID: workerID,
 		command:  commandName,
@@ -178,24 +184,35 @@ func (a *adapter) Invoke(
 	db := a.db.SQL
 	a.mu.Unlock()
 
-	go a.startWorker(workerCtx, worker, command, db)
+	go worker.watchParent(ctx)
+	go a.startWorker(ctx, workerCtx, worker, command, db)
 	return worker.results, nil
 }
 
 func (a *adapter) Faults() sut.SessionFaults { return &a.faults }
 
-func (a *adapter) startWorker(ctx context.Context, worker *activeWorker, command CommandFunc, db *sql.DB) {
-	conn, err := db.Conn(ctx)
+func (a *adapter) startWorker(
+	parentCtx context.Context,
+	workerCtx context.Context,
+	worker *activeWorker,
+	command CommandFunc,
+	db *sql.DB,
+) {
+	conn, err := db.Conn(workerCtx)
 	if err != nil {
-		a.completeUnstartedWorker(worker, fmt.Errorf("acquire connection: %w", err), nil)
+		cause := fmt.Errorf("acquire connection: %w", err)
+		if canceled := context.Cause(workerCtx); canceled != nil {
+			cause = canceled
+		}
+		a.completeUnstartedWorker(worker, cause, nil)
 		return
 	}
-	if err := ctx.Err(); err != nil {
+	if err := worker.accept(parentCtx); err != nil {
 		closeErr := closeWorkerConnection(worker.workerID, worker.command, conn)
 		a.completeUnstartedWorker(worker, err, closeErr)
 		return
 	}
-	a.runWorker(ctx, worker, command, conn)
+	a.runWorker(workerCtx, worker, command, conn)
 }
 
 func (a *adapter) Stop(ctx context.Context) error {
@@ -210,7 +227,7 @@ func (a *adapter) Stop(ctx context.Context) error {
 	a.mu.Unlock()
 
 	for _, worker := range workers {
-		worker.cancel()
+		worker.requestCancel(context.Canceled)
 	}
 
 	var stopErr error
@@ -272,7 +289,7 @@ func (a *adapter) completeWorker(
 	result *sut.InvocationOutcome,
 	cleanupErr error,
 ) {
-	worker.cancel()
+	worker.requestCancel(context.Canceled)
 	a.mu.Lock()
 	worker.cleanupErr = cleanupErr
 	if result != nil {
@@ -284,6 +301,54 @@ func (a *adapter) completeWorker(
 	// its result stream and cleanup signal have both reached terminal state.
 	delete(a.active, worker.workerID)
 	a.mu.Unlock()
+}
+
+// accept and requestCancel define the command-entry linearization point. If
+// cancellation wins, the command never runs. If accept wins, later cancellation
+// reaches the running command through its context and produces a WorkerResult.
+func (w *activeWorker) accept(parentCtx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.cancelErr != nil {
+		return w.cancelErr
+	}
+	if err := parentCtx.Err(); err != nil {
+		cause := context.Cause(parentCtx)
+		if cause == nil {
+			cause = err
+		}
+		w.cancelErr = cause
+		w.cancel(cause)
+		return cause
+	}
+	w.accepted = true
+	return nil
+}
+
+func (w *activeWorker) requestCancel(cause error) {
+	if cause == nil {
+		cause = context.Canceled
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.cancelErr != nil {
+		return
+	}
+	w.cancelErr = cause
+	w.cancel(cause)
+}
+
+func (w *activeWorker) watchParent(parentCtx context.Context) {
+	select {
+	case <-parentCtx.Done():
+		cause := context.Cause(parentCtx)
+		if cause == nil {
+			cause = parentCtx.Err()
+		}
+		w.requestCancel(cause)
+	case <-w.done:
+	}
 }
 
 func copyCommands(registered map[string]CommandFunc) (map[string]CommandFunc, error) {

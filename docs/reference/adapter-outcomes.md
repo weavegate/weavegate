@@ -20,8 +20,13 @@ closes. The outcome has exactly one non-nil field:
 Go-native connection acquisition is asynchronous. Input validation, unknown
 commands, active worker-ID conflicts, and already-canceled contexts are
 synchronous rejections. Connection acquisition failure or cancellation before
-command entry produces an unstarted outcome after Invoke returns. The adapter
-holds the worker reservation until cleanup and stream closure, then permits reuse.
+command acceptance produces an unstarted outcome after Invoke returns.
+Cancellation observation and command acceptance share a worker-local serialized
+transition immediately before the command call. If cancellation wins, the
+command is not called. If acceptance wins, later cancellation reaches the
+running command through its context and the completed transaction is represented
+by a WorkerResult. The adapter holds the worker reservation until cleanup and
+stream closure, then permits reuse.
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
@@ -80,10 +85,10 @@ without Docker:
 
 ```bash
 go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative \
-  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault' \
+  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance' \
   -v -count=20
 go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative \
-  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault' \
+  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance' \
   -count=20
 ```
 
@@ -105,6 +110,7 @@ These fixed test markers are checked with `grep -F` in the smoke workflow:
 - `SUT_OUTCOME_ERRORS_RESULT`
 - `SUT_OUTCOME_STREAM_RESULT`
 - `SUT_ASYNC_UNSTARTED_RESULT`
+- `SUT_COMMAND_ACCEPT_RESULT`
 - `SUT_COMMIT_CANCEL_RESULT`
 
 The markers describe Go boundary and MySQL adapter evidence. They do not claim

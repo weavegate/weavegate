@@ -100,6 +100,7 @@ jobs:
           grep -F 'SUT_OUTCOME_ERRORS_RESULT worker=evidence evaluation=joined session=joined cancellation=joined stop=joined provisional=discarded' fixture.log
           grep -F 'SUT_OUTCOME_STREAM_RESULT empty=rejected multiple=rejected malformed=rejected unfinished=rejected closure=before_evaluation' fixture.log
           grep -F 'SUT_ASYNC_UNSTARTED_RESULT invoke=nonblocking reservation=held cancellation=preserved resources=returned stream=closed worker_id=reusable' fixture.log
+          grep -F 'SUT_COMMAND_ACCEPT_RESULT cancellation_wins=unstarted acceptance_wins=worker_result ordering=serialized' fixture.log
           grep -F 'SUT_COMMIT_CANCEL_RESULT transaction=committed cancellation=after_commit worker_error=nil connection=returned' fixture.log
 
       - name: Assert the sync-point runtime invariants
@@ -219,9 +220,9 @@ jobs:
       - name: Repeat adapter outcome boundary tests
         run: |
           go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative \
-            -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault' -count=20
+            -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance' -count=20
           go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative \
-            -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault' -count=20
+            -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance' -count=20
 
       - name: Run the race detector
         run: |
