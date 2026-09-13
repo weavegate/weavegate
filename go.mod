@@ -3,7 +3,7 @@ module github.com/weavegate/weavegate
 go 1.25.0
 
 require (
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.44.0
 	gopkg.in/yaml.v3 v3.0.1
