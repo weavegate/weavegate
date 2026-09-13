@@ -282,6 +282,7 @@ func newReplayTestOrchestrator(
 }
 
 type eagerAdapter struct {
+	faults sut.FaultLatch
 	client syncpoint.Client
 
 	mu     sync.Mutex
@@ -313,13 +314,13 @@ func (a *eagerAdapter) Invoke(
 	_ context.Context,
 	workerID string,
 	_ string,
-) (<-chan sut.WorkerResult, error) {
+) (<-chan sut.InvocationOutcome, error) {
 	a.mu.Lock()
 	ctx := a.ctx
 	workerErr := a.errors[workerID]
 	a.mu.Unlock()
 
-	results := make(chan sut.WorkerResult, 1)
+	results := make(chan sut.InvocationOutcome, 1)
 	a.wait.Add(1)
 	a.active.Add(1)
 	go func() {
@@ -334,7 +335,7 @@ func (a *eagerAdapter) Invoke(
 		if err == nil {
 			err = workerErr
 		}
-		results <- sut.WorkerResult{WorkerID: workerID, Err: err}
+		results <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: workerID, Err: err}}
 	}()
 	return results, nil
 }
@@ -360,3 +361,5 @@ func (a *eagerAdapter) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
+func (a *eagerAdapter) Faults() sut.SessionFaults { return &a.faults }

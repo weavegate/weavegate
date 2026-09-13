@@ -19,8 +19,9 @@ channel closes once, and its typed error retains the first failure and its cause
 for every observer, including observers arriving after notification. The adapter
 must latch a fault before closing an invocation stream whose outcome is unknown.
 Unknown transaction outcome or unproven connection cleanup never produces a
-WorkerResult. Stop must finish publishing session faults before returning; a
-failed Stop does not prove cleanup or permit fixture reuse (G3 remains separate).
+WorkerResult. Successful Stop must finish publishing session faults before returning; a
+failed Stop provides only an observed fault snapshot and does not prove cleanup.
+Quarantine after failed Stop remains the separate G3 decision.
 
 Run observes faults during execution and provisional oracle evaluation by
 canceling their shared execution context. It also reads the latch synchronously

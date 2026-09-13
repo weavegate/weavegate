@@ -37,6 +37,9 @@ func TestGoNativeMySQL(t *testing.T) {
 		t.Fatalf("provision MySQL fixture: %v", err)
 	}
 
+	t.Run("preserves commit before cancellation", func(t *testing.T) {
+		testCommitWinsCancellation(t, ctx, db)
+	})
 	t.Run("runs workers asynchronously on dedicated connections", func(t *testing.T) {
 		testDedicatedConnections(t, ctx, db)
 	})
@@ -90,7 +93,7 @@ func testDedicatedConnections(
 		}
 	})
 
-	results := make(map[string]<-chan sut.WorkerResult, 2)
+	results := make(map[string]<-chan sut.InvocationOutcome, 2)
 	for _, workerID := range []string{"w1", "w2"} {
 		result, err := handle.Invoke(ctx, workerID, "probe")
 		if err != nil {
@@ -311,11 +314,15 @@ type connectionObservation struct {
 func receiveWorkerResult(
 	t *testing.T,
 	ctx context.Context,
-	results <-chan sut.WorkerResult,
+	results <-chan sut.InvocationOutcome,
 ) sut.WorkerResult {
 	t.Helper()
 
-	result := receiveWithin(t, ctx, results, "worker result")
+	outcome := receiveWithin(t, ctx, results, "worker result")
+	if outcome.Worker == nil || outcome.Unstarted != nil {
+		t.Fatalf("expected worker result, got %#v", outcome)
+	}
+	result := *outcome.Worker
 	select {
 	case _, ok := <-results:
 		if ok {
@@ -346,4 +353,54 @@ func receiveWithin[T any](
 		var zero T
 		return zero
 	}
+}
+
+func testCommitWinsCancellation(t *testing.T, ctx context.Context, db *fixture.DB) {
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	defer cancelWorker()
+	committed := make(chan struct{})
+	adapter := New(staticRegistry{"commit": func(ctx context.Context, _ string, conn *sql.Conn) error {
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if _, err := tx.ExecContext(ctx, "UPDATE fixture_item SET name = 'committed' WHERE id = 1"); err != nil {
+			return errors.Join(err, tx.Rollback())
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		close(committed)
+		<-ctx.Done() // Cancellation is ordered strictly after successful Commit.
+		return nil
+	}})
+	handle, err := adapter.Start(ctx, sut.SUTConfig{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	stream, err := handle.Invoke(workerCtx, "committer", "commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-committed:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	cancelWorker()
+	result := receiveWorkerResult(t, ctx, stream)
+	if result.Err != nil || db.SQL.Stats().InUse != 0 {
+		t.Fatalf("committed result=%v, connections in use=%d", result.Err, db.SQL.Stats().InUse)
+	}
+	var name string
+	if err := db.SQL.QueryRowContext(ctx, "SELECT name FROM fixture_item WHERE id = 1").Scan(&name); err != nil || name != "committed" {
+		t.Fatalf("committed state = %q, error = %v", name, err)
+	}
+	t.Log("SUT_COMMIT_CANCEL_RESULT transaction=committed cancellation=after_commit worker_error=nil connection=returned")
 }

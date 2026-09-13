@@ -36,7 +36,6 @@ func TestRunSavedScheduleWithOracle(t *testing.T) {
 		NewRuntime: func() syncpoint.Runtime { return runtime },
 		NewAdapter: func(client syncpoint.Client) sut.Adapter {
 			adapter = newScriptedAdapter(client)
-			adapter.keepResultsOpen = true
 			return adapter
 		},
 		BlockInferenceTimeout: testBlockTimeout,
@@ -967,12 +966,12 @@ func (r *runtimeProbe) Close() {
 }
 
 type scriptedAdapter struct {
+	faults sut.FaultLatch
 	client syncpoint.Client
 
 	startErr             error
 	invokeErr            error
 	stopErr              error
-	keepResultsOpen      bool
 	unbufferedResults    bool
 	w1WaitsForW2Final    bool
 	w2VisitsBeforeInsert bool
@@ -1020,7 +1019,7 @@ func (a *scriptedAdapter) Invoke(
 	_ context.Context,
 	workerID string,
 	_ string,
-) (<-chan sut.WorkerResult, error) {
+) (<-chan sut.InvocationOutcome, error) {
 	if a.invokeErr != nil {
 		return nil, a.invokeErr
 	}
@@ -1036,15 +1035,13 @@ func (a *scriptedAdapter) Invoke(
 	if a.unbufferedResults {
 		resultBuffer = 0
 	}
-	results := make(chan sut.WorkerResult, resultBuffer)
+	results := make(chan sut.InvocationOutcome, resultBuffer)
 	a.wait.Add(1)
 	a.active.Add(1)
 	go func() {
 		defer a.wait.Done()
 		defer a.active.Add(-1)
-		if !a.keepResultsOpen {
-			defer close(results)
-		}
+		defer close(results)
 
 		var workerErr error
 		switch workerID {
@@ -1097,13 +1094,13 @@ func (a *scriptedAdapter) Invoke(
 }
 
 func (a *scriptedAdapter) publishTerminal(
-	results chan<- sut.WorkerResult,
+	results chan<- sut.InvocationOutcome,
 	result sut.WorkerResult,
 ) {
 	// This fake has no database, so the flag models the production adapter's
 	// transaction/connection release cut immediately before terminal publication.
 	a.terminalResourcesReleased.Add(1)
-	results <- result
+	results <- sut.InvocationOutcome{Worker: &result}
 }
 
 func (a *scriptedAdapter) Stop(ctx context.Context) error {
@@ -1128,3 +1125,5 @@ func (a *scriptedAdapter) Stop(ctx context.Context) error {
 		return errors.Join(a.stopErr, fmt.Errorf("stop scripted adapter: %w", ctx.Err()))
 	}
 }
+
+func (a *scriptedAdapter) Faults() sut.SessionFaults { return &a.faults }

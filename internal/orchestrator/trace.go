@@ -61,6 +61,7 @@ type EventObserver func(Event) error
 type traceRecorder struct {
 	events   trace.Trace
 	observer EventObserver
+	err      error
 }
 
 func newTraceRecorder(observer EventObserver) *traceRecorder {
@@ -68,6 +69,9 @@ func newTraceRecorder(observer EventObserver) *traceRecorder {
 }
 
 func (r *traceRecorder) emit(event Event) error {
+	if r.err != nil {
+		return r.err
+	}
 	event.Seq = len(r.events) + 1
 	if event.Status == "" {
 		event.Status = ControlStatusNone
@@ -78,7 +82,8 @@ func (r *traceRecorder) emit(event Event) error {
 	r.events = append(r.events, event)
 	if r.observer != nil {
 		if err := r.observer(event); err != nil {
-			return fmt.Errorf("observe trace event %d %q: %w", event.Seq, event.Kind, err)
+			r.err = fmt.Errorf("observe trace event %d %q: %w", event.Seq, event.Kind, err)
+			return r.err
 		}
 	}
 	return nil
