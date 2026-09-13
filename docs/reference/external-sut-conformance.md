@@ -198,7 +198,7 @@ Implementation prerequisites have explicit owners:
 
 | Work | Owner | Required before |
 | --- | --- | --- |
-| G1 fixture connection descriptor | [#118](https://github.com/weavegate/weavegate/issues/118) | Real database provisioning for the external adapter |
+| G1 fixture connection descriptor (resolved) | [#118](https://github.com/weavegate/weavegate/issues/118) and the [fixture connection contract](fixture-connection.md) | Real database provisioning for the external adapter |
 | G2 session faults, G5 unstarted outcomes, G6 operation cancellation | [#119](https://github.com/weavegate/weavegate/issues/119) | Production Go result mapping and run-level conformance |
 | G3 quarantine and recovery after uncertain cleanup | [#120](https://github.com/weavegate/weavegate/issues/120) | External execution/repeat enablement |
 | G4 launch, configuration and budget composition | [#110](https://github.com/weavegate/weavegate/issues/110) | External CLI enablement |
@@ -406,7 +406,7 @@ configuration enablement; [Spring evidence #111](https://github.com/weavegate/we
 owns the combined MySQL reproduction. Do not mark this design checklist complete
 on the strength of prose or a mock-only test.
 
-- [ ] Resolve ADR gaps G1–G6 in separately reviewable decisions before enabling external CLI execution: fixture descriptor, asynchronous fault propagation, reset quarantine, launch/config/budgets, asynchronous unstarted outcomes, and run-level cancellation precedence.
+- [ ] Resolve remaining ADR gaps G2–G6 in separately reviewable decisions before enabling external CLI execution: asynchronous fault propagation, reset quarantine, launch/config/budgets, asynchronous unstarted outcomes, and run-level cancellation precedence. G1 is resolved by the fixture connection contract.
 - [ ] Consume all shared vector IDs targeting the implementation under test. Go owns runtime mapping, channel closure, process supervision, and error propagation; Java owns framing, dispatch, gates, proxy/lease tracking, and local cancellation. Both test malformed input and duplicate handling.
 - [ ] Implement only child-JVM launch with framed stdin/stdout. Test fragmented/coalesced frames, invalid JSON/UTF-8/fields/version, unknown names/IDs, gaps, conflicting duplicates, sequence exhaustion, and capacity exhaustion without changing application state on rejection.
 - [ ] Exercise concurrent arrivals and releases with barriers, including a blocked worker while another commits. The pipe reader/writer must remain live; no sleep-based coordination or polling for readiness.

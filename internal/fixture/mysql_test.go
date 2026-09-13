@@ -6,14 +6,17 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 )
 
@@ -87,6 +90,29 @@ func TestMySQLFixtureLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision MySQL fixture: %v", err)
 	}
+	descriptor := handle.Connection
+	applicationPassword, err := descriptor.Password()
+	if err != nil {
+		t.Fatalf("read application connection password: %v", err)
+	}
+	if descriptor.Driver != "mysql" || descriptor.Name != fixtureDatabase || descriptor.Username != fixtureUsername {
+		t.Fatalf("application connection descriptor = %v, want mysql fixture application account", descriptor)
+	}
+	externalDB := openDescriptorDatabase(t, descriptor, descriptor.Username, applicationPassword)
+	var externalServerUUID, externalDatabase, externalUser string
+	if err := externalDB.QueryRowContext(
+		ctx,
+		"SELECT @@server_uuid, DATABASE(), CURRENT_USER()",
+	).Scan(&externalServerUUID, &externalDatabase, &externalUser); err != nil {
+		t.Fatalf("inspect descriptor database: %v", err)
+	}
+	if externalDatabase != fixtureDatabase || externalUser != fixtureUsername+"@%" {
+		t.Fatalf("descriptor selected database/user = %q/%q, want %q/%q", externalDatabase, externalUser, fixtureDatabase, fixtureUsername+"@%")
+	}
+	if err := externalDB.Close(); err != nil {
+		t.Fatalf("close descriptor database: %v", err)
+	}
+	assertCredentialRejected(t, ctx, descriptor, rootUsername, applicationPassword, "application credential as administrator")
 
 	if _, err := fixture.Provision(ctx, prepared); err == nil || !strings.Contains(err.Error(), "already provisioned") {
 		t.Fatalf("provision twice error = %v, want already provisioned", err)
@@ -100,6 +126,9 @@ func TestMySQLFixtureLifecycle(t *testing.T) {
 	var serverUUIDBefore string
 	if err := handle.SQL.QueryRowContext(ctx, "SELECT @@server_uuid").Scan(&serverUUIDBefore); err != nil {
 		t.Fatalf("read server UUID before reset: %v", err)
+	}
+	if externalServerUUID != serverUUIDBefore {
+		t.Fatalf("descriptor server UUID = %q, Go pool server UUID = %q", externalServerUUID, serverUUIDBefore)
 	}
 
 	if _, err := handle.SQL.ExecContext(
@@ -123,6 +152,16 @@ func TestMySQLFixtureLifecycle(t *testing.T) {
 
 	if err := fixture.Reset(ctx); err != nil {
 		t.Fatalf("reset MySQL fixture: %v", err)
+	}
+	if !descriptor.Valid() || handle.Connection != descriptor {
+		t.Fatal("successful reset replaced or invalidated the application connection descriptor")
+	}
+	resetExternalDB := openDescriptorDatabase(t, descriptor, descriptor.Username, applicationPassword)
+	if got := itemCountSQL(t, ctx, resetExternalDB); got != 1 {
+		t.Fatalf("descriptor reset row count = %d, want 1", got)
+	}
+	if err := resetExternalDB.Close(); err != nil {
+		t.Fatalf("close reset descriptor database: %v", err)
 	}
 
 	resetRows := itemCount(t, ctx, handle)
@@ -157,15 +196,117 @@ func TestMySQLFixtureLifecycle(t *testing.T) {
 	if err := fixture.Teardown(ctx); err != nil {
 		t.Fatalf("teardown MySQL fixture: %v", err)
 	}
+	if descriptor.Valid() {
+		t.Fatal("teardown left the application connection descriptor valid")
+	}
+	if password, err := descriptor.Password(); !errors.Is(err, ErrConnectionDescriptorInvalid) || password != "" {
+		t.Fatalf("torn-down descriptor password = %q, error = %v", password, err)
+	}
+
+	reprovisioned, err := fixture.Provision(ctx, prepared)
+	if err != nil {
+		t.Fatalf("reprovision MySQL fixture: %v", err)
+	}
+	freshPassword, err := reprovisioned.Connection.Password()
+	if err != nil {
+		t.Fatalf("read reprovisioned application password: %v", err)
+	}
+	if freshPassword == applicationPassword {
+		t.Fatal("reprovision reused the stale application credential")
+	}
+	assertCredentialRejected(
+		t,
+		ctx,
+		reprovisioned.Connection,
+		descriptor.Username,
+		applicationPassword,
+		"stale descriptor after reprovision",
+	)
+	freshExternalDB := openDescriptorDatabase(t, reprovisioned.Connection, reprovisioned.Connection.Username, freshPassword)
+	if got := itemCountSQL(t, ctx, freshExternalDB); got != 1 {
+		t.Fatalf("reprovisioned descriptor row count = %d, want 1", got)
+	}
+	if err := freshExternalDB.Close(); err != nil {
+		t.Fatalf("close reprovisioned descriptor database: %v", err)
+	}
+	if err := fixture.Teardown(ctx); err != nil {
+		t.Fatalf("teardown reprovisioned MySQL fixture: %v", err)
+	}
 	if err := fixture.Teardown(ctx); err != nil {
 		t.Fatalf("teardown MySQL fixture twice: %v", err)
 	}
 
 	t.Logf(
-		"FIXTURE_LIFECYCLE_RESULT image=mysql:8.4 provision_rows=%d reset_rows=%d prepared_snapshot=stable digests=stable teardown=ok",
+		"FIXTURE_LIFECYCLE_RESULT image=mysql:8.4 provision_rows=%d reset_rows=%d prepared_snapshot=stable digests=stable descriptor_same_database=true descriptor_reset=valid credentials=separate teardown=invalidated stale_reprovision_auth=denied",
 		provisionRows,
 		resetRows,
 	)
+}
+
+func openDescriptorDatabase(
+	t *testing.T,
+	descriptor ConnectionDescriptor,
+	username string,
+	password string,
+) *sql.DB {
+	t.Helper()
+
+	db, err := sql.Open("mysql", descriptorDSN(descriptor, username, password))
+	if err != nil {
+		t.Fatalf("open descriptor database: %v", err)
+	}
+	if err := db.PingContext(context.Background()); err != nil {
+		_ = db.Close()
+		t.Fatalf("ping descriptor database: %v", err)
+	}
+	return db
+}
+
+func assertCredentialRejected(
+	t *testing.T,
+	ctx context.Context,
+	descriptor ConnectionDescriptor,
+	username string,
+	password string,
+	name string,
+) {
+	t.Helper()
+
+	db, err := sql.Open("mysql", descriptorDSN(descriptor, username, password))
+	if err != nil {
+		t.Fatalf("open %s probe: %v", name, err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close %s probe: %v", name, err)
+		}
+	}()
+	if err := db.PingContext(ctx); err == nil {
+		t.Fatalf("%s unexpectedly authorized a database connection", name)
+	} else if strings.Contains(err.Error(), password) {
+		t.Fatalf("%s error disclosed the credential: %v", name, err)
+	}
+}
+
+func descriptorDSN(descriptor ConnectionDescriptor, username, password string) string {
+	config := mysqldriver.NewConfig()
+	config.User = username
+	config.Passwd = password
+	config.Net = "tcp"
+	config.Addr = net.JoinHostPort(descriptor.Host, strconv.Itoa(descriptor.Port))
+	config.DBName = descriptor.Name
+	config.ParseTime = true
+	return config.FormatDSN()
+}
+
+func itemCountSQL(t *testing.T, ctx context.Context, db *sql.DB) int {
+	t.Helper()
+
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM fixture_item").Scan(&count); err != nil {
+		t.Fatalf("count fixture items through descriptor: %v", err)
+	}
+	return count
 }
 
 func copyFixtureSource(t *testing.T, source, destination string) {
@@ -267,16 +408,22 @@ func TestMySQLFixturePreservesFailedProvisionContainerForTeardown(t *testing.T) 
 
 func TestMySQLFixtureTeardownRetriesFailedTermination(t *testing.T) {
 	wantErr := errors.New("terminate failed")
+	const adminPassword = "admin-retry-secret"
+	const applicationPassword = "application-retry-secret"
 	terminateCalls := 0
 	fixture := &mysqlFixture{
-		container:   &mysqlcontainer.MySQLContainer{},
-		db:          &DB{},
-		prepared:    Prepared{image: "mysql:8.4", valid: true},
-		provisioned: true,
+		container: &mysqlcontainer.MySQLContainer{},
+		db: &DB{Connection: newConnectionDescriptor(
+			"mysql", "127.0.0.1", 3306, fixtureDatabase, fixtureUsername, applicationPassword,
+		)},
+		prepared:            Prepared{image: "mysql:8.4", valid: true},
+		provisioned:         true,
+		adminPassword:       adminPassword,
+		applicationPassword: applicationPassword,
 		terminateContainer: func(context.Context, *mysqlcontainer.MySQLContainer) error {
 			terminateCalls++
 			if terminateCalls == 1 {
-				return wantErr
+				return fmt.Errorf("%w: %s %s", wantErr, adminPassword, applicationPassword)
 			}
 
 			return nil
@@ -285,9 +432,14 @@ func TestMySQLFixtureTeardownRetriesFailedTermination(t *testing.T) {
 
 	if err := fixture.Teardown(context.Background()); !errors.Is(err, wantErr) {
 		t.Fatalf("first teardown error = %v, want %v", err, wantErr)
+	} else if strings.Contains(err.Error(), adminPassword) || strings.Contains(err.Error(), applicationPassword) {
+		t.Fatalf("first teardown error disclosed a credential: %v", err)
 	}
 	if fixture.container == nil || !fixture.provisioned {
 		t.Fatal("failed teardown discarded retryable fixture state")
+	}
+	if fixture.db.Connection.Valid() {
+		t.Fatal("failed teardown left the connection descriptor valid")
 	}
 	if _, err := fixture.Provision(context.Background(), Prepared{}); err == nil || !strings.Contains(err.Error(), "already provisioned") {
 		t.Fatalf("provision during pending cleanup error = %v, want already provisioned", err)
@@ -298,6 +450,9 @@ func TestMySQLFixtureTeardownRetriesFailedTermination(t *testing.T) {
 	}
 	if fixture.container != nil || fixture.provisioned {
 		t.Fatal("successful teardown retained fixture state")
+	}
+	if fixture.adminPassword != "" || fixture.applicationPassword != "" {
+		t.Fatal("successful teardown retained fixture credentials")
 	}
 	if err := fixture.Teardown(context.Background()); err != nil {
 		t.Fatalf("teardown after cleanup: %v", err)
@@ -311,8 +466,10 @@ func TestMySQLFixtureTeardownHonorsContextDeadline(t *testing.T) {
 	terminateCalls := 0
 	container := &mysqlcontainer.MySQLContainer{}
 	fixture := &mysqlFixture{
-		container:   container,
-		db:          &DB{},
+		container: container,
+		db: &DB{Connection: newConnectionDescriptor(
+			"mysql", "127.0.0.1", 3306, fixtureDatabase, fixtureUsername, "deadline-secret",
+		)},
 		prepared:    Prepared{image: "mysql:8.4", valid: true},
 		provisioned: true,
 		terminateContainer: func(ctx context.Context, got *mysqlcontainer.MySQLContainer) error {
@@ -340,6 +497,9 @@ func TestMySQLFixtureTeardownHonorsContextDeadline(t *testing.T) {
 	}
 	if fixture.container != container || !fixture.provisioned {
 		t.Fatal("deadline-exceeded teardown discarded retryable fixture state")
+	}
+	if fixture.db.Connection.Valid() {
+		t.Fatal("deadline-exceeded teardown left the connection descriptor valid")
 	}
 
 	assertMySQLFixtureBoundsPoolClose(t)

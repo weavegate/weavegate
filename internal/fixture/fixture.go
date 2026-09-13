@@ -51,10 +51,12 @@ func (p Prepared) MigrationDigest() string { return p.migrationDigest }
 // SeedDigest returns the digest derived from the prepared seed bytes.
 func (p Prepared) SeedDigest() string { return p.seedDigest }
 
-// DB exposes the fixture's managed database connection pool.
+// DB exposes the fixture's managed database connection pool and the structured
+// application connection descriptor for that same prepared database.
 //
-// A reset may replace SQL while preserving the DB wrapper. Callers must not
-// retain the pool or use the fixture concurrently with Reset.
+// A reset may replace SQL while preserving the DB wrapper and Connection.
+// Callers must not retain the pool or use the fixture concurrently with Reset.
 type DB struct {
-	SQL *sql.DB
+	SQL        *sql.DB
+	Connection ConnectionDescriptor
 }
