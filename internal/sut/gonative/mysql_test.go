@@ -332,8 +332,9 @@ func runRollbackCommand(
 		rollbackErr = nil
 	}
 	return CommandResult{
-		TransactionStarted: true,
-		Err:                errors.Join(runErr, rollbackErr),
+		TransactionStarted:   true,
+		TransactionCompleted: rollbackErr == nil,
+		Err:                  errors.Join(runErr, rollbackErr),
 	}
 }
 
@@ -392,14 +393,22 @@ func testCommitWinsCancellation(t *testing.T, ctx context.Context, db *fixture.D
 		}
 		defer func() { _ = tx.Rollback() }()
 		if _, err := tx.ExecContext(ctx, "UPDATE fixture_item SET name = 'committed' WHERE id = 1"); err != nil {
-			return CommandResult{TransactionStarted: true, Err: errors.Join(err, tx.Rollback())}
+			rollbackErr := tx.Rollback()
+			if errors.Is(rollbackErr, sql.ErrTxDone) {
+				rollbackErr = nil
+			}
+			return CommandResult{
+				TransactionStarted:   true,
+				TransactionCompleted: rollbackErr == nil,
+				Err:                  errors.Join(err, rollbackErr),
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			return CommandResult{TransactionStarted: true, Err: err}
 		}
 		close(committed)
 		<-ctx.Done() // Cancellation is ordered strictly after successful Commit.
-		return CommandResult{TransactionStarted: true}
+		return CommandResult{TransactionStarted: true, TransactionCompleted: true}
 	}})
 	handle, err := adapter.Start(ctx, sut.SUTConfig{}, db)
 	if err != nil {

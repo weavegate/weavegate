@@ -14,11 +14,14 @@ import (
 	"github.com/weavegate/weavegate/internal/sut"
 )
 
-// CommandResult reports whether a command transaction began and how it ended.
-// TransactionStarted must be false when transaction creation fails.
+// CommandResult reports whether a command transaction began, whether its final
+// state is known, and how it ended. TransactionCompleted can be true only when
+// TransactionStarted is true and the transaction is known to be committed or
+// rolled back.
 type CommandResult struct {
-	TransactionStarted bool
-	Err                error
+	TransactionStarted   bool
+	TransactionCompleted bool
+	Err                  error
 }
 
 // CommandFunc executes one named worker command on its dedicated connection.
@@ -265,6 +268,16 @@ func (a *adapter) runWorker(
 	startedAt := time.Now()
 	commandResult := command(ctx, worker.workerID, conn)
 	closeErr := closeWorkerConnection(worker.workerID, worker.command, conn)
+	if commandResult.TransactionCompleted && !commandResult.TransactionStarted {
+		fault := fmt.Errorf(
+			"worker %q command %q reported a completed transaction that never started",
+			worker.workerID,
+			worker.command,
+		)
+		a.faults.Fail(errors.Join(fault, commandResult.Err, closeErr))
+		a.completeWorker(worker, nil, closeErr)
+		return
+	}
 	if !commandResult.TransactionStarted {
 		if commandResult.Err == nil {
 			fault := fmt.Errorf(
@@ -281,6 +294,20 @@ func (a *adapter) runWorker(
 			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, closeErr)
+		return
+	}
+	if !commandResult.TransactionCompleted {
+		fault := fmt.Errorf(
+			"worker %q command %q transaction completion is unknown",
+			worker.workerID,
+			worker.command,
+		)
+		cause := errors.Join(fault, commandResult.Err)
+		if canceled := context.Cause(ctx); canceled != nil && !errors.Is(cause, canceled) {
+			cause = errors.Join(cause, canceled)
+		}
+		a.faults.Fail(errors.Join(cause, closeErr))
+		a.completeWorker(worker, nil, closeErr)
 		return
 	}
 	// Publish terminal state only after the command transaction has completed and

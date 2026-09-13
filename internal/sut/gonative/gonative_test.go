@@ -15,7 +15,7 @@ func TestGoNativeRegistry(t *testing.T) {
 
 	registry := staticRegistry{
 		"assign": func(context.Context, string, *sql.Conn) CommandResult {
-			return CommandResult{TransactionStarted: true}
+			return CommandResult{TransactionStarted: true, TransactionCompleted: true}
 		},
 	}
 

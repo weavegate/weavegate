@@ -39,18 +39,23 @@ func (s *service) assign(
 	workerID string,
 	conn *sql.Conn,
 	requestID int64,
-) (transactionStarted bool, returnErr error) {
+) (transactionStarted, transactionCompleted bool, returnErr error) {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
-		return false, fmt.Errorf("begin assignment transaction: %w", err)
+		return false, false, fmt.Errorf("begin assignment transaction: %w", err)
 	}
 	transactionStarted = true
-	committed := false
+	commitAttempted := false
 	defer func() {
-		if committed {
+		if transactionCompleted {
 			return
 		}
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		rollbackErr := tx.Rollback()
+		if !commitAttempted && (rollbackErr == nil || errors.Is(rollbackErr, sql.ErrTxDone)) {
+			transactionCompleted = true
+			return
+		}
+		if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			returnErr = errors.Join(
 				returnErr,
 				fmt.Errorf("rollback assignment transaction: %w", rollbackErr),
@@ -60,45 +65,47 @@ func (s *service) assign(
 
 	status, err := s.repository.requestStatus(ctx, tx, requestID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, ErrRequestNotFound)
+		return transactionStarted, transactionCompleted, fmt.Errorf("assign request %d: %w", requestID, ErrRequestNotFound)
 	}
 	if err != nil {
-		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if status != "ACTIVE" {
-		return transactionStarted, fmt.Errorf("assign request %d with status %q: %w", requestID, status, ErrRequestInactive)
+		return transactionStarted, transactionCompleted, fmt.Errorf("assign request %d with status %q: %w", requestID, status, ErrRequestInactive)
 	}
 
 	if err := s.syncPoint.Arrive(ctx, workerID, AfterReadRequest); err != nil {
-		return transactionStarted, fmt.Errorf("worker %q sync-point %q: %w", workerID, AfterReadRequest, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("worker %q sync-point %q: %w", workerID, AfterReadRequest, err)
 	}
 
 	alreadyAssigned, err := s.repository.hasActiveAssignment(ctx, tx, requestID)
 	if err != nil {
-		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if alreadyAssigned {
+		commitAttempted = true
 		if err := tx.Commit(); err != nil {
-			return transactionStarted, fmt.Errorf("commit already-assigned request %d: %w", requestID, err)
+			return transactionStarted, transactionCompleted, fmt.Errorf("commit already-assigned request %d: %w", requestID, err)
 		}
-		committed = true
-		return transactionStarted, nil
+		transactionCompleted = true
+		return transactionStarted, transactionCompleted, nil
 	}
 
 	sessionID, err := s.repository.insertMatchingSession(ctx, tx)
 	if err != nil {
-		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if err := s.syncPoint.Arrive(ctx, workerID, BeforeInsertAssignment); err != nil {
-		return transactionStarted, fmt.Errorf("worker %q sync-point %q: %w", workerID, BeforeInsertAssignment, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("worker %q sync-point %q: %w", workerID, BeforeInsertAssignment, err)
 	}
 	if err := s.repository.insertAssignment(ctx, tx, requestID, sessionID); err != nil {
-		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
+	commitAttempted = true
 	if err := tx.Commit(); err != nil {
-		return transactionStarted, fmt.Errorf("commit assignment for request %d: %w", requestID, err)
+		return transactionStarted, transactionCompleted, fmt.Errorf("commit assignment for request %d: %w", requestID, err)
 	}
-	committed = true
+	transactionCompleted = true
 
-	return transactionStarted, nil
+	return transactionStarted, transactionCompleted, nil
 }

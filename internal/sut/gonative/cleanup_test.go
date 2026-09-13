@@ -308,7 +308,11 @@ func TestGoNativeCleanupSessionFault(t *testing.T) {
 	// A broken command returns its lease itself. The adapter can no longer
 	// establish its own required successful connection-return boundary.
 	adapter.commands["command"] = func(_ context.Context, _ string, conn *sql.Conn) CommandResult {
-		return CommandResult{TransactionStarted: true, Err: conn.Close()}
+		return CommandResult{
+			TransactionStarted:   true,
+			TransactionCompleted: true,
+			Err:                  conn.Close(),
+		}
 	}
 	stream, err := adapter.Invoke(ctx, "worker", "command")
 	if err != nil {
@@ -330,6 +334,32 @@ func TestGoNativeCleanupSessionFault(t *testing.T) {
 	}
 	if err := adapter.Stop(ctx); !errors.Is(err, sql.ErrConnDone) {
 		t.Fatalf("Stop lost retired worker cleanup cause: %v", err)
+	}
+}
+
+func TestGoNativeUnknownTransactionOutcomeSessionFault(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	wantErr := errors.New("transaction completion unknown")
+	adapter, db, connector, _ := newCleanupTestAdapter(t)
+	t.Cleanup(func() { _ = db.Close() })
+	connector.connect = func(context.Context) (driver.Conn, error) { return cleanupTestConn{}, nil }
+	adapter.commands["command"] = func(context.Context, string, *sql.Conn) CommandResult {
+		return CommandResult{TransactionStarted: true, Err: wantErr}
+	}
+
+	stream, err := adapter.Invoke(ctx, "worker", "command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, ok := <-stream; ok {
+		t.Fatalf("unknown transaction outcome fabricated result: %#v", outcome)
+	}
+	if !errors.Is(adapter.Faults().Err(), wantErr) {
+		t.Fatalf("session fault = %v, want %v", adapter.Faults().Err(), wantErr)
+	}
+	if err := adapter.Stop(ctx); !errors.Is(err, wantErr) {
+		t.Fatalf("Stop error = %v, want %v", err, wantErr)
 	}
 }
 

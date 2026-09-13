@@ -37,11 +37,13 @@ WorkerResult or an UnstartedResult, followed by closure. A synchronous rejection
 returns an error and no stream. An asynchronous UnstartedResult carries the worker
 identity and cause and proves that no command transaction began and all acquired
 resources were returned. Failed or unknown cleanup is a session fault instead.
-The Go-native command boundary reports transaction start explicitly. Failure to
-acquire a connection or begin a command transaction therefore remains unstarted,
-including when cancellation races either operation; independent operation and
-cancellation causes are joined rather than masked. A command that reports no
-started transaction and no cause is an adapter session fault.
+The Go-native command boundary reports transaction start and completion
+explicitly. Failure to acquire a connection or begin a command transaction
+therefore remains unstarted, including when cancellation races either operation;
+independent operation and cancellation causes are joined rather than masked. A
+failed Commit or Rollback leaves completion unknown, latches a session fault, and
+publishes no invocation outcome. A command that reports no started transaction
+and no cause is also an adapter session fault.
 Neither an unstarted outcome nor a stream closure calls runtime Finish or creates
 a rollback, worker terminal, or oracle verdict. The coordinator aborts execution,
 collects the outcome, and returns its cause as a run error.
@@ -51,8 +53,9 @@ cleanup, permitting identity reuse only after closure. Collectors verify identit
 exclusive outcome shape, a non-nil unstarted cause, and exactly one outcome plus
 closure. Empty, multiple, or unfinished streams are protocol errors. A truthful
 WorkerResult authorizes Finish immediately; oracle evaluation additionally waits
-for stream closure. A Finish failure remains a run error while the collector
-continues validating stream closure and multiplicity. Shutdown keeps collectors
+for stream closure. A first-outcome validation failure or Finish failure remains
+a run error while the collector continues validating stream closure and
+multiplicity. Shutdown keeps collectors
 alive through Stop so unbuffered producers can finish, then drains available
 evidence within the cleanup boundary.
 

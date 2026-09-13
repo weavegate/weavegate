@@ -24,13 +24,14 @@ command acceptance produces an unstarted outcome after Invoke returns.
 Cancellation observation and command acceptance share a worker-local serialized
 transition immediately before the command call. If cancellation wins, the
 command is not called. If acceptance wins, the command reports whether its
-transaction began through `gonative.CommandResult`. A transaction-creation
-failure produces an UnstartedResult after the connection is returned; a command
-that began its transaction produces a WorkerResult only after the transaction
-completed and the connection was returned. Cancellation still reaches the
-called command through its context. Independent acquisition or transaction-start
-errors and cancellation causes remain discoverable with `errors.Is`. The adapter
-holds the worker reservation until cleanup and stream closure, then permits reuse.
+transaction began and reached a known committed or rolled-back state through
+`gonative.CommandResult`. A transaction-creation failure produces an
+UnstartedResult after the connection is returned; a command that began its
+transaction produces a WorkerResult only after it reports completion and the
+connection was returned. Cancellation still reaches the called command through
+its context. Independent acquisition or transaction-start errors and cancellation
+causes remain discoverable with `errors.Is`. The adapter holds the worker
+reservation until cleanup and stream closure, then permits reuse.
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
@@ -39,7 +40,8 @@ malformed identities or outcome variants, and streams left open at cleanup are
 protocol errors. Worker completion can advance runtime coordination before
 stream closure, but oracle evaluation waits for all streams to close. A runtime
 Finish error is retained while the collector still checks for closure and extra
-outcomes.
+outcomes. A malformed first outcome is retained the same way, so its producer is
+still drained and multiplicity remains observable.
 
 ## Session fault and cancellation observation
 

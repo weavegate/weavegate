@@ -21,10 +21,14 @@ func (h *handler) assign(
 	if conn == nil {
 		return gonative.CommandResult{Err: fmt.Errorf("assign worker %q: database connection is required", workerID)}
 	}
-	started, err := h.service.assign(ctx, workerID, conn, h.requestID)
+	started, completed, err := h.service.assign(ctx, workerID, conn, h.requestID)
 	if err != nil {
 		err = fmt.Errorf("assign worker %q: %w", workerID, err)
 	}
 
-	return gonative.CommandResult{TransactionStarted: started, Err: err}
+	return gonative.CommandResult{
+		TransactionStarted:   started,
+		TransactionCompleted: completed,
+		Err:                  err,
+	}
 }

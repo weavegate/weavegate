@@ -62,24 +62,21 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 		value.err = fmt.Errorf("worker %q result channel closed without a result", workerID)
 		return
 	}
-	if (outcome.Worker == nil) == (outcome.Unstarted == nil) {
+	switch {
+	case (outcome.Worker == nil) == (outcome.Unstarted == nil):
 		value.err = fmt.Errorf("worker %q must return exactly one outcome kind", workerID)
-		return
-	}
-	if outcome.Worker != nil {
+	case outcome.Worker != nil:
 		if outcome.Worker.WorkerID != workerID {
 			value.err = fmt.Errorf("worker %q returned result for %q", workerID, outcome.Worker.WorkerID)
-			return
+			break
 		}
 		value.result = *outcome.Worker
 		if err := r.runtime.Finish(workerID, value.result.Err); err != nil {
 			value.err = fmt.Errorf("finish worker %q: %w", workerID, err)
 		}
-	} else {
-		if outcome.Unstarted.WorkerID != workerID || outcome.Unstarted.Err == nil {
-			value.err = fmt.Errorf("worker %q returned invalid unstarted outcome", workerID)
-			return
-		}
+	case outcome.Unstarted.WorkerID != workerID || outcome.Unstarted.Err == nil:
+		value.err = fmt.Errorf("worker %q returned invalid unstarted outcome", workerID)
+	default:
 		unstarted := *outcome.Unstarted
 		value.unstarted = &unstarted
 		value.err = &unstarted
