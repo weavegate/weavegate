@@ -149,7 +149,7 @@ type beginFailureConnector struct {
 }
 
 func (c beginFailureConnector) Connect(context.Context) (driver.Conn, error) {
-	return beginFailureConn{err: c.err}, nil
+	return beginFailureConn(c), nil
 }
 
 func (beginFailureConnector) Driver() driver.Driver { return beginFailureDriver{} }
