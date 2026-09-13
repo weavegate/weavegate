@@ -27,7 +27,7 @@ github.com/ebitengine/purego,Apache-2.0,https://github.com/ebitengine/purego/blo
 github.com/felixge/httpsnoop,MIT,https://github.com/felixge/httpsnoop/blob/v1.1.0/LICENSE.txt
 github.com/go-logr/logr,Apache-2.0,https://github.com/go-logr/logr/blob/v1.4.4/LICENSE
 github.com/go-logr/stdr,Apache-2.0,https://github.com/go-logr/stdr/blob/v1.2.2/LICENSE
-github.com/go-sql-driver/mysql,MPL-2.0,https://github.com/go-sql-driver/mysql/blob/v1.10.0/LICENSE
+github.com/go-sql-driver/mysql,MPL-2.0,https://github.com/go-sql-driver/mysql/blob/v1.10.1/LICENSE
 github.com/google/uuid,BSD-3-Clause,https://github.com/google/uuid/blob/v1.6.0/LICENSE
 github.com/klauspost/compress,Apache-2.0,https://github.com/klauspost/compress/blob/v1.18.7/LICENSE
 github.com/klauspost/compress/internal/snapref,BSD-3-Clause,https://github.com/klauspost/compress/blob/v1.18.7/internal/snapref/LICENSE
@@ -2288,9 +2288,9 @@ Upstream: https://github.com/go-logr/stdr/blob/v1.2.2/LICENSE
 
 ------------------------------------------------------------------------
 Package: github.com/go-sql-driver/mysql
-Version: v1.10.0
+Version: v1.10.1
 License: MPL-2.0
-Upstream: https://github.com/go-sql-driver/mysql/blob/v1.10.0/LICENSE
+Upstream: https://github.com/go-sql-driver/mysql/blob/v1.10.1/LICENSE
 The corresponding MPL-2.0 source code is available from https://github.com/go-sql-driver/mysql.
 
 Mozilla Public License Version 2.0
