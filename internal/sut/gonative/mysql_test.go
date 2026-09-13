@@ -61,24 +61,26 @@ func testDedicatedConnections(
 	observations := make(chan connectionObservation, 2)
 	release := make(chan struct{})
 	registry := staticRegistry{
-		"probe": func(ctx context.Context, workerID string, conn *sql.Conn) error {
-			var connectionID int64
-			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
-				return fmt.Errorf("read connection ID: %w", err)
-			}
+		"probe": func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(ctx, conn, func(tx *sql.Tx) error {
+				var connectionID int64
+				if err := tx.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+					return fmt.Errorf("read connection ID: %w", err)
+				}
 
-			select {
-			case observations <- connectionObservation{workerID: workerID, connectionID: connectionID}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+				select {
+				case observations <- connectionObservation{workerID: workerID, connectionID: connectionID}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 
-			select {
-			case <-release:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+				select {
+				case <-release:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
 		},
 	}
 
@@ -162,19 +164,21 @@ func testActiveStop(
 
 	entered := make(chan string, 1)
 	registry := staticRegistry{
-		"block": func(ctx context.Context, workerID string, conn *sql.Conn) error {
-			var connectionID int64
-			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
-				return fmt.Errorf("read connection ID: %w", err)
-			}
+		"block": func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(ctx, conn, func(tx *sql.Tx) error {
+				var connectionID int64
+				if err := tx.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+					return fmt.Errorf("read connection ID: %w", err)
+				}
 
-			select {
-			case entered <- workerID:
-			case <-ctx.Done():
+				select {
+				case entered <- workerID:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				<-ctx.Done()
 				return ctx.Err()
-			}
-			<-ctx.Done()
-			return ctx.Err()
+			})
 		},
 	}
 
@@ -226,23 +230,25 @@ func testWorkerIDLifecycle(
 	entered := make(chan string, 2)
 	release := make(chan struct{}, 2)
 	registry := staticRegistry{
-		"block": func(ctx context.Context, workerID string, conn *sql.Conn) error {
-			var connectionID int64
-			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
-				return fmt.Errorf("read connection ID: %w", err)
-			}
+		"block": func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(ctx, conn, func(tx *sql.Tx) error {
+				var connectionID int64
+				if err := tx.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+					return fmt.Errorf("read connection ID: %w", err)
+				}
 
-			select {
-			case entered <- workerID:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			select {
-			case <-release:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+				select {
+				case entered <- workerID:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				select {
+				case <-release:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
 		},
 	}
 
@@ -311,6 +317,26 @@ type connectionObservation struct {
 	connectionID int64
 }
 
+func runRollbackCommand(
+	ctx context.Context,
+	conn *sql.Conn,
+	run func(*sql.Tx) error,
+) CommandResult {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandResult{Err: err}
+	}
+	runErr := run(tx)
+	rollbackErr := tx.Rollback()
+	if errors.Is(rollbackErr, sql.ErrTxDone) {
+		rollbackErr = nil
+	}
+	return CommandResult{
+		TransactionStarted: true,
+		Err:                errors.Join(runErr, rollbackErr),
+	}
+}
+
 func receiveWorkerResult(
 	t *testing.T,
 	ctx context.Context,
@@ -359,21 +385,21 @@ func testCommitWinsCancellation(t *testing.T, ctx context.Context, db *fixture.D
 	workerCtx, cancelWorker := context.WithCancel(ctx)
 	defer cancelWorker()
 	committed := make(chan struct{})
-	adapter := New(staticRegistry{"commit": func(ctx context.Context, _ string, conn *sql.Conn) error {
+	adapter := New(staticRegistry{"commit": func(ctx context.Context, _ string, conn *sql.Conn) CommandResult {
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
-			return err
+			return CommandResult{Err: err}
 		}
 		defer func() { _ = tx.Rollback() }()
 		if _, err := tx.ExecContext(ctx, "UPDATE fixture_item SET name = 'committed' WHERE id = 1"); err != nil {
-			return errors.Join(err, tx.Rollback())
+			return CommandResult{TransactionStarted: true, Err: errors.Join(err, tx.Rollback())}
 		}
 		if err := tx.Commit(); err != nil {
-			return err
+			return CommandResult{TransactionStarted: true, Err: err}
 		}
 		close(committed)
 		<-ctx.Done() // Cancellation is ordered strictly after successful Commit.
-		return nil
+		return CommandResult{TransactionStarted: true}
 	}})
 	handle, err := adapter.Start(ctx, sut.SUTConfig{}, db)
 	if err != nil {

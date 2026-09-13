@@ -3,6 +3,7 @@ package matchingsut
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -98,6 +99,78 @@ func TestRegistryDefaultsAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestAssignBeginFailureReportsUnstarted(t *testing.T) {
+	wantErr := errors.New("begin assignment failed")
+	database := sql.OpenDB(beginFailureConnector{err: wantErr})
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close begin-failure database: %v", err)
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	adapter := gonative.New(NewRegistry(nil))
+	handle, err := adapter.Start(ctx, internalsut.SUTConfig{
+		Variant: string(variantVulnerable),
+		Params:  map[string]string{"request_id": fmt.Sprint(seededRequestID)},
+	}, &fixture.DB{SQL: database})
+	if err != nil {
+		t.Fatalf("start matching adapter: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Errorf("stop matching adapter: %v", err)
+		}
+	})
+
+	stream, err := handle.Invoke(ctx, "begin-failure-worker", CommandAssign)
+	if err != nil {
+		t.Fatalf("invoke assignment: %v", err)
+	}
+	outcome := <-stream
+	if outcome.Worker != nil || outcome.Unstarted == nil {
+		t.Fatalf("begin-failure outcome = %#v, want unstarted", outcome)
+	}
+	if !errors.Is(outcome.Unstarted.Err, wantErr) {
+		t.Fatalf("begin-failure error = %v, want %v", outcome.Unstarted.Err, wantErr)
+	}
+	if _, ok := <-stream; ok {
+		t.Fatal("begin-failure stream remained open")
+	}
+	if fault := handle.Faults().Err(); fault != nil {
+		t.Fatalf("begin failure became session fault: %v", fault)
+	}
+}
+
+type beginFailureConnector struct {
+	err error
+}
+
+func (c beginFailureConnector) Connect(context.Context) (driver.Conn, error) {
+	return beginFailureConn{err: c.err}, nil
+}
+
+func (beginFailureConnector) Driver() driver.Driver { return beginFailureDriver{} }
+
+type beginFailureDriver struct{}
+
+func (beginFailureDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("begin-failure driver must be opened through its connector")
+}
+
+type beginFailureConn struct {
+	err error
+}
+
+func (beginFailureConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (beginFailureConn) Close() error { return nil }
+
+func (c beginFailureConn) Begin() (driver.Tx, error) { return nil, c.err }
 
 func testSequentialVariant(
 	t *testing.T,

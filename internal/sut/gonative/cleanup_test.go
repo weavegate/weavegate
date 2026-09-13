@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -32,6 +33,36 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 		}
 		assertUnstartedWorkerCompleted(t, adapter, <-captured)
 		assertWorkerIDReusable(t, adapter, "worker")
+
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("connection acquisition failure with cancellation", func(t *testing.T) {
+		wantConnectErr := errors.New("connect failed independently")
+		wantCancelErr := errors.New("cancel while connecting")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		adapter, db, connector, captured := newCleanupTestAdapter(t)
+		connector.connect = func(workerCtx context.Context) (driver.Conn, error) {
+			captureActiveWorker(t, adapter, captured, "worker")
+			cancel(wantCancelErr)
+			<-workerCtx.Done()
+			return nil, wantConnectErr
+		}
+
+		results, err := adapter.Invoke(ctx, "worker", "command")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("unstarted outcome = %#v", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, wantConnectErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want connection and cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, <-captured)
 
 		if err := db.Close(); err != nil {
 			t.Fatalf("close database: %v", err)
@@ -66,6 +97,48 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 			t.Fatalf("close database: %v", err)
 		}
 	})
+
+	t.Run("transaction start failure after command acceptance", func(t *testing.T) {
+		wantCancelErr := errors.New("cancel before begin transaction")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		adapter, db, connector, captured := newCleanupTestAdapter(t)
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			captureActiveWorker(t, adapter, captured, "worker")
+			return cleanupTestConn{}, nil
+		}
+		beginErrs := make(chan error, 1)
+		adapter.commands["command"] = func(commandCtx context.Context, _ string, conn *sql.Conn) CommandResult {
+			cancel(wantCancelErr)
+			<-commandCtx.Done()
+			tx, err := conn.BeginTx(commandCtx, nil)
+			if tx != nil || err == nil {
+				t.Fatalf("BeginTx result = (%v, %v), want nil transaction and error", tx, err)
+			}
+			beginErrs <- err
+			return CommandResult{Err: fmt.Errorf("begin command transaction: %w", err)}
+		}
+
+		results, err := adapter.Invoke(ctx, "worker", "command")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		beginErr := <-beginErrs
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("transaction-start outcome = %#v, want unstarted", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, beginErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want begin and cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, <-captured)
+		if fault := adapter.Faults().Err(); fault != nil {
+			t.Fatalf("transaction-start failure became session fault: %v", fault)
+		}
+
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
 }
 
 func newCleanupTestAdapter(t *testing.T) (*adapter, *sql.DB, *cleanupTestConnector, chan *activeWorker) {
@@ -78,9 +151,9 @@ func newCleanupTestAdapter(t *testing.T) (*adapter, *sql.DB, *cleanupTestConnect
 		state: adapterStateStarted,
 		db:    &fixture.DB{SQL: db},
 		commands: map[string]CommandFunc{
-			"command": func(context.Context, string, *sql.Conn) error {
+			"command": func(context.Context, string, *sql.Conn) CommandResult {
 				t.Fatal("command started on an unstarted-worker cleanup path")
-				return nil
+				return CommandResult{}
 			},
 		},
 		active: make(map[string]*activeWorker),
@@ -234,7 +307,9 @@ func TestGoNativeCleanupSessionFault(t *testing.T) {
 	connector.connect = func(context.Context) (driver.Conn, error) { return cleanupTestConn{}, nil }
 	// A broken command returns its lease itself. The adapter can no longer
 	// establish its own required successful connection-return boundary.
-	adapter.commands["command"] = func(_ context.Context, _ string, conn *sql.Conn) error { return conn.Close() }
+	adapter.commands["command"] = func(_ context.Context, _ string, conn *sql.Conn) CommandResult {
+		return CommandResult{TransactionStarted: true, Err: conn.Close()}
+	}
 	stream, err := adapter.Invoke(ctx, "worker", "command")
 	if err != nil {
 		t.Fatal(err)
@@ -297,5 +372,5 @@ func TestWorkerAcceptanceSerializesCancellation(t *testing.T) {
 		cancelParent(nil)
 	})
 
-	t.Log("SUT_COMMAND_ACCEPT_RESULT cancellation_wins=unstarted acceptance_wins=worker_result ordering=serialized")
+	t.Log("SUT_COMMAND_ACCEPT_RESULT cancellation_wins=unstarted acceptance_wins=command_called ordering=serialized")
 }

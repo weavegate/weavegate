@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/weavegate/weavegate/internal/sut/gonative"
 )
 
 type handler struct {
@@ -15,13 +17,14 @@ func (h *handler) assign(
 	ctx context.Context,
 	workerID string,
 	conn *sql.Conn,
-) error {
+) gonative.CommandResult {
 	if conn == nil {
-		return fmt.Errorf("assign worker %q: database connection is required", workerID)
+		return gonative.CommandResult{Err: fmt.Errorf("assign worker %q: database connection is required", workerID)}
 	}
-	if err := h.service.assign(ctx, workerID, conn, h.requestID); err != nil {
-		return fmt.Errorf("assign worker %q: %w", workerID, err)
+	started, err := h.service.assign(ctx, workerID, conn, h.requestID)
+	if err != nil {
+		err = fmt.Errorf("assign worker %q: %w", workerID, err)
 	}
 
-	return nil
+	return gonative.CommandResult{TransactionStarted: started, Err: err}
 }

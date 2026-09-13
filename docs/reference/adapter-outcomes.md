@@ -23,10 +23,14 @@ synchronous rejections. Connection acquisition failure or cancellation before
 command acceptance produces an unstarted outcome after Invoke returns.
 Cancellation observation and command acceptance share a worker-local serialized
 transition immediately before the command call. If cancellation wins, the
-command is not called. If acceptance wins, later cancellation reaches the
-running command through its context and the completed transaction is represented
-by a WorkerResult. The adapter holds the worker reservation until cleanup and
-stream closure, then permits reuse.
+command is not called. If acceptance wins, the command reports whether its
+transaction began through `gonative.CommandResult`. A transaction-creation
+failure produces an UnstartedResult after the connection is returned; a command
+that began its transaction produces a WorkerResult only after the transaction
+completed and the connection was returned. Cancellation still reaches the
+called command through its context. Independent acquisition or transaction-start
+errors and cancellation causes remain discoverable with `errors.Is`. The adapter
+holds the worker reservation until cleanup and stream closure, then permits reuse.
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
@@ -84,11 +88,11 @@ The focused suite uses channel barriers rather than sleeps for ordering. Run it
 without Docker:
 
 ```bash
-go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative \
-  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance' \
+go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
+  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
   -v -count=20
-go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative \
-  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance' \
+go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
+  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
   -count=20
 ```
 

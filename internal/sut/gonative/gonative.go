@@ -14,8 +14,15 @@ import (
 	"github.com/weavegate/weavegate/internal/sut"
 )
 
+// CommandResult reports whether a command transaction began and how it ended.
+// TransactionStarted must be false when transaction creation fails.
+type CommandResult struct {
+	TransactionStarted bool
+	Err                error
+}
+
 // CommandFunc executes one named worker command on its dedicated connection.
-type CommandFunc func(ctx context.Context, workerID string, conn *sql.Conn) error
+type CommandFunc func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult
 
 // Registry resolves the commands available for one SUT configuration.
 type Registry interface {
@@ -201,8 +208,8 @@ func (a *adapter) startWorker(
 	conn, err := db.Conn(workerCtx)
 	if err != nil {
 		cause := fmt.Errorf("acquire connection: %w", err)
-		if canceled := context.Cause(workerCtx); canceled != nil {
-			cause = canceled
+		if canceled := context.Cause(workerCtx); canceled != nil && !errors.Is(cause, canceled) {
+			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, nil)
 		return
@@ -256,17 +263,35 @@ func (a *adapter) runWorker(
 	conn *sql.Conn,
 ) {
 	startedAt := time.Now()
-	commandErr := command(ctx, worker.workerID, conn)
+	commandResult := command(ctx, worker.workerID, conn)
 	closeErr := closeWorkerConnection(worker.workerID, worker.command, conn)
+	if !commandResult.TransactionStarted {
+		if commandResult.Err == nil {
+			fault := fmt.Errorf(
+				"worker %q command %q reported an unstarted transaction without a cause",
+				worker.workerID,
+				worker.command,
+			)
+			a.faults.Fail(errors.Join(fault, closeErr))
+			a.completeWorker(worker, nil, closeErr)
+			return
+		}
+		cause := commandResult.Err
+		if canceled := context.Cause(ctx); canceled != nil && !errors.Is(cause, canceled) {
+			cause = errors.Join(cause, canceled)
+		}
+		a.completeUnstartedWorker(worker, cause, closeErr)
+		return
+	}
 	// Publish terminal state only after the command transaction has completed and
 	// the worker-owned connection has been returned to the pool.
 	result := sut.WorkerResult{
 		WorkerID: worker.workerID,
-		Err:      errors.Join(commandErr, closeErr),
+		Err:      errors.Join(commandResult.Err, closeErr),
 		Duration: time.Since(startedAt),
 	}
 	if closeErr != nil {
-		a.faults.Fail(errors.Join(commandErr, closeErr))
+		a.faults.Fail(errors.Join(commandResult.Err, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
 	}
@@ -305,7 +330,7 @@ func (a *adapter) completeWorker(
 
 // accept and requestCancel define the command-entry linearization point. If
 // cancellation wins, the command never runs. If accept wins, later cancellation
-// reaches the running command through its context and produces a WorkerResult.
+// reaches the command, whose CommandResult identifies whether its transaction began.
 func (w *activeWorker) accept(parentCtx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

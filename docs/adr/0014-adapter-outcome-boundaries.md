@@ -37,6 +37,11 @@ WorkerResult or an UnstartedResult, followed by closure. A synchronous rejection
 returns an error and no stream. An asynchronous UnstartedResult carries the worker
 identity and cause and proves that no command transaction began and all acquired
 resources were returned. Failed or unknown cleanup is a session fault instead.
+The Go-native command boundary reports transaction start explicitly. Failure to
+acquire a connection or begin a command transaction therefore remains unstarted,
+including when cancellation races either operation; independent operation and
+cancellation causes are joined rather than masked. A command that reports no
+started transaction and no cause is an adapter session fault.
 Neither an unstarted outcome nor a stream closure calls runtime Finish or creates
 a rollback, worker terminal, or oracle verdict. The coordinator aborts execution,
 collects the outcome, and returns its cause as a run error.

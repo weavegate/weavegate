@@ -39,11 +39,12 @@ func (s *service) assign(
 	workerID string,
 	conn *sql.Conn,
 	requestID int64,
-) (returnErr error) {
+) (transactionStarted bool, returnErr error) {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin assignment transaction: %w", err)
+		return false, fmt.Errorf("begin assignment transaction: %w", err)
 	}
+	transactionStarted = true
 	committed := false
 	defer func() {
 		if committed {
@@ -59,45 +60,45 @@ func (s *service) assign(
 
 	status, err := s.repository.requestStatus(ctx, tx, requestID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("assign request %d: %w", requestID, ErrRequestNotFound)
+		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, ErrRequestNotFound)
 	}
 	if err != nil {
-		return fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if status != "ACTIVE" {
-		return fmt.Errorf("assign request %d with status %q: %w", requestID, status, ErrRequestInactive)
+		return transactionStarted, fmt.Errorf("assign request %d with status %q: %w", requestID, status, ErrRequestInactive)
 	}
 
 	if err := s.syncPoint.Arrive(ctx, workerID, AfterReadRequest); err != nil {
-		return fmt.Errorf("worker %q sync-point %q: %w", workerID, AfterReadRequest, err)
+		return transactionStarted, fmt.Errorf("worker %q sync-point %q: %w", workerID, AfterReadRequest, err)
 	}
 
 	alreadyAssigned, err := s.repository.hasActiveAssignment(ctx, tx, requestID)
 	if err != nil {
-		return fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if alreadyAssigned {
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit already-assigned request %d: %w", requestID, err)
+			return transactionStarted, fmt.Errorf("commit already-assigned request %d: %w", requestID, err)
 		}
 		committed = true
-		return nil
+		return transactionStarted, nil
 	}
 
 	sessionID, err := s.repository.insertMatchingSession(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if err := s.syncPoint.Arrive(ctx, workerID, BeforeInsertAssignment); err != nil {
-		return fmt.Errorf("worker %q sync-point %q: %w", workerID, BeforeInsertAssignment, err)
+		return transactionStarted, fmt.Errorf("worker %q sync-point %q: %w", workerID, BeforeInsertAssignment, err)
 	}
 	if err := s.repository.insertAssignment(ctx, tx, requestID, sessionID); err != nil {
-		return fmt.Errorf("assign request %d: %w", requestID, err)
+		return transactionStarted, fmt.Errorf("assign request %d: %w", requestID, err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit assignment for request %d: %w", requestID, err)
+		return transactionStarted, fmt.Errorf("commit assignment for request %d: %w", requestID, err)
 	}
 	committed = true
 
-	return nil
+	return transactionStarted, nil
 }
