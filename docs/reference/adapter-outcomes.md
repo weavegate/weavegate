@@ -32,8 +32,9 @@ UnstartedResult after the connection is returned; a command that began its
 transaction produces a WorkerResult only after it reports completion and the
 connection was returned. Cancellation still reaches the called command through
 its context. Independent acquisition or transaction-start errors and cancellation
-causes remain discoverable with `errors.Is`. The adapter holds the worker
-reservation until cleanup and stream closure, then permits reuse.
+causes remain discoverable with `errors.Is`; the parent is observed through the
+same worker-local ordering lock when either failure is finalized. The adapter
+holds the worker reservation until cleanup and stream closure, then permits reuse.
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
@@ -53,8 +54,10 @@ Every started Handle exposes `SessionFaults`: a notification channel and a typed
 implementation with a usable zero value. The first non-nil failure closes the
 notification channel and remains visible to all current and late observers.
 Subsequent failures do not replace it. Adapters and observers must not mutate a
-published fault or cause. Successful Stop completes fault publication; failed
-Stop cannot prove cleanup or rule out later failures.
+published fault or cause. Closing the notification channel while `Err()` remains
+nil is an adapter protocol error and invalidates provisional evaluation.
+Successful Stop completes fault publication; failed Stop cannot prove cleanup or
+rule out later failures.
 
 Run observes faults through execution, provisional oracle evaluation, and Stop.
 A fault cancels the execution/evaluation context with its original cause.

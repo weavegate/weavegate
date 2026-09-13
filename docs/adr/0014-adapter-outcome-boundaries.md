@@ -28,7 +28,9 @@ canceling their shared execution context. It also reads the latch synchronously
 before evaluation and after Stop and collector cleanup. An evaluator must honor
 its context; even an evaluator that returns success after cancellation cannot
 make that provisional success final. Fault notification remains independent of
-invocation streams, including after all workers have completed.
+invocation streams, including after all workers have completed. Closing the
+notification channel without a latched typed error is a protocol failure and
+cannot authorize a successful run.
 
 ## G5: One invocation stream with distinct outcomes
 
@@ -43,7 +45,9 @@ therefore remains unstarted, including when cancellation races either operation;
 independent operation and cancellation causes are joined rather than masked. A
 failed Commit or Rollback leaves completion unknown, latches a session fault, and
 publishes no invocation outcome. A command that reports no started transaction
-and no cause is also an adapter session fault.
+and no cause is also an adapter session fault. When a command reports that its
+transaction never started, the adapter observes parent cancellation under the
+worker-local ordering lock before publishing the unstarted outcome.
 Neither an unstarted outcome nor a stream closure calls runtime Finish or creates
 a rollback, worker terminal, or oracle verdict. The coordinator aborts execution,
 collects the outcome, and returns its cause as a run error.

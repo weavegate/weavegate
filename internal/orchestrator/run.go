@@ -170,8 +170,8 @@ func (o *Orchestrator) Run(
 		}
 		// Observe run timeouts and session faults after all cleanup work. The
 		// outer operation-context boundary runs after this defer.
-		if faults != nil && faults.Err() != nil {
-			returnErr = joinRunError(returnErr, faults.Err())
+		if faults != nil {
+			returnErr = joinRunError(returnErr, sessionFaultError(faults))
 		}
 		returnErr = joinRunError(returnErr, runCtx.Err())
 		returnErr = joinRunError(returnErr, context.Cause(runCtx))
@@ -194,7 +194,7 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: adapter start returned nil fault surface", schedule.ID)
 	}
 	stopWatcher = watchSessionFaults(faults, cancelExecution)
-	if fault := faults.Err(); fault != nil {
+	if fault := sessionFaultError(faults); fault != nil {
 		return result, fault
 	}
 
@@ -220,7 +220,7 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, executionError(executionCtx, err))
 	}
 
-	if fault := faults.Err(); fault != nil {
+	if fault := sessionFaultError(faults); fault != nil {
 		return result, fault
 	}
 	if err := runCtx.Err(); err != nil {
@@ -234,7 +234,7 @@ func (o *Orchestrator) Run(
 	if err != nil {
 		return result, fmt.Errorf("run schedule %q: evaluate oracles: %w", schedule.ID, executionError(executionCtx, err))
 	}
-	if fault := faults.Err(); fault != nil {
+	if fault := sessionFaultError(faults); fault != nil {
 		return result, fault
 	}
 	if err := runCtx.Err(); err != nil {

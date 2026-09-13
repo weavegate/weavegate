@@ -175,6 +175,49 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 			t.Fatalf("close database: %v", err)
 		}
 	})
+
+	t.Run("transaction start failure observes parent directly", func(t *testing.T) {
+		wantBeginErr := errors.New("begin failed before watcher ran")
+		wantCancelErr := errors.New("parent canceled before command returned")
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		workerCtx, cancelWorker := context.WithCancelCause(context.WithoutCancel(parentCtx))
+		worker := &activeWorker{
+			workerID: "worker",
+			command:  "command",
+			cancel:   cancelWorker,
+			accepted: true,
+			results:  make(chan sut.InvocationOutcome, 1),
+			done:     make(chan struct{}),
+		}
+		adapter.active[worker.workerID] = worker
+		conn, err := db.Conn(workerCtx)
+		if err != nil {
+			t.Fatalf("acquire test connection: %v", err)
+		}
+		command := func(context.Context, string, *sql.Conn) CommandResult {
+			cancelParent(wantCancelErr)
+			return CommandResult{Err: wantBeginErr}
+		}
+
+		// Run synchronously without the parent watcher to exercise the
+		// post-command unstarted boundary itself.
+		adapter.runWorker(parentCtx, workerCtx, worker, command, conn)
+		outcome := <-worker.results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("unstarted outcome = %#v", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, wantBeginErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want transaction-start and parent cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, worker)
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
 }
 
 func newCleanupTestAdapter(t *testing.T) (*adapter, *sql.DB, *cleanupTestConnector, chan *activeWorker) {

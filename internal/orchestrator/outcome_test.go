@@ -16,15 +16,21 @@ import (
 )
 
 type outcomeAdapter struct {
-	faults sut.FaultLatch
-	invoke func(context.Context, string) (<-chan sut.InvocationOutcome, error)
-	stop   func(context.Context) error
+	faults       sut.FaultLatch
+	faultSurface sut.SessionFaults
+	invoke       func(context.Context, string) (<-chan sut.InvocationOutcome, error)
+	stop         func(context.Context) error
 }
 
 func (a *outcomeAdapter) Start(context.Context, sut.SUTConfig, *fixture.DB) (sut.Handle, error) {
 	return a, nil
 }
-func (a *outcomeAdapter) Faults() sut.SessionFaults { return &a.faults }
+func (a *outcomeAdapter) Faults() sut.SessionFaults {
+	if a.faultSurface != nil {
+		return a.faultSurface
+	}
+	return &a.faults
+}
 func (a *outcomeAdapter) Invoke(ctx context.Context, worker, _ string) (<-chan sut.InvocationOutcome, error) {
 	if a.invoke != nil {
 		return a.invoke(ctx, worker)
@@ -53,6 +59,13 @@ type outcomeRuntime struct {
 	afterFinish func()
 	afterClose  func()
 }
+
+type notificationWithoutFault struct {
+	done chan struct{}
+}
+
+func (f *notificationWithoutFault) Done() <-chan struct{} { return f.done }
+func (*notificationWithoutFault) Err() *sut.SessionFault  { return nil }
 
 func (r *outcomeRuntime) Finish(worker string, err error) error {
 	r.finishes.Add(1)
@@ -149,6 +162,34 @@ func TestOutcomeSessionFaultBoundaries(t *testing.T) {
 		})
 	}
 	t.Log("SUT_SESSION_FAULT_RESULT before=observed during=cancelled after=invalidated cause=latched worker_result=never_fabricated")
+}
+
+func TestOutcomeRejectsFaultNotificationWithoutError(t *testing.T) {
+	for _, phase := range []string{"after_execution", "during_evaluation"} {
+		t.Run(phase, func(t *testing.T) {
+			faults := &notificationWithoutFault{done: make(chan struct{})}
+			a := &outcomeAdapter{faultSurface: faults}
+			var observer EventObserver
+			if phase == "after_execution" {
+				observer = func(event Event) error {
+					if event.Kind == EventScheduleComplete {
+						close(faults.done)
+					}
+					return nil
+				}
+			}
+			result, err := runOutcomeTest(t, context.Background(), a, nil, observer, oracle.EvaluatorFunc(func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
+				if phase == "during_evaluation" {
+					close(faults.done)
+				}
+				return oracle.NewEvaluation(oracle.OracleResult{OracleID: "must-not-finalize"})
+			}))
+			if err == nil || !strings.Contains(err.Error(), "notification closed without a latched error") {
+				t.Fatalf("fault notification error = %v", err)
+			}
+			assertNoProvisionalEvaluation(t, result)
+		})
+	}
 }
 
 func TestOutcomeCancellationBoundaries(t *testing.T) {

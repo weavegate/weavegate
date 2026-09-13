@@ -211,7 +211,7 @@ func (a *adapter) startWorker(
 	conn, err := db.Conn(workerCtx)
 	if err != nil {
 		cause := fmt.Errorf("acquire connection: %w", err)
-		if canceled := worker.finishBeforeCommand(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
+		if canceled := worker.finishUnstarted(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, nil)
@@ -222,7 +222,7 @@ func (a *adapter) startWorker(
 		a.completeUnstartedWorker(worker, err, closeErr)
 		return
 	}
-	a.runWorker(workerCtx, worker, command, conn)
+	a.runWorker(parentCtx, workerCtx, worker, command, conn)
 }
 
 func (a *adapter) Stop(ctx context.Context) error {
@@ -260,6 +260,7 @@ func (a *adapter) Stop(ctx context.Context) error {
 }
 
 func (a *adapter) runWorker(
+	parentCtx context.Context,
 	ctx context.Context,
 	worker *activeWorker,
 	command CommandFunc,
@@ -290,7 +291,7 @@ func (a *adapter) runWorker(
 			return
 		}
 		cause := commandResult.Err
-		if canceled := context.Cause(ctx); canceled != nil && !errors.Is(cause, canceled) {
+		if canceled := worker.finishUnstarted(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, closeErr)
@@ -391,10 +392,10 @@ func (w *activeWorker) requestCancel(cause error) {
 	w.cancel(cause)
 }
 
-// finishBeforeCommand serializes parent cancellation with an unstarted
-// completion. A nil result means completion won while the parent was active;
-// otherwise the returned cause was already accepted by the worker.
-func (w *activeWorker) finishBeforeCommand(parentCtx context.Context) error {
+// finishUnstarted serializes parent cancellation with an unstarted completion.
+// A nil result means completion won while the parent was active; otherwise the
+// returned cause was already accepted by the worker.
+func (w *activeWorker) finishUnstarted(parentCtx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

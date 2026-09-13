@@ -9,13 +9,27 @@ import (
 	"github.com/weavegate/weavegate/internal/trace"
 )
 
+var errFaultNotificationWithoutLatchedError = errors.New("SUT session fault notification closed without a latched error")
+
+func sessionFaultError(faults sut.SessionFaults) error {
+	if fault := faults.Err(); fault != nil {
+		return fault
+	}
+	select {
+	case <-faults.Done():
+		return errFaultNotificationWithoutLatchedError
+	default:
+		return nil
+	}
+}
+
 func watchSessionFaults(faults sut.SessionFaults, cancel context.CancelCauseFunc) func() {
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
 		select {
 		case <-faults.Done():
-			cancel(faults.Err())
+			cancel(sessionFaultError(faults))
 		case <-stop:
 		}
 	}()
