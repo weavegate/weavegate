@@ -21,6 +21,7 @@ type RunResult struct {
 	ScheduleID      string
 	Steps           int
 	Workers         []sut.WorkerResult
+	Unstarted       []sut.UnstartedResult
 	Terminals       trace.Terminals
 	Trace           trace.Trace
 	Evaluation      oracle.Evaluation
@@ -31,13 +32,16 @@ type RunResult struct {
 }
 
 type collectedResult struct {
-	result sut.WorkerResult
-	err    error
+	result    sut.WorkerResult
+	unstarted *sut.UnstartedResult
+	err       error
 }
 
 type workerExecution struct {
 	worker          scenario.Worker
 	result          sut.WorkerResult
+	unstarted       *sut.UnstartedResult
+	collectionErr   error
 	collected       bool
 	terminal        bool
 	terminalState   TerminalState
@@ -47,6 +51,7 @@ type workerExecution struct {
 
 type runCoordinator struct {
 	ctx      context.Context
+	cancel   context.CancelCauseFunc
 	runtime  syncpoint.Runtime
 	handle   sut.Handle
 	value    scenario.Scenario
@@ -107,6 +112,8 @@ func (o *Orchestrator) Run(
 
 	runCtx, cancelRun := context.WithTimeout(ctx, o.config.RunTimeout)
 	defer cancelRun()
+	executionCtx, cancelExecution := context.WithCancelCause(runCtx)
+	defer cancelExecution(nil)
 	if err := o.config.Fixture.Reset(runCtx); err != nil {
 		return result, fmt.Errorf("run schedule %q: reset fixture: %w", schedule.ID, NewFixtureError(err))
 	}
@@ -121,34 +128,52 @@ func (o *Orchestrator) Run(
 
 	var (
 		adapter        sut.Adapter
+		coordinator    *runCoordinator
+		faults         sut.SessionFaults
+		stopWatcher    func()
 		collectorsWait sync.WaitGroup
 	)
 	collectorsCtx, cancelCollectors := context.WithCancel(context.WithoutCancel(runCtx))
 	defer func() {
+		// Abort outstanding commands, but keep collectors alive through Stop.
+		cancelExecution(nil)
+		var stopErr error
 		if adapter != nil {
 			stopCtx, cancelStop := context.WithTimeout(
 				context.WithoutCancel(ctx),
 				o.config.StopTimeout,
 			)
-			stopErr := adapter.Stop(stopCtx)
+			stopErr = adapter.Stop(stopCtx)
 			cancelStop()
-			if stopErr != nil {
-				returnErr = errors.Join(
-					returnErr,
-					fmt.Errorf("run schedule %q: stop adapter: %w", schedule.ID, stopErr),
-				)
-			}
 		}
 		cancelCollectors()
 		collectorsWait.Wait()
+		if coordinator != nil {
+			returnErr = joinRunError(returnErr, coordinator.finalizeEvidence())
+		}
+		if stopErr != nil {
+			returnErr = joinRunError(returnErr, fmt.Errorf("run schedule %q: stop adapter: %w", schedule.ID, stopErr))
+		}
 		runtime.Close()
+		if stopWatcher != nil {
+			stopWatcher()
+		}
+		// This is the final success boundary, after all cleanup observations.
+		if faults != nil && faults.Err() != nil {
+			returnErr = joinRunError(returnErr, faults.Err())
+		}
+		returnErr = joinRunError(returnErr, runCtx.Err())
+		if returnErr != nil {
+			result.Evaluation = oracle.Evaluation{}
+			result.Fingerprint = ""
+		}
 	}()
 
 	adapter = o.config.NewAdapter(runtime)
 	if adapter == nil {
 		return result, fmt.Errorf("run schedule %q: adapter factory returned nil", schedule.ID)
 	}
-	handle, err := adapter.Start(runCtx, value.Clone().SUTConfig, o.config.DB)
+	handle, err := adapter.Start(executionCtx, value.Clone().SUTConfig, o.config.DB)
 	if err != nil {
 		return result, fmt.Errorf("run schedule %q: start adapter: %w", schedule.ID, err)
 	}
@@ -156,8 +181,18 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: adapter start returned nil handle", schedule.ID)
 	}
 
-	coordinator := &runCoordinator{
-		ctx:               runCtx,
+	faults = handle.Faults()
+	if faults == nil || faults.Done() == nil {
+		return result, fmt.Errorf("run schedule %q: adapter start returned nil fault surface", schedule.ID)
+	}
+	stopWatcher = watchSessionFaults(faults, cancelExecution)
+	if fault := faults.Err(); fault != nil {
+		return result, fault
+	}
+
+	coordinator = &runCoordinator{
+		ctx:               executionCtx,
+		cancel:            cancelExecution,
 		runtime:           runtime,
 		handle:            handle,
 		value:             value.Clone(),
@@ -174,16 +209,28 @@ func (o *Orchestrator) Run(
 		pending:           make(map[int]bool),
 	}
 	if err := coordinator.execute(); err != nil {
-		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
+		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, executionError(executionCtx, err))
 	}
 
+	if fault := faults.Err(); fault != nil {
+		return result, fault
+	}
+	if err := runCtx.Err(); err != nil {
+		return result, err
+	}
 	result.Trace = trace.clone()
-	evaluated, err := evaluator.Evaluate(runCtx, o.config.DB.SQL, oracle.RunContext{
+	evaluated, err := evaluator.Evaluate(executionCtx, o.config.DB.SQL, oracle.RunContext{
 		Trace:     result.Trace.Clone(),
 		Terminals: result.Terminals.Clone(),
 	})
 	if err != nil {
-		return result, fmt.Errorf("run schedule %q: evaluate oracles: %w", schedule.ID, err)
+		return result, fmt.Errorf("run schedule %q: evaluate oracles: %w", schedule.ID, executionError(executionCtx, err))
+	}
+	if fault := faults.Err(); fault != nil {
+		return result, fault
+	}
+	if err := runCtx.Err(); err != nil {
+		return result, err
 	}
 	validated, err := oracle.ValidateEvaluation(evaluated)
 	if err != nil {
@@ -299,40 +346,7 @@ func (r *runCoordinator) invoke(worker scenario.Worker) error {
 	collected := make(chan collectedResult, 1)
 	r.executions[worker.ID].collectedResult = collected
 	r.collectorsWait.Add(1)
-	go func() {
-		defer r.collectorsWait.Done()
-		defer close(collected)
-
-		select {
-		case result, ok := <-results:
-			if !ok {
-				collected <- collectedResult{err: fmt.Errorf(
-					"worker %q result channel closed without a result",
-					worker.ID,
-				)}
-				return
-			}
-			if result.WorkerID != worker.ID {
-				collected <- collectedResult{err: fmt.Errorf(
-					"worker %q returned result for %q",
-					worker.ID,
-					result.WorkerID,
-				)}
-				return
-			}
-			if err := r.runtime.Finish(result.WorkerID, result.Err); err != nil {
-				collected <- collectedResult{err: fmt.Errorf(
-					"finish worker %q: %w",
-					worker.ID,
-					err,
-				)}
-				return
-			}
-			collected <- collectedResult{result: result}
-		case <-r.collectorsContext.Done():
-			return
-		}
-	}()
+	go r.collectInvocation(worker.ID, results, collected)
 	return r.trace.emit(Event{
 		Kind:   EventWorkerInvoked,
 		Step:   -1,
@@ -589,13 +603,7 @@ func (r *runCoordinator) collect(workerID string, step int) error {
 		if !ok {
 			return fmt.Errorf("collect worker %q: collector closed without a result", workerID)
 		}
-		if collected.err != nil {
-			return fmt.Errorf("collect worker %q: %w", workerID, collected.err)
-		}
-		execution.result = collected.result
-		execution.collected = true
-		execution.terminal = true
-		return r.emitTerminal(execution, step)
+		return r.acceptCollected(execution, collected, step)
 	case <-r.ctx.Done():
 		return fmt.Errorf("collect worker %q: %w", workerID, r.ctx.Err())
 	}
@@ -612,13 +620,7 @@ func (r *runCoordinator) pollCollector(workerID string, step int) error {
 		if !ok {
 			return fmt.Errorf("collect worker %q: collector closed without a result", workerID)
 		}
-		if collected.err != nil {
-			return fmt.Errorf("collect worker %q: %w", workerID, collected.err)
-		}
-		execution.result = collected.result
-		execution.collected = true
-		execution.terminal = true
-		return r.emitTerminal(execution, step)
+		return r.acceptCollected(execution, collected, step)
 	default:
 		return nil
 	}

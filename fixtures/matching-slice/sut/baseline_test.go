@@ -260,7 +260,7 @@ func invokeAssignments(
 ) []internalsut.WorkerResult {
 	t.Helper()
 
-	channels := make([]<-chan internalsut.WorkerResult, len(workerIDs))
+	channels := make([]<-chan internalsut.InvocationOutcome, len(workerIDs))
 	for index, workerID := range workerIDs {
 		results, err := handle.Invoke(ctx, workerID, CommandAssign)
 		if err != nil {
@@ -294,16 +294,20 @@ func invokeAssignments(
 func collectAssignmentResult(
 	t *testing.T,
 	ctx context.Context,
-	results <-chan internalsut.WorkerResult,
+	results <-chan internalsut.InvocationOutcome,
 	workerID string,
 ) internalsut.WorkerResult {
 	t.Helper()
 
 	select {
-	case result, ok := <-results:
+	case outcome, ok := <-results:
 		if !ok {
 			t.Fatalf("baseline assignment worker %q result channel closed without a result", workerID)
 		}
+		if outcome.Worker == nil || outcome.Unstarted != nil {
+			t.Fatalf("expected worker result, got %#v", outcome)
+		}
+		result := *outcome.Worker
 		if result.WorkerID != workerID {
 			t.Fatalf("baseline assignment result worker ID = %q, want %q", result.WorkerID, workerID)
 		}

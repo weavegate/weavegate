@@ -57,6 +57,9 @@ The public [report schema](reference/report-schema.md) is owned by the report
 package rather than being a serialization of internal engine structs. The
 adapter contract is visible in [`internal/sut`](../internal/sut/sut.go), and
 the oracle contract in [`internal/oracle`](../internal/oracle/oracle.go).
+The [adapter outcome contract](reference/adapter-outcomes.md) separates worker
+transaction facts, unstarted invocations, session faults, and operation
+cancellation. Evaluation remains provisional through final cleanup.
 
 ## Extension points
 

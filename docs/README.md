@@ -68,3 +68,6 @@ Use these experiments for reproduced observations; their measured values are tie
 Use these notes when maintaining repository-facing documentation and visuals.
 
 - [README editorial and visual maintenance](maintainers/readme-maintenance.md) — Follow the content, evidence, and visual contracts for focused README updates.
+
+- [ADR 0014: Adapter outcome boundaries](adr/0014-adapter-outcome-boundaries.md) — Session faults, unstarted invocations, cancellation, and error aggregation.
+- [Adapter outcomes](reference/adapter-outcomes.md) — Invocation streams, session faults, cancellation boundaries, and reproducible Go evidence.

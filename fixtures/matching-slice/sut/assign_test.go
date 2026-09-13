@@ -306,7 +306,7 @@ func invokeAssignment(
 		t.Fatalf("invoke assignment worker %q: %v", workerID, err)
 	}
 	select {
-	case result, ok := <-results:
+	case outcome, ok := <-results:
 		if !ok {
 			t.Fatalf("assignment worker %q result channel closed without a result", workerID)
 		}
@@ -318,6 +318,10 @@ func invokeAssignment(
 		case <-ctx.Done():
 			t.Fatalf("wait for assignment worker %q result close: %v", workerID, ctx.Err())
 		}
+		if outcome.Worker == nil || outcome.Unstarted != nil {
+			t.Fatalf("expected worker result, got %#v", outcome)
+		}
+		result := *outcome.Worker
 		if result.WorkerID != workerID {
 			t.Fatalf("assignment result worker ID = %q, want %q", result.WorkerID, workerID)
 		}
