@@ -95,7 +95,7 @@ jobs:
         run: |
           grep -F 'SUT_FAULT_LATCH_RESULT first_cause=retained observers=all late_observer=notified' fixture.log
           grep -F 'SUT_SESSION_FAULT_RESULT before=observed during=cancelled after=invalidated cause=latched worker_result=never_fabricated' fixture.log
-          grep -F 'SUT_CANCEL_BOUNDARY_RESULT collection=observed evaluation=observed cleanup=observed committed_worker_error=nil run_error=context_cancelled' fixture.log
+          grep -F 'SUT_CANCEL_BOUNDARY_RESULT collection=observed evaluation=observed cleanup=observed committed_worker_error=nil run_error=context_cancelled custom_cause=preserved' fixture.log
           grep -F 'SUT_UNSTARTED_RESULT invoke=returned cause=preserved stream=closed collected=true runtime_finish=never rollback=never' fixture.log
           grep -F 'SUT_OUTCOME_ERRORS_RESULT worker=evidence evaluation=joined session=joined cancellation=joined stop=joined provisional=discarded' fixture.log
           grep -F 'SUT_OUTCOME_STREAM_RESULT empty=rejected multiple=rejected malformed=rejected unfinished=rejected closure=before_evaluation' fixture.log

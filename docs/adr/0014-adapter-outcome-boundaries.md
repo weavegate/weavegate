@@ -62,7 +62,9 @@ The final synchronous context/latch observation after those cleanup operations
 is the success boundary. Cancellation after that observation belongs to the
 caller, not this completed Run. Internal execution cancellation for faults or
 unstarted outcomes is separate from operation cancellation and does not invent
-a context.Canceled error for the caller.
+a context.Canceled error for the caller. A custom parent cancellation cause
+remains discoverable alongside `context.Canceled`, including when cancellation
+first becomes observable during Stop or runtime Close.
 
 Committed worker evidence retains its nil worker error even when cancellation
 wins the operation. Collected worker and unstarted evidence is retained in

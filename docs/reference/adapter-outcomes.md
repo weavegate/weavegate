@@ -59,6 +59,9 @@ shutdown, and runtime Close. Their final synchronous observation, together with
 the fault latch, is Run's success boundary. Cancellation after this boundary is
 outside the completed operation. Stop receives a detached context with the
 configured stop budget so cancellation does not skip cleanup.
+The final boundary preserves both the operation context error and a distinct
+custom cancellation cause, even when Stop or runtime Close is where cancellation
+first becomes observable.
 
 Collectors stay active through Stop and drain available evidence before shutdown.
 Canceled and failed runs retain known worker and unstarted results in scenario

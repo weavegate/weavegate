@@ -163,6 +163,7 @@ func (o *Orchestrator) Run(
 			returnErr = joinRunError(returnErr, faults.Err())
 		}
 		returnErr = joinRunError(returnErr, runCtx.Err())
+		returnErr = joinRunError(returnErr, context.Cause(runCtx))
 		if returnErr != nil {
 			result.Evaluation = oracle.Evaluation{}
 			result.Fingerprint = ""

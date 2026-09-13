@@ -153,27 +153,32 @@ func TestOutcomeSessionFaultBoundaries(t *testing.T) {
 func TestOutcomeCancellationBoundaries(t *testing.T) {
 	for _, phase := range []string{"collection", "evaluation", "stop", "runtime_close"} {
 		t.Run(phase, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			cause := errors.New("caller canceled during " + phase)
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			cancelWithCause := func() { cancel(cause) }
 			a := &outcomeAdapter{}
 			r := &outcomeRuntime{Runtime: syncpoint.New()}
 			if phase == "collection" {
-				r.afterFinish = cancel
+				r.afterFinish = cancelWithCause
 			}
 			if phase == "stop" {
-				a.stop = func(context.Context) error { cancel(); return nil }
+				a.stop = func(context.Context) error { cancelWithCause(); return nil }
 			}
 			if phase == "runtime_close" {
-				r.afterClose = cancel
+				r.afterClose = cancelWithCause
 			}
 			result, err := runOutcomeTest(t, ctx, a, r, nil, oracle.EvaluatorFunc(func(context.Context, oracle.DB, oracle.RunContext) (oracle.Evaluation, error) {
 				if phase == "evaluation" {
-					cancel()
+					cancelWithCause()
 				}
 				return oracle.NewEvaluation(oracle.OracleResult{OracleID: "pass"})
 			}))
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("Run error = %v", err)
+			}
+			if !errors.Is(err, cause) {
+				t.Fatalf("Run error = %v, want custom cause %v", err, cause)
 			}
 			if len(result.Workers) != 1 || result.Workers[0].Err != nil || len(result.Terminals) != 1 || result.Terminals[0].State != TerminalStateDone {
 				t.Fatalf("committed worker facts lost: %#v", result)
@@ -181,7 +186,7 @@ func TestOutcomeCancellationBoundaries(t *testing.T) {
 			assertNoProvisionalEvaluation(t, result)
 		})
 	}
-	t.Log("SUT_CANCEL_BOUNDARY_RESULT collection=observed evaluation=observed cleanup=observed committed_worker_error=nil run_error=context_cancelled")
+	t.Log("SUT_CANCEL_BOUNDARY_RESULT collection=observed evaluation=observed cleanup=observed committed_worker_error=nil run_error=context_cancelled custom_cause=preserved")
 }
 
 func TestOutcomeUnstartedAfterInvoke(t *testing.T) {
