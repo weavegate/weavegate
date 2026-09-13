@@ -340,8 +340,6 @@ func TestOutcomeStreamValidation(t *testing.T) {
 		assertNoProvisionalEvaluation(t, result)
 	})
 	t.Run("malformed_with_multiple_results", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
 		producerDone := make(chan struct{})
 		a := &outcomeAdapter{invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
 			stream := make(chan sut.InvocationOutcome)
@@ -349,18 +347,27 @@ func TestOutcomeStreamValidation(t *testing.T) {
 				defer close(producerDone)
 				stream <- sut.InvocationOutcome{}
 				stream <- worker
+				stream <- worker
 				close(stream)
 			}()
 			return stream, nil
 		}}
-		result, err := runOutcomeTest(t, ctx, a, nil, nil, stableEvaluator)
+		a.stop = func(ctx context.Context) error {
+			select {
+			case <-producerDone:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		result, err := runOutcomeTest(t, context.Background(), a, nil, nil, stableEvaluator)
 		if !strings.Contains(err.Error(), "exactly one outcome kind") || !strings.Contains(err.Error(), "more than one result") {
 			t.Fatalf("combined shape/stream error = %v", err)
 		}
 		select {
 		case <-producerDone:
-		case <-ctx.Done():
-			t.Fatalf("malformed unbuffered producer remained blocked: %v", ctx.Err())
+		default:
+			t.Fatal("malformed unbuffered producer remained blocked after Stop")
 		}
 		assertNoProvisionalEvaluation(t, result)
 	})

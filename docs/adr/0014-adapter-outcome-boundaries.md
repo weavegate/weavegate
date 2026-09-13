@@ -55,21 +55,23 @@ closure. Empty, multiple, or unfinished streams are protocol errors. A truthful
 WorkerResult authorizes Finish immediately; oracle evaluation additionally waits
 for stream closure. A first-outcome validation failure or Finish failure remains
 a run error while the collector continues validating stream closure and
-multiplicity. Shutdown keeps collectors
-alive through Stop so unbuffered producers can finish, then drains available
-evidence within the cleanup boundary.
+multiplicity. After the first outcome, collectors drain every additional value
+until closure or collector cancellation. Shutdown keeps collectors alive through
+Stop so unbuffered producers can finish, then drains available evidence within
+the cleanup boundary.
 
 ## G6: Cancellation and finalization
 
-The operation context and configured run deadline remain observable through
-execution, collection, evaluation, Stop, collector shutdown, and runtime Close.
-The final synchronous context/latch observation after those cleanup operations
-is the success boundary. Cancellation after that observation belongs to the
-caller, not this completed Run. Internal execution cancellation for faults or
-unstarted outcomes is separate from operation cancellation and does not invent
-a context.Canceled error for the caller. A custom parent cancellation cause
-remains discoverable alongside `context.Canceled`, including when cancellation
-first becomes observable during Stop or runtime Close.
+The operation context remains observable from the run-gate wait and fixture reset
+through execution, collection, evaluation, Stop, collector shutdown, and runtime
+Close. The configured run deadline begins after the run gate and remains
+observable through the same execution and cleanup phases. Final synchronous
+context/latch observation is the success boundary. Cancellation after that
+observation belongs to the caller, not this completed Run. Internal execution
+cancellation for faults or unstarted outcomes is separate from operation
+cancellation and does not invent a context.Canceled error for the caller. A
+custom parent cancellation cause remains discoverable alongside
+`context.Canceled` across all operation phases.
 
 Committed worker evidence retains its nil worker error even when cancellation
 wins the operation. Collected worker and unstarted evidence is retained in

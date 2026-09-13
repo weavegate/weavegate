@@ -21,9 +21,11 @@ Go-native connection acquisition is asynchronous. Input validation, unknown
 commands, active worker-ID conflicts, and already-canceled contexts are
 synchronous rejections. Connection acquisition failure or cancellation before
 command acceptance produces an unstarted outcome after Invoke returns.
-Cancellation observation and command acceptance share a worker-local serialized
-transition immediately before the command call. If cancellation wins, the
-command is not called. If acceptance wins, the command reports whether its
+Acquisition-failure completion inspects the parent context while holding the
+worker-local ordering lock, so an observable custom cause cannot be replaced by
+internal cleanup cancellation. Cancellation observation and command acceptance
+share the same lock immediately before the command call. If cancellation wins,
+the command is not called. If acceptance wins, the command reports whether its
 transaction began and reached a known committed or rolled-back state through
 `gonative.CommandResult`. A transaction-creation failure produces an
 UnstartedResult after the connection is returned; a command that began its
@@ -40,8 +42,9 @@ malformed identities or outcome variants, and streams left open at cleanup are
 protocol errors. Worker completion can advance runtime coordination before
 stream closure, but oracle evaluation waits for all streams to close. A runtime
 Finish error is retained while the collector still checks for closure and extra
-outcomes. A malformed first outcome is retained the same way, so its producer is
-still drained and multiplicity remains observable.
+outcomes. A malformed first outcome is retained the same way, and every remaining
+value is drained until closure or collector cancellation so unbuffered producers
+can finish and multiplicity remains observable.
 
 ## Session fault and cancellation observation
 
@@ -58,14 +61,14 @@ A fault cancels the execution/evaluation context with its original cause.
 Evaluators must honor their context. Run also checks the latch synchronously,
 so an evaluator returning success after cancellation cannot finalize that result.
 
-The operation context and run deadline remain observable through Stop, collector
-shutdown, and runtime Close. Their final synchronous observation, together with
-the fault latch, is Run's success boundary. Cancellation after this boundary is
-outside the completed operation. Stop receives a detached context with the
-configured stop budget so cancellation does not skip cleanup.
-The final boundary preserves both the operation context error and a distinct
-custom cancellation cause, even when Stop or runtime Close is where cancellation
-first becomes observable.
+The operation context is observed on every return path, including the run-gate
+wait and fixture reset. The run deadline remains observable through Stop,
+collector shutdown, and runtime Close. Final synchronous context observation,
+together with the fault latch, is Run's success boundary. Cancellation after this
+boundary is outside the completed operation. Stop receives a detached context
+with the configured stop budget so cancellation does not skip cleanup. The final
+boundary preserves both the operation context error and a distinct custom
+cancellation cause across these phases.
 
 Collectors stay active through Stop and drain available evidence before shutdown.
 Canceled and failed runs retain known worker and unstarted results in scenario

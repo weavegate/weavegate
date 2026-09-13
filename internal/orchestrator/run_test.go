@@ -689,6 +689,54 @@ func TestRunCleanup(t *testing.T) {
 	}
 }
 
+func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
+	newOrchestrator := func(t *testing.T, fixtureRunner fixture.Fixture) *Orchestrator {
+		t.Helper()
+		return newTestOrchestrator(t, Config{
+			Fixture:               fixtureRunner,
+			DB:                    &fixture.DB{},
+			NewRuntime:            syncpoint.New,
+			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			BlockInferenceTimeout: testBlockTimeout,
+			StepTimeout:           testStepTimeout,
+			RunTimeout:            testRunTimeout,
+			StopTimeout:           testStopTimeout,
+		})
+	}
+
+	t.Run("run gate", func(t *testing.T) {
+		cause := errors.New("cancel while waiting for active run")
+		orchestrator := newOrchestrator(t, &recordingFixture{})
+		<-orchestrator.runGate
+		defer func() { orchestrator.runGate <- struct{}{} }()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), stableEvaluator)
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+			t.Fatalf("run-gate cancellation = %v, want context and custom causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("run-gate cancellation retained provisional result: %#v", result)
+		}
+	})
+
+	t.Run("fixture reset", func(t *testing.T) {
+		cause := errors.New("cancel during fixture reset")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		fixtureRunner := &cancelingResetFixture{cancel: cancel, cause: cause}
+		orchestrator := newOrchestrator(t, fixtureRunner)
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), stableEvaluator)
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+			t.Fatalf("fixture-reset cancellation = %v, want context and custom causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("fixture-reset cancellation retained provisional result: %#v", result)
+		}
+	})
+}
+
 func TestRunStopsWorkersBeforeCancelingCollectors(t *testing.T) {
 	rootErr := errors.New("injected wait failure")
 	runtime := newRuntimeProbe()
@@ -828,6 +876,18 @@ func matchingSchedule(t *testing.T) scenario.Schedule {
 type recordingFixture struct {
 	resetCalls int
 	resetErr   error
+}
+
+type cancelingResetFixture struct {
+	recordingFixture
+	cancel context.CancelCauseFunc
+	cause  error
+}
+
+func (f *cancelingResetFixture) Reset(ctx context.Context) error {
+	f.resetCalls++
+	f.cancel(f.cause)
+	return ctx.Err()
 }
 
 func (*recordingFixture) Provision(context.Context, fixture.FixtureSpec) (*fixture.DB, error) {

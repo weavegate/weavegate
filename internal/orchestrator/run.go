@@ -94,6 +94,16 @@ func (o *Orchestrator) Run(
 	if isNilEvaluator(evaluator) {
 		return result, errors.New("run schedule: Oracle evaluator is required")
 	}
+	defer func() {
+		// Observe the operation context on every return path, including the run
+		// gate and fixture reset before adapter finalization is installed.
+		returnErr = joinRunError(returnErr, ctx.Err())
+		returnErr = joinRunError(returnErr, context.Cause(ctx))
+		if returnErr != nil {
+			result.Evaluation = oracle.Evaluation{}
+			result.Fingerprint = ""
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		return result, fmt.Errorf("run schedule %q: wait for active run: %w", schedule.ID, ctx.Err())
@@ -158,16 +168,13 @@ func (o *Orchestrator) Run(
 		if stopWatcher != nil {
 			stopWatcher()
 		}
-		// This is the final success boundary, after all cleanup observations.
+		// Observe run timeouts and session faults after all cleanup work. The
+		// outer operation-context boundary runs after this defer.
 		if faults != nil && faults.Err() != nil {
 			returnErr = joinRunError(returnErr, faults.Err())
 		}
 		returnErr = joinRunError(returnErr, runCtx.Err())
 		returnErr = joinRunError(returnErr, context.Cause(runCtx))
-		if returnErr != nil {
-			result.Evaluation = oracle.Evaluation{}
-			result.Fingerprint = ""
-		}
 	}()
 
 	adapter = o.config.NewAdapter(runtime)

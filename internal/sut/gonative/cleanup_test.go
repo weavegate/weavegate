@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/sut"
 )
 
 func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
@@ -64,6 +65,41 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 		}
 		assertUnstartedWorkerCompleted(t, adapter, <-captured)
 
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("connection acquisition failure observes parent directly", func(t *testing.T) {
+		wantConnectErr := errors.New("connect failed before watcher ran")
+		wantCancelErr := errors.New("parent canceled before acquisition returned")
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			cancelParent(wantCancelErr)
+			return nil, wantConnectErr
+		}
+		workerCtx, cancelWorker := context.WithCancelCause(context.WithoutCancel(parentCtx))
+		worker := &activeWorker{
+			workerID: "worker",
+			command:  "command",
+			cancel:   cancelWorker,
+			results:  make(chan sut.InvocationOutcome, 1),
+			done:     make(chan struct{}),
+		}
+		adapter.active[worker.workerID] = worker
+
+		// Start synchronously without the parent watcher to exercise the
+		// acquisition-completion boundary itself.
+		adapter.startWorker(parentCtx, workerCtx, worker, adapter.commands["command"], db)
+		outcome := <-worker.results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("unstarted outcome = %#v", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, wantConnectErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want connection and parent cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, worker)
 		if err := db.Close(); err != nil {
 			t.Fatalf("close database: %v", err)
 		}

@@ -211,7 +211,7 @@ func (a *adapter) startWorker(
 	conn, err := db.Conn(workerCtx)
 	if err != nil {
 		cause := fmt.Errorf("acquire connection: %w", err)
-		if canceled := context.Cause(workerCtx); canceled != nil && !errors.Is(cause, canceled) {
+		if canceled := worker.finishBeforeCommand(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, nil)
@@ -389,6 +389,30 @@ func (w *activeWorker) requestCancel(cause error) {
 	}
 	w.cancelErr = cause
 	w.cancel(cause)
+}
+
+// finishBeforeCommand serializes parent cancellation with an unstarted
+// completion. A nil result means completion won while the parent was active;
+// otherwise the returned cause was already accepted by the worker.
+func (w *activeWorker) finishBeforeCommand(parentCtx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.cancelErr != nil {
+		return w.cancelErr
+	}
+	if err := parentCtx.Err(); err != nil {
+		cause := context.Cause(parentCtx)
+		if cause == nil {
+			cause = err
+		}
+		w.cancelErr = cause
+		w.cancel(cause)
+		return cause
+	}
+	w.cancelErr = context.Canceled
+	w.cancel(context.Canceled)
+	return nil
 }
 
 func (w *activeWorker) watchParent(parentCtx context.Context) {

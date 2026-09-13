@@ -83,10 +83,19 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 		// Wake runtime waits without calling Finish for an unstarted command.
 		r.cancel(value.err)
 	}
-	_, ok, err = receiveOutcome(r.collectorsContext, stream)
-	if err != nil {
-		value.err = joinRunError(value.err, fmt.Errorf("worker %q result channel did not close before cleanup", workerID))
-	} else if ok {
+	multiple := false
+	for {
+		_, ok, err = receiveOutcome(r.collectorsContext, stream)
+		if err != nil {
+			value.err = joinRunError(value.err, fmt.Errorf("worker %q result channel did not close before cleanup", workerID))
+			break
+		}
+		if !ok {
+			break
+		}
+		multiple = true
+	}
+	if multiple {
 		value.err = joinRunError(value.err, fmt.Errorf("worker %q returned more than one result", workerID))
 	}
 }
