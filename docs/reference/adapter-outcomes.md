@@ -38,14 +38,17 @@ holds the worker reservation until cleanup and stream closure, then permits reus
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
-an affected stream without an outcome. Empty streams, multiple outcomes,
+an affected stream without an outcome. Go-native fault publication and Invoke
+admission share the adapter-state lock, so a fault rejects every invocation that
+has not already been reserved. Empty streams, multiple outcomes,
 malformed identities or outcome variants, and streams left open at cleanup are
 protocol errors. Worker completion can advance runtime coordination before
 stream closure, but oracle evaluation waits for all streams to close. A runtime
-Finish error is retained while the collector still checks for closure and extra
-outcomes. A malformed first outcome is retained the same way, and every remaining
-value is drained until closure or collector cancellation so unbuffered producers
-can finish and multiplicity remains observable.
+Finish error immediately cancels execution waits while the collector still checks
+for closure and extra outcomes. A malformed first outcome is retained and cancels
+execution the same way, and every remaining value is drained until closure or
+collector cancellation so unbuffered producers can finish and multiplicity
+remains observable.
 
 ## Session fault and cancellation observation
 
@@ -64,14 +67,15 @@ A fault cancels the execution/evaluation context with its original cause.
 Evaluators must honor their context. Run also checks the latch synchronously,
 so an evaluator returning success after cancellation cannot finalize that result.
 
-The operation context is observed on every return path, including the run-gate
-wait and fixture reset. The run deadline remains observable through Stop,
-collector shutdown, and runtime Close. Final synchronous context observation,
-together with the fault latch, is Run's success boundary. Cancellation after this
-boundary is outside the completed operation. Stop receives a detached context
-with the configured stop budget so cancellation does not skip cleanup. The final
-boundary preserves both the operation context error and a distinct custom
-cancellation cause across these phases.
+The operation context is observed on every return path after its nil check,
+including evaluator validation, the run-gate wait, and fixture reset. The run
+deadline remains observable through Stop, collector shutdown, and runtime Close.
+Final synchronous context observation, together with the fault latch, is Run's
+success boundary. Cancellation after this boundary is outside the completed
+operation. Stop receives a detached context with the configured stop budget so
+cancellation does not skip cleanup. The final boundary preserves both the
+operation context error and a distinct custom cancellation cause across these
+phases.
 
 Collectors stay active through Stop and drain available evidence before shutdown.
 Canceled and failed runs retain known worker and unstarted results in scenario

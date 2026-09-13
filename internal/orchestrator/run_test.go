@@ -704,6 +704,26 @@ func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
 		})
 	}
 
+	t.Run("nil evaluator", func(t *testing.T) {
+		cause := errors.New("cancel before evaluator validation")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+		fixtureRunner := &recordingFixture{}
+		orchestrator := newOrchestrator(t, fixtureRunner)
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), nil)
+		if err == nil || !strings.Contains(err.Error(), "Oracle evaluator is required") ||
+			!errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+			t.Fatalf("nil-evaluator cancellation = %v, want validation, context, and custom causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("nil-evaluator cancellation retained provisional result: %#v", result)
+		}
+		if fixtureRunner.resetCalls != 0 {
+			t.Fatalf("nil-evaluator fixture resets = %d, want 0", fixtureRunner.resetCalls)
+		}
+	})
+
 	t.Run("run gate", func(t *testing.T) {
 		cause := errors.New("cancel while waiting for active run")
 		orchestrator := newOrchestrator(t, &recordingFixture{})

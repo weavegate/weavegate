@@ -94,7 +94,10 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 		unstarted := *outcome.Unstarted
 		value.unstarted = &unstarted
 		value.err = &unstarted
-		// Wake runtime waits without calling Finish for an unstarted command.
+	}
+	if value.err != nil {
+		// Wake runtime waits as soon as the first outcome is known to fail. The
+		// collector remains alive to validate closure and multiplicity through Stop.
 		r.cancel(value.err)
 	}
 	multiple := false

@@ -437,6 +437,9 @@ func TestGoNativeUnknownTransactionOutcomeSessionFault(t *testing.T) {
 	if !errors.Is(adapter.Faults().Err(), wantErr) {
 		t.Fatalf("session fault = %v, want %v", adapter.Faults().Err(), wantErr)
 	}
+	if next, err := adapter.Invoke(ctx, "other", "command"); next != nil || !errors.Is(err, wantErr) {
+		t.Fatalf("faulted session accepted later invocation: stream=%v error=%v", next, err)
+	}
 	if err := adapter.Stop(ctx); !errors.Is(err, wantErr) {
 		t.Fatalf("Stop error = %v, want %v", err, wantErr)
 	}

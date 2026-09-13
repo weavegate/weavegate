@@ -275,7 +275,7 @@ func (a *adapter) runWorker(
 			worker.workerID,
 			worker.command,
 		)
-		a.faults.Fail(errors.Join(fault, commandResult.Err, closeErr))
+		a.failSession(errors.Join(fault, commandResult.Err, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
 	}
@@ -286,7 +286,7 @@ func (a *adapter) runWorker(
 				worker.workerID,
 				worker.command,
 			)
-			a.faults.Fail(errors.Join(fault, closeErr))
+			a.failSession(errors.Join(fault, closeErr))
 			a.completeWorker(worker, nil, closeErr)
 			return
 		}
@@ -307,7 +307,7 @@ func (a *adapter) runWorker(
 		if canceled := context.Cause(ctx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
-		a.faults.Fail(errors.Join(cause, closeErr))
+		a.failSession(errors.Join(cause, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
 	}
@@ -319,7 +319,7 @@ func (a *adapter) runWorker(
 		Duration: time.Since(startedAt),
 	}
 	if closeErr != nil {
-		a.faults.Fail(errors.Join(commandResult.Err, closeErr))
+		a.failSession(errors.Join(commandResult.Err, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
 	}
@@ -328,13 +328,22 @@ func (a *adapter) runWorker(
 
 func (a *adapter) completeUnstartedWorker(worker *activeWorker, cause, cleanupErr error) {
 	if cleanupErr != nil {
-		a.faults.Fail(errors.Join(cause, cleanupErr))
+		a.failSession(errors.Join(cause, cleanupErr))
 		a.completeWorker(worker, nil, cleanupErr)
 		return
 	}
 	a.completeWorker(worker, &sut.InvocationOutcome{Unstarted: &sut.UnstartedResult{
 		WorkerID: worker.workerID, Err: cause,
 	}}, nil)
+}
+
+// failSession and Invoke use the adapter mutex as their shared ordering point.
+// An invocation reserved before this transition may proceed; every later one
+// observes the latched fault and is rejected.
+func (a *adapter) failSession(cause error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.faults.Fail(cause)
 }
 
 func (a *adapter) completeWorker(

@@ -380,6 +380,56 @@ func TestOutcomeStreamValidation(t *testing.T) {
 		}
 		assertNoProvisionalEvaluation(t, result)
 	})
+	for _, test := range []struct {
+		name      string
+		first     sut.InvocationOutcome
+		finishErr error
+		want      string
+	}{
+		{
+			name:  "malformed_first_outcome",
+			first: sut.InvocationOutcome{},
+			want:  "exactly one outcome kind",
+		},
+		{
+			name:      "finish_error",
+			first:     worker,
+			finishErr: errors.New("finish failed before stream closure"),
+			want:      "finish failed before stream closure",
+		},
+	} {
+		t.Run(test.name+"_cancels_before_drain", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testStepTimeout)
+			defer cancel()
+			stop := make(chan struct{})
+			producerDone := make(chan struct{})
+			a := &outcomeAdapter{invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
+				stream := make(chan sut.InvocationOutcome)
+				go func() {
+					defer close(producerDone)
+					stream <- test.first
+					<-stop
+					close(stream)
+				}()
+				return stream, nil
+			}}
+			a.stop = func(context.Context) error {
+				close(stop)
+				<-producerDone
+				return nil
+			}
+			r := &outcomeRuntime{Runtime: syncpoint.New(), finishErr: test.finishErr}
+
+			result, err := runOutcomeTest(t, ctx, a, r, nil, stableEvaluator)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("first outcome error = %v, want %q", err, test.want)
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("first outcome error waited for run cleanup: %v", err)
+			}
+			assertNoProvisionalEvaluation(t, result)
+		})
+	}
 	t.Run("malformed_with_multiple_results", func(t *testing.T) {
 		producerDone := make(chan struct{})
 		a := &outcomeAdapter{invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {

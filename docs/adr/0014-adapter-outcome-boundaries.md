@@ -22,6 +22,9 @@ Unknown transaction outcome or unproven connection cleanup never produces a
 WorkerResult. Successful Stop must finish publishing session faults before returning; a
 failed Stop provides only an observed fault snapshot and does not prove cleanup.
 Quarantine after failed Stop remains the separate G3 decision.
+The Go-native adapter serializes fault publication with invocation admission
+under its adapter-state lock, so an invocation reserved before the fault may
+finish but no later invocation can enter the faulted session.
 
 Run observes faults during execution and provisional oracle evaluation by
 canceling their shared execution context. It also reads the latch synchronously
@@ -58,20 +61,21 @@ exclusive outcome shape, a non-nil unstarted cause, and exactly one outcome plus
 closure. Empty, multiple, or unfinished streams are protocol errors. A truthful
 WorkerResult authorizes Finish immediately; oracle evaluation additionally waits
 for stream closure. A first-outcome validation failure or Finish failure remains
-a run error while the collector continues validating stream closure and
-multiplicity. After the first outcome, collectors drain every additional value
-until closure or collector cancellation. Shutdown keeps collectors alive through
-Stop so unbuffered producers can finish, then drains available evidence within
-the cleanup boundary.
+a run error and immediately cancels execution waits while the collector continues
+validating stream closure and multiplicity. After the first outcome, collectors
+drain every additional value until closure or collector cancellation. Shutdown
+keeps collectors alive through Stop so unbuffered producers can finish, then
+drains available evidence within the cleanup boundary.
 
 ## G6: Cancellation and finalization
 
-The operation context remains observable from the run-gate wait and fixture reset
-through execution, collection, evaluation, Stop, collector shutdown, and runtime
-Close. The configured run deadline begins after the run gate and remains
-observable through the same execution and cleanup phases. Final synchronous
-context/latch observation is the success boundary. Cancellation after that
-observation belongs to the caller, not this completed Run. Internal execution
+The operation context remains observable from evaluator validation and the
+run-gate wait through fixture reset, execution, collection, evaluation, Stop,
+collector shutdown, and runtime Close. The configured run deadline begins after
+the run gate and remains observable through the same execution and cleanup
+phases. Final synchronous context/latch observation is the success boundary.
+Cancellation after that observation belongs to the caller, not this completed
+Run. Internal execution
 cancellation for faults or unstarted outcomes is separate from operation
 cancellation and does not invent a context.Canceled error for the caller. A
 custom parent cancellation cause remains discoverable alongside

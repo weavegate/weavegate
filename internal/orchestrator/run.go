@@ -91,12 +91,10 @@ func (o *Orchestrator) Run(
 	if ctx == nil {
 		return result, errors.New("run schedule: context is required")
 	}
-	if isNilEvaluator(evaluator) {
-		return result, errors.New("run schedule: Oracle evaluator is required")
-	}
 	defer func() {
 		// Observe the operation context on every return path, including the run
-		// gate and fixture reset before adapter finalization is installed.
+		// input validation, run gate, and fixture reset before adapter finalization
+		// is installed.
 		returnErr = joinRunError(returnErr, ctx.Err())
 		returnErr = joinRunError(returnErr, context.Cause(ctx))
 		if returnErr != nil {
@@ -104,6 +102,9 @@ func (o *Orchestrator) Run(
 			result.Fingerprint = ""
 		}
 	}()
+	if isNilEvaluator(evaluator) {
+		return result, errors.New("run schedule: Oracle evaluator is required")
+	}
 	select {
 	case <-ctx.Done():
 		return result, fmt.Errorf("run schedule %q: wait for active run: %w", schedule.ID, ctx.Err())
