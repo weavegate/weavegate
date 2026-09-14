@@ -39,18 +39,19 @@ func watchSessionFaults(faults sut.SessionFaults, cancel context.CancelCauseFunc
 	return func() { close(stop); <-done }
 }
 
-// receiveOutcome drains at most one already available value after collector
-// shutdown. This preserves a committed fact at the boundary without allowing a
-// continuously readable faulty stream to starve cancellation.
+// receiveOutcome consumes an already-ready stream event while the caller's
+// post-cancellation budget remains. The collector budgets one final outcome and
+// one closure-or-multiplicity probe so a continuously readable faulty stream
+// cannot starve cancellation.
 func receiveOutcome(
 	ctx context.Context,
 	stream <-chan sut.InvocationOutcome,
-	drainAfterCancel *bool,
+	readyReadsAfterCancel *int,
 ) (sut.InvocationOutcome, bool, error) {
 	select {
 	case <-ctx.Done():
-		if *drainAfterCancel {
-			*drainAfterCancel = false
+		if *readyReadsAfterCancel > 0 {
+			*readyReadsAfterCancel--
 			select {
 			case outcome, ok := <-stream:
 				return outcome, ok, nil
@@ -64,8 +65,8 @@ func receiveOutcome(
 	case outcome, ok := <-stream:
 		return outcome, ok, nil
 	case <-ctx.Done():
-		if *drainAfterCancel {
-			*drainAfterCancel = false
+		if *readyReadsAfterCancel > 0 {
+			*readyReadsAfterCancel--
 			select {
 			case outcome, ok := <-stream:
 				return outcome, ok, nil
@@ -86,15 +87,24 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 			r.cancel(value.err)
 		}
 	}()
-	drainAfterCancel := true
-	outcome, ok, err := receiveOutcome(r.collectorsContext, stream, &drainAfterCancel)
+	readyReadsAfterCancel := 2
+	outcome, ok, err := receiveOutcome(r.collectorsContext, stream, &readyReadsAfterCancel)
 	if err != nil {
 		value.err = fmt.Errorf("worker %q result stream unfinished during cleanup", workerID)
 		return
 	}
 	if !ok {
-		value.err = fmt.Errorf("worker %q result channel closed without a result", workerID)
+		if fault := sessionFaultError(r.faults); fault != nil {
+			value.err = fault
+		} else {
+			value.err = fmt.Errorf("worker %q result channel closed without a result", workerID)
+		}
 		return
+	}
+	// Once the required outcome is known, only its closure-or-multiplicity probe
+	// remains, whether that outcome arrived before or after cancellation.
+	if readyReadsAfterCancel > 1 {
+		readyReadsAfterCancel = 1
 	}
 	switch {
 	case (outcome.Worker == nil) == (outcome.Unstarted == nil):
@@ -122,7 +132,7 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 	}
 	multiple := false
 	for {
-		_, ok, err = receiveOutcome(r.collectorsContext, stream, &drainAfterCancel)
+		_, ok, err = receiveOutcome(r.collectorsContext, stream, &readyReadsAfterCancel)
 		if err != nil {
 			value.err = joinRunError(value.err, fmt.Errorf("worker %q result channel did not close before cleanup", workerID))
 			break

@@ -70,6 +70,34 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 		}
 	})
 
+	t.Run("connection acquisition masks cleanup cancellation sentinel", func(t *testing.T) {
+		wantCancelErr := errors.New("cleanup started after orchestration failure")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		adapter, db, connector, captured := newCleanupTestAdapter(t)
+		connector.connect = func(workerCtx context.Context) (driver.Conn, error) {
+			captureActiveWorker(t, adapter, captured, "worker")
+			cancel(wantCancelErr)
+			<-workerCtx.Done()
+			return nil, workerCtx.Err()
+		}
+
+		results, err := adapter.Invoke(ctx, "worker", "command")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted outcome = %#v, want cleanup cause", outcome)
+		}
+		if errors.Is(outcome.Unstarted.Err, context.Canceled) {
+			t.Fatalf("cleanup cancellation sentinel escaped: %v", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, <-captured)
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
 	t.Run("connection acquisition failure observes parent directly", func(t *testing.T) {
 		wantConnectErr := errors.New("connect failed before watcher ran")
 		wantCancelErr := errors.New("parent canceled before acquisition returned")

@@ -54,6 +54,7 @@ type runCoordinator struct {
 	cancel   context.CancelCauseFunc
 	runtime  syncpoint.Runtime
 	handle   sut.Handle
+	faults   sut.SessionFaults
 	value    scenario.Scenario
 	schedule scenario.Schedule
 	result   *RunResult
@@ -191,10 +192,11 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: adapter start returned nil handle", schedule.ID)
 	}
 
-	faults = handle.Faults()
-	if faults == nil || faults.Done() == nil {
+	candidateFaults := handle.Faults()
+	if isNilInterface(candidateFaults) || candidateFaults.Done() == nil {
 		return result, fmt.Errorf("run schedule %q: adapter start returned nil fault surface", schedule.ID)
 	}
+	faults = candidateFaults
 	stopWatcher = watchSessionFaults(faults, cancelExecution)
 	if fault := sessionFaultError(faults); fault != nil {
 		return result, fault
@@ -205,6 +207,7 @@ func (o *Orchestrator) Run(
 		cancel:            cancelExecution,
 		runtime:           runtime,
 		handle:            handle,
+		faults:            faults,
 		value:             value.Clone(),
 		schedule:          schedule.Clone(),
 		result:            &result,
@@ -255,14 +258,18 @@ func (o *Orchestrator) Run(
 }
 
 func isNilEvaluator(evaluator oracle.Evaluator) bool {
-	if evaluator == nil {
+	return isNilInterface(evaluator)
+}
+
+func isNilInterface(value any) bool {
+	if value == nil {
 		return true
 	}
-	value := reflect.ValueOf(evaluator)
-	switch value.Kind() {
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map,
 		reflect.Pointer, reflect.Slice:
-		return value.IsNil()
+		return reflected.IsNil()
 	default:
 		return false
 	}

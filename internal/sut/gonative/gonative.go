@@ -210,7 +210,7 @@ func (a *adapter) startWorker(
 ) {
 	conn, err := db.Conn(workerCtx)
 	if err != nil {
-		cause := fmt.Errorf("acquire connection: %w", err)
+		cause := fmt.Errorf("acquire connection: %w", workerContextError(workerCtx, err))
 		if canceled := worker.finishUnstarted(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
@@ -224,6 +224,31 @@ func (a *adapter) startWorker(
 	}
 	a.runWorker(parentCtx, workerCtx, worker, command, conn)
 }
+
+// workerContextError masks a context sentinel introduced solely to wake a
+// worker while retaining the cancellation cause and any independent error
+// identity returned by database/sql.
+func workerContextError(ctx context.Context, err error) error {
+	wakeup := ctx.Err()
+	cause := context.Cause(ctx)
+	if wakeup != nil && cause != nil && !errors.Is(cause, wakeup) && errors.Is(err, wakeup) {
+		return &workerContextFailure{original: err, wakeup: wakeup, cause: cause}
+	}
+	return err
+}
+
+type workerContextFailure struct {
+	original error
+	wakeup   error
+	cause    error
+}
+
+func (e *workerContextFailure) Error() string { return fmt.Sprintf("%v: %v", e.original, e.cause) }
+func (e *workerContextFailure) Unwrap() error { return e.cause }
+func (e *workerContextFailure) Is(target error) bool {
+	return target != e.wakeup && errors.Is(e.original, target)
+}
+func (e *workerContextFailure) As(target any) bool { return errors.As(e.original, target) }
 
 func (a *adapter) Stop(ctx context.Context) error {
 	a.mu.Lock()

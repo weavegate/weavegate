@@ -23,7 +23,10 @@ synchronous rejections. Connection acquisition failure or cancellation before
 command acceptance produces an unstarted outcome after Invoke returns.
 Acquisition-failure completion inspects the parent context while holding the
 worker-local ordering lock, so an observable custom cause cannot be replaced by
-internal cleanup cancellation. Cancellation observation and command acceptance
+internal cleanup cancellation. When database/sql returns the raw worker-context
+cancellation sentinel for connection acquisition and that context carries a
+distinct run failure, the adapter preserves the run failure while masking the
+cleanup-only sentinel. Cancellation observation and command acceptance
 share the same lock immediately before the command call. If cancellation wins,
 the command is not called. If acceptance wins, the command reports whether its
 transaction began and reached a known committed or rolled-back state through
@@ -42,10 +45,12 @@ Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
 an affected stream without an outcome. Go-native fault publication and Invoke
 admission share the adapter-state lock, so a fault rejects every invocation that
-has not already been reserved. Empty streams, multiple outcomes,
-malformed identities or outcome variants, and streams left open at cleanup are
-protocol errors. Worker completion can advance runtime coordination before
-stream closure, but oracle evaluation waits for all streams to close. A runtime
+has not already been reserved. An empty invocation stream belongs to a session
+fault only when that fault was latched before closure. An empty healthy stream,
+multiple outcomes, malformed identities or outcome variants, and streams left
+open at cleanup are protocol errors. Worker completion can advance runtime
+coordination before stream closure, but oracle evaluation waits for all streams
+to close. A runtime
 Finish error immediately cancels execution waits while the collector still checks
 for closure and extra outcomes. A malformed first outcome is retained and cancels
 execution the same way, and every remaining value is drained until closure or
@@ -58,6 +63,7 @@ Every started Handle exposes `SessionFaults`: a notification channel and a typed
 `SessionFault` retaining its cause. `FaultLatch` supplies a concurrency-safe
 implementation with a usable zero value. The first non-nil failure closes the
 notification channel and remains visible to all current and late observers.
+Run rejects nil and typed-nil fault surfaces before invoking their methods.
 Subsequent failures do not replace it. Adapters and observers must not mutate a
 published fault or cause. Closing the notification channel while `Err()` remains
 nil after a post-notification recheck is an adapter protocol error and invalidates
@@ -82,9 +88,10 @@ operation context error and a distinct custom cancellation cause across these
 phases.
 
 Collectors stay active through Stop and drain available evidence before shutdown.
-After collector cancellation, each collector consumes at most one already-ready
-value before stopping, so a continuously readable faulty stream cannot block
-cleanup indefinitely.
+After collector cancellation, each collector permits one ready final outcome and
+one ready closure-or-multiplicity probe before stopping. This observes the full
+boundary of a valid buffered outcome while preventing a continuously readable
+faulty stream from blocking cleanup indefinitely.
 Canceled and failed runs retain known worker and unstarted results in scenario
 order. A committed result keeps its nil worker error even when Run returns the
 operation context error. Evaluation and run fingerprint are provisional and are

@@ -125,23 +125,84 @@ func assertNoProvisionalEvaluation(t *testing.T, result RunResult) {
 }
 
 func TestReceiveOutcomeBoundsReadyDrainAfterCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	stream := make(chan sut.InvocationOutcome, 2)
-	stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "first"}}
-	stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "second"}}
-	drainAfterCancel := true
+	t.Run("observes closure after final outcome", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		stream := make(chan sut.InvocationOutcome, 1)
+		stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "first"}}
+		close(stream)
+		readyReadsAfterCancel := 2
 
-	first, ok, err := receiveOutcome(ctx, stream, &drainAfterCancel)
-	if err != nil || !ok || first.Worker == nil || first.Worker.WorkerID != "first" {
-		t.Fatalf("final ready outcome = %#v, %v, %v", first, ok, err)
+		first, ok, err := receiveOutcome(ctx, stream, &readyReadsAfterCancel)
+		if err != nil || !ok || first.Worker == nil || first.Worker.WorkerID != "first" {
+			t.Fatalf("final ready outcome = %#v, %v, %v", first, ok, err)
+		}
+		if _, ok, err := receiveOutcome(ctx, stream, &readyReadsAfterCancel); err != nil || ok {
+			t.Fatalf("closure after final outcome = ok %v, error %v", ok, err)
+		}
+	})
+
+	t.Run("bounds continuously ready stream", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		stream := make(chan sut.InvocationOutcome, 3)
+		stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "first"}}
+		stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "second"}}
+		stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "third"}}
+		readyReadsAfterCancel := 2
+
+		for _, workerID := range []string{"first", "second"} {
+			outcome, ok, err := receiveOutcome(ctx, stream, &readyReadsAfterCancel)
+			if err != nil || !ok || outcome.Worker == nil || outcome.Worker.WorkerID != workerID {
+				t.Fatalf("ready outcome %q = %#v, %v, %v", workerID, outcome, ok, err)
+			}
+		}
+		if _, ok, err := receiveOutcome(ctx, stream, &readyReadsAfterCancel); ok || !errors.Is(err, context.Canceled) {
+			t.Fatalf("third ready outcome after cancellation = ok %v, error %v", ok, err)
+		}
+		if len(stream) != 1 {
+			t.Fatalf("ready outcomes remaining = %d, want 1", len(stream))
+		}
+	})
+}
+
+func TestOutcomeAcceptsFaultOwnedEmptyStream(t *testing.T) {
+	cause := errors.New("transaction completion unknown")
+	a := &outcomeAdapter{}
+	a.invoke = func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
+		a.faults.Fail(cause)
+		return outcomeStream(), nil
 	}
-	if _, ok, err := receiveOutcome(ctx, stream, &drainAfterCancel); ok || !errors.Is(err, context.Canceled) {
-		t.Fatalf("second ready outcome after cancellation = ok %v, error %v", ok, err)
+
+	result, err := runOutcomeTest(t, context.Background(), a, nil, nil, stableEvaluator)
+	if !errors.Is(err, cause) {
+		t.Fatalf("fault-owned empty stream error = %v, want fault cause", err)
 	}
-	if len(stream) != 1 {
-		t.Fatalf("ready outcomes remaining = %d, want 1", len(stream))
+	if strings.Contains(err.Error(), "closed without a result") {
+		t.Fatalf("fault-owned empty stream gained protocol error: %v", err)
 	}
+	assertNoProvisionalEvaluation(t, result)
+}
+
+func TestOutcomeRejectsTypedNilFaultSurface(t *testing.T) {
+	var faults *notificationWithoutFault
+	invoked := false
+	a := &outcomeAdapter{
+		faultSurface: faults,
+		invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
+			invoked = true
+			return outcomeStream(), nil
+		},
+	}
+
+	result, err := runOutcomeTest(t, context.Background(), a, nil, nil, stableEvaluator)
+	if err == nil || !strings.Contains(err.Error(), "nil fault surface") {
+		t.Fatalf("typed-nil fault surface error = %v", err)
+	}
+	if invoked {
+		t.Fatal("typed-nil fault surface reached invocation")
+	}
+	assertNoProvisionalEvaluation(t, result)
 }
 
 func TestOutcomeSessionFaultBoundaries(t *testing.T) {

@@ -48,7 +48,11 @@ The Go-native command boundary reports transaction start and completion
 explicitly. Failure to acquire a connection or begin a command transaction
 therefore remains unstarted, including when cancellation races either operation;
 independent operation and cancellation causes are joined rather than masked. A
-failed Commit or Rollback leaves completion unknown, latches a session fault, and
+raw context cancellation returned by connection acquisition is treated as a
+worker wakeup when the worker context carries a distinct run failure: the run
+failure remains discoverable without misclassifying cleanup as caller
+cancellation. A failed Commit or Rollback leaves completion unknown, latches a
+session fault, and
 publishes no invocation outcome. A command that reports no started transaction
 and no cause is also an adapter session fault. When a command reports that its
 transaction never started, the adapter observes parent cancellation under the
@@ -63,16 +67,18 @@ collects the outcome, and returns its cause as a run error.
 Adapters release worker reservations atomically with stream closure, after
 cleanup, permitting identity reuse only after closure. Collectors verify identity,
 exclusive outcome shape, a non-nil unstarted cause, and exactly one outcome plus
-closure. Empty, multiple, or unfinished streams are protocol errors. A truthful
+closure. An empty stream is valid only when its session fault was already
+latched; an empty healthy stream, multiple outcomes, or an unfinished stream is
+a protocol error. A truthful
 WorkerResult authorizes Finish immediately; oracle evaluation additionally waits
 for stream closure. A first-outcome validation failure or Finish failure remains
 a run error and immediately cancels execution waits while the collector continues
 validating stream closure and multiplicity. After the first outcome, collectors
 drain every additional value until closure or collector cancellation. Shutdown
-keeps collectors alive through Stop so unbuffered producers can finish, then
-drains at most one already-ready value per collector after cancellation. This
-retains a boundary result without letting a continuously readable faulty stream
-outlive both cleanup budgets.
+keeps collectors alive through Stop so unbuffered producers can finish. After
+cancellation, each collector permits one ready final outcome and one ready probe
+that observes closure or multiplicity. This retains the complete boundary while
+bounding a continuously readable faulty stream.
 
 ## G6: Cancellation and finalization
 
