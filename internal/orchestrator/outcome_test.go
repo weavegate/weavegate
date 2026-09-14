@@ -67,6 +67,13 @@ type notificationWithoutFault struct {
 func (f *notificationWithoutFault) Done() <-chan struct{} { return f.done }
 func (*notificationWithoutFault) Err() *sut.SessionFault  { return nil }
 
+type faultWithoutCause struct {
+	done chan struct{}
+}
+
+func (f *faultWithoutCause) Done() <-chan struct{} { return f.done }
+func (*faultWithoutCause) Err() *sut.SessionFault  { return &sut.SessionFault{} }
+
 type faultBetweenObservations struct {
 	done  chan struct{}
 	fault *sut.SessionFault
@@ -201,6 +208,27 @@ func TestOutcomeRejectsTypedNilFaultSurface(t *testing.T) {
 	}
 	if invoked {
 		t.Fatal("typed-nil fault surface reached invocation")
+	}
+	assertNoProvisionalEvaluation(t, result)
+}
+
+func TestOutcomeRejectsSessionFaultWithoutCause(t *testing.T) {
+	faults := &faultWithoutCause{done: make(chan struct{})}
+	invoked := false
+	a := &outcomeAdapter{
+		faultSurface: faults,
+		invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
+			invoked = true
+			return outcomeStream(), nil
+		},
+	}
+
+	result, err := runOutcomeTest(t, context.Background(), a, nil, nil, stableEvaluator)
+	if err == nil || !strings.Contains(err.Error(), "session fault has nil cause") {
+		t.Fatalf("nil-cause session fault error = %v", err)
+	}
+	if invoked {
+		t.Fatal("nil-cause session fault reached invocation")
 	}
 	assertNoProvisionalEvaluation(t, result)
 }
@@ -597,6 +625,29 @@ func TestOutcomeStreamValidation(t *testing.T) {
 		result, err := runOutcomeTest(t, context.Background(), a, r, nil, stableEvaluator)
 		if !errors.Is(err, finishErr) || !strings.Contains(err.Error(), "more than one result") {
 			t.Fatalf("combined Finish/stream error = %v", err)
+		}
+		assertNoProvisionalEvaluation(t, result)
+	})
+	t.Run("second_outcome_cancels_before_stop", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		stream := make(chan sut.InvocationOutcome, 2)
+		stream <- worker
+		stream <- worker
+		a := &outcomeAdapter{invoke: func(context.Context, string) (<-chan sut.InvocationOutcome, error) {
+			return stream, nil
+		}}
+		a.stop = func(context.Context) error {
+			close(stream)
+			return nil
+		}
+
+		result, err := runOutcomeTest(t, ctx, a, nil, nil, stableEvaluator)
+		if err == nil || !strings.Contains(err.Error(), "more than one result") {
+			t.Fatalf("multiplicity error = %v", err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("multiplicity waited for operation deadline: %v", err)
 		}
 		assertNoProvisionalEvaluation(t, result)
 	})

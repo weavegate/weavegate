@@ -53,9 +53,9 @@ coordination before stream closure, but oracle evaluation waits for all streams
 to close. A runtime
 Finish error immediately cancels execution waits while the collector still checks
 for closure and extra outcomes. A malformed first outcome is retained and cancels
-execution the same way, and every remaining value is drained until closure or
-collector cancellation so unbuffered producers can finish and multiplicity
-remains observable.
+execution the same way. The first extra outcome also cancels execution as soon as
+multiplicity is proven, while every remaining value is still drained until closure
+or collector cancellation so unbuffered producers can finish.
 
 ## Session fault and cancellation observation
 
@@ -64,6 +64,8 @@ Every started Handle exposes `SessionFaults`: a notification channel and a typed
 implementation with a usable zero value. The first non-nil failure closes the
 notification channel and remains visible to all current and late observers.
 Run rejects nil and typed-nil fault surfaces before invoking their methods.
+It also rejects a non-nil `SessionFault` with a nil cause as an adapter protocol
+error before treating that value as a cancellation cause.
 Subsequent failures do not replace it. Adapters and observers must not mutate a
 published fault or cause. Closing the notification channel while `Err()` remains
 nil after a post-notification recheck is an adapter protocol error and invalidates
@@ -82,7 +84,9 @@ including evaluator validation, the run-gate wait, and fixture reset. The run
 deadline remains observable through Stop, collector shutdown, and runtime Close.
 Final synchronous context observation, together with the fault latch, is Run's
 success boundary. Cancellation after this boundary is outside the completed
-operation. Stop receives a detached context with the configured stop budget so
+operation. The `Err` read defines that boundary; Run reads a custom cause only
+when the same observation already saw cancellation. Stop receives a detached
+context with the configured stop budget so
 cancellation does not skip cleanup. The final boundary preserves both the
 operation context error and a distinct custom cancellation cause across these
 phases.

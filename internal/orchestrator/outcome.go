@@ -9,7 +9,10 @@ import (
 	"github.com/weavegate/weavegate/internal/trace"
 )
 
-var errFaultNotificationWithoutLatchedError = errors.New("SUT session fault notification closed without a latched error")
+var (
+	errFaultNotificationWithoutLatchedError = errors.New("SUT session fault notification closed without a latched error")
+	errSessionFaultWithoutCause             = errors.New("SUT session fault has nil cause")
+)
 
 type collectorFailure struct{ cause error }
 
@@ -25,17 +28,24 @@ func newCollectorFailure(cause error) error {
 
 func sessionFaultError(faults sut.SessionFaults) error {
 	if fault := faults.Err(); fault != nil {
-		return fault
+		return validateSessionFault(fault)
 	}
 	select {
 	case <-faults.Done():
 		if fault := faults.Err(); fault != nil {
-			return fault
+			return validateSessionFault(fault)
 		}
 		return errFaultNotificationWithoutLatchedError
 	default:
 		return nil
 	}
+}
+
+func validateSessionFault(fault *sut.SessionFault) error {
+	if fault.Cause == nil {
+		return errSessionFaultWithoutCause
+	}
+	return fault
 }
 
 func watchSessionFaults(faults sut.SessionFaults, cancel context.CancelCauseFunc) func() {
@@ -152,10 +162,13 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 		if !ok {
 			break
 		}
-		multiple = true
-	}
-	if multiple {
-		value.err = joinRunError(value.err, fmt.Errorf("worker %q returned more than one result", workerID))
+		if !multiple {
+			multiple = true
+			value.err = joinRunError(value.err, fmt.Errorf("worker %q returned more than one result", workerID))
+			// Multiplicity is proven by the first extra value. Wake execution now
+			// while this collector continues draining the stream through Stop.
+			r.cancel(newCollectorFailure(value.err))
+		}
 	}
 }
 

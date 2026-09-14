@@ -98,8 +98,7 @@ func (o *Orchestrator) Run(
 		// Observe the operation context on every return path, including the run
 		// input validation, run gate, and fixture reset before adapter finalization
 		// is installed.
-		returnErr = joinRunError(returnErr, ctx.Err())
-		returnErr = joinRunError(returnErr, context.Cause(ctx))
+		returnErr = joinObservedContextError(returnErr, ctx)
 		if returnErr != nil {
 			result.Evaluation = oracle.Evaluation{}
 			result.Fingerprint = ""
@@ -129,8 +128,7 @@ func (o *Orchestrator) Run(
 	defer func() {
 		// This boundary is installed before fixture reset and executes after the
 		// full adapter/runtime cleanup defer when that later boundary exists.
-		returnErr = joinRunError(returnErr, runCtx.Err())
-		returnErr = joinRunError(returnErr, context.Cause(runCtx))
+		returnErr = joinObservedContextError(returnErr, runCtx)
 	}()
 	executionCtx, cancelExecution := context.WithCancelCause(runCtx)
 	defer cancelExecution(nil)
@@ -268,6 +266,18 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: fingerprint: %w", schedule.ID, err)
 	}
 	return result, nil
+}
+
+// joinObservedContextError treats the Err read as the operation boundary. Cause
+// belongs to the same cancellation snapshot only when Err already observed the
+// canceled state; cancellation after an active observation belongs to the caller.
+func joinObservedContextError(current error, ctx context.Context) error {
+	err := ctx.Err()
+	if err == nil {
+		return current
+	}
+	current = joinRunError(current, err)
+	return joinRunError(current, context.Cause(ctx))
 }
 
 func isNilEvaluator(evaluator oracle.Evaluator) bool {

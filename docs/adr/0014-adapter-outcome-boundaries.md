@@ -35,7 +35,8 @@ invocation streams, including after all workers have completed. Closing the
 notification channel without a latched typed error is a protocol failure and
 cannot authorize a successful run. Observers read the typed error again after
 receiving notification so a fault published between their first read and wait
-is not mistaken for that protocol failure.
+is not mistaken for that protocol failure. A non-nil typed fault with a nil cause
+is also a protocol failure rather than a usable cancellation cause.
 
 ## G5: One invocation stream with distinct outcomes
 
@@ -73,8 +74,9 @@ a protocol error. A truthful
 WorkerResult authorizes Finish immediately; oracle evaluation additionally waits
 for stream closure. A first-outcome validation failure or Finish failure remains
 a run error and immediately cancels execution waits while the collector continues
-validating stream closure and multiplicity. After the first outcome, collectors
-drain every additional value until closure or collector cancellation. Shutdown
+validating stream closure and multiplicity. The first additional outcome proves
+multiplicity and cancels execution immediately; collectors still drain every
+additional value until closure or collector cancellation. Shutdown
 keeps collectors alive through Stop so unbuffered producers can finish. After
 cancellation, each collector permits one ready final outcome and one ready probe
 that observes closure or multiplicity. This retains the complete boundary while
@@ -87,8 +89,10 @@ run-gate wait through fixture reset, execution, collection, evaluation, Stop,
 collector shutdown, and runtime Close. The configured run deadline begins after
 the run gate and remains observable through the same execution and cleanup
 phases. Final synchronous context/latch observation is the success boundary.
-Cancellation after that observation belongs to the caller, not this completed
-Run. Internal execution
+The first operation-context `Err` read defines that boundary, and its custom
+cause is joined only when the same observation saw cancellation. Cancellation
+after an active observation belongs to the caller, not this completed Run.
+Internal execution
 cancellation for faults or unstarted outcomes is separate from operation
 cancellation and does not invent a context.Canceled error for the caller. A
 custom parent cancellation cause remains discoverable alongside

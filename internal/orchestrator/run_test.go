@@ -724,6 +724,25 @@ func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
 		}
 	})
 
+	t.Run("cancellation after final success observation", func(t *testing.T) {
+		cause := errors.New("cancel after final context observation")
+		baseCtx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+		ctx := &activeOnFirstErrContext{Context: baseCtx}
+		orchestrator := newOrchestrator(t, &recordingFixture{})
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), nil)
+		if err == nil || !strings.Contains(err.Error(), "Oracle evaluator is required") {
+			t.Fatalf("nil-evaluator validation = %v, want validation error", err)
+		}
+		if errors.Is(err, cause) || errors.Is(err, context.Canceled) {
+			t.Fatalf("post-boundary cancellation escaped: %v", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("post-boundary cancellation retained provisional result: %#v", result)
+		}
+	})
+
 	t.Run("run gate", func(t *testing.T) {
 		cause := errors.New("cancel while waiting for active run")
 		orchestrator := newOrchestrator(t, &recordingFixture{})
@@ -935,6 +954,18 @@ type cancelingResetFixture struct {
 type deadlineResetFixture struct {
 	recordingFixture
 	err error
+}
+
+type activeOnFirstErrContext struct {
+	context.Context
+	observed atomic.Bool
+}
+
+func (c *activeOnFirstErrContext) Err() error {
+	if c.observed.CompareAndSwap(false, true) {
+		return nil
+	}
+	return c.Context.Err()
 }
 
 func (f *cancelingResetFixture) Reset(ctx context.Context) error {
