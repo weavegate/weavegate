@@ -17,6 +17,9 @@ func sessionFaultError(faults sut.SessionFaults) error {
 	}
 	select {
 	case <-faults.Done():
+		if fault := faults.Err(); fault != nil {
+			return fault
+		}
 		return errFaultNotificationWithoutLatchedError
 	default:
 		return nil
@@ -36,24 +39,40 @@ func watchSessionFaults(faults sut.SessionFaults, cancel context.CancelCauseFunc
 	return func() { close(stop); <-done }
 }
 
-// receiveOutcome drains already available data even when collector shutdown is
-// ready. Operation cancellation never discards a committed transaction fact.
-func receiveOutcome(ctx context.Context, stream <-chan sut.InvocationOutcome) (sut.InvocationOutcome, bool, error) {
+// receiveOutcome drains at most one already available value after collector
+// shutdown. This preserves a committed fact at the boundary without allowing a
+// continuously readable faulty stream to starve cancellation.
+func receiveOutcome(
+	ctx context.Context,
+	stream <-chan sut.InvocationOutcome,
+	drainAfterCancel *bool,
+) (sut.InvocationOutcome, bool, error) {
 	select {
-	case outcome, ok := <-stream:
-		return outcome, ok, nil
+	case <-ctx.Done():
+		if *drainAfterCancel {
+			*drainAfterCancel = false
+			select {
+			case outcome, ok := <-stream:
+				return outcome, ok, nil
+			default:
+			}
+		}
+		return sut.InvocationOutcome{}, false, ctx.Err()
 	default:
 	}
 	select {
 	case outcome, ok := <-stream:
 		return outcome, ok, nil
 	case <-ctx.Done():
-		select {
-		case outcome, ok := <-stream:
-			return outcome, ok, nil
-		default:
-			return sut.InvocationOutcome{}, false, ctx.Err()
+		if *drainAfterCancel {
+			*drainAfterCancel = false
+			select {
+			case outcome, ok := <-stream:
+				return outcome, ok, nil
+			default:
+			}
 		}
+		return sut.InvocationOutcome{}, false, ctx.Err()
 	}
 }
 
@@ -67,7 +86,8 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 			r.cancel(value.err)
 		}
 	}()
-	outcome, ok, err := receiveOutcome(r.collectorsContext, stream)
+	drainAfterCancel := true
+	outcome, ok, err := receiveOutcome(r.collectorsContext, stream, &drainAfterCancel)
 	if err != nil {
 		value.err = fmt.Errorf("worker %q result stream unfinished during cleanup", workerID)
 		return
@@ -102,7 +122,7 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 	}
 	multiple := false
 	for {
-		_, ok, err = receiveOutcome(r.collectorsContext, stream)
+		_, ok, err = receiveOutcome(r.collectorsContext, stream, &drainAfterCancel)
 		if err != nil {
 			value.err = joinRunError(value.err, fmt.Errorf("worker %q result channel did not close before cleanup", workerID))
 			break

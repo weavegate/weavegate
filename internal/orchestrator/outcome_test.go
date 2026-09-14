@@ -67,6 +67,21 @@ type notificationWithoutFault struct {
 func (f *notificationWithoutFault) Done() <-chan struct{} { return f.done }
 func (*notificationWithoutFault) Err() *sut.SessionFault  { return nil }
 
+type faultBetweenObservations struct {
+	done  chan struct{}
+	fault *sut.SessionFault
+	read  atomic.Bool
+}
+
+func (f *faultBetweenObservations) Done() <-chan struct{} { return f.done }
+func (f *faultBetweenObservations) Err() *sut.SessionFault {
+	if f.read.CompareAndSwap(false, true) {
+		close(f.done)
+		return nil
+	}
+	return f.fault
+}
+
 func (r *outcomeRuntime) Finish(worker string, err error) error {
 	r.finishes.Add(1)
 	result := r.Runtime.Finish(worker, err)
@@ -106,6 +121,26 @@ func assertNoProvisionalEvaluation(t *testing.T, result RunResult) {
 	t.Helper()
 	if len(result.Evaluation.Results) != 0 || result.Evaluation.Fingerprint != "" || result.Fingerprint != "" {
 		t.Fatalf("provisional evaluation escaped: %#v", result)
+	}
+}
+
+func TestReceiveOutcomeBoundsReadyDrainAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := make(chan sut.InvocationOutcome, 2)
+	stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "first"}}
+	stream <- sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "second"}}
+	drainAfterCancel := true
+
+	first, ok, err := receiveOutcome(ctx, stream, &drainAfterCancel)
+	if err != nil || !ok || first.Worker == nil || first.Worker.WorkerID != "first" {
+		t.Fatalf("final ready outcome = %#v, %v, %v", first, ok, err)
+	}
+	if _, ok, err := receiveOutcome(ctx, stream, &drainAfterCancel); ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("second ready outcome after cancellation = ok %v, error %v", ok, err)
+	}
+	if len(stream) != 1 {
+		t.Fatalf("ready outcomes remaining = %d, want 1", len(stream))
 	}
 }
 
@@ -189,6 +224,51 @@ func TestOutcomeRejectsFaultNotificationWithoutError(t *testing.T) {
 			}
 			assertNoProvisionalEvaluation(t, result)
 		})
+	}
+}
+
+func TestSessionFaultErrorRechecksAfterNotification(t *testing.T) {
+	cause := errors.New("fault published between observations")
+	fault := &sut.SessionFault{Cause: cause}
+	surface := &faultBetweenObservations{done: make(chan struct{}), fault: fault}
+
+	if got := sessionFaultError(surface); got != fault {
+		t.Fatalf("session fault = %v, want latched fault %v", got, fault)
+	}
+}
+
+func TestOutcomeCleanupUsesRunFailureCause(t *testing.T) {
+	observerErr := errors.New("reject invoked event")
+	stream := make(chan sut.InvocationOutcome, 1)
+	var invocationCtx context.Context
+	a := &outcomeAdapter{invoke: func(ctx context.Context, _ string) (<-chan sut.InvocationOutcome, error) {
+		invocationCtx = ctx
+		return stream, nil
+	}}
+	a.stop = func(context.Context) error {
+		<-invocationCtx.Done()
+		stream <- sut.InvocationOutcome{Unstarted: &sut.UnstartedResult{
+			WorkerID: "w1",
+			Err:      context.Cause(invocationCtx),
+		}}
+		close(stream)
+		return nil
+	}
+
+	result, err := runOutcomeTest(t, context.Background(), a, nil, func(event Event) error {
+		if event.Kind == EventWorkerInvoked {
+			return observerErr
+		}
+		return nil
+	}, stableEvaluator)
+	if !errors.Is(err, observerErr) {
+		t.Fatalf("cleanup error = %v, want observer cause", err)
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("cleanup cancellation escaped as caller interruption: %v", err)
+	}
+	if len(result.Unstarted) != 1 || !errors.Is(result.Unstarted[0].Err, observerErr) {
+		t.Fatalf("cleanup unstarted evidence = %#v, want observer cause", result.Unstarted)
 	}
 }
 

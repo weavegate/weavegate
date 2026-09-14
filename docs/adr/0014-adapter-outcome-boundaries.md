@@ -33,7 +33,9 @@ its context; even an evaluator that returns success after cancellation cannot
 make that provisional success final. Fault notification remains independent of
 invocation streams, including after all workers have completed. Closing the
 notification channel without a latched typed error is a protocol failure and
-cannot authorize a successful run.
+cannot authorize a successful run. Observers read the typed error again after
+receiving notification so a fault published between their first read and wait
+is not mistaken for that protocol failure.
 
 ## G5: One invocation stream with distinct outcomes
 
@@ -51,6 +53,9 @@ publishes no invocation outcome. A command that reports no started transaction
 and no cause is also an adapter session fault. When a command reports that its
 transaction never started, the adapter observes parent cancellation under the
 worker-local ordering lock before publishing the unstarted outcome.
+`sql.ErrTxDone` from an explicit rollback does not prove completion because
+database/sql may have claimed the transaction for asynchronous context rollback
+before the driver reports its result.
 Neither an unstarted outcome nor a stream closure calls runtime Finish or creates
 a rollback, worker terminal, or oracle verdict. The coordinator aborts execution,
 collects the outcome, and returns its cause as a run error.
@@ -65,7 +70,9 @@ a run error and immediately cancels execution waits while the collector continue
 validating stream closure and multiplicity. After the first outcome, collectors
 drain every additional value until closure or collector cancellation. Shutdown
 keeps collectors alive through Stop so unbuffered producers can finish, then
-drains available evidence within the cleanup boundary.
+drains at most one already-ready value per collector after cancellation. This
+retains a boundary result without letting a continuously readable faulty stream
+outlive both cleanup budgets.
 
 ## G6: Cancellation and finalization
 
@@ -79,7 +86,9 @@ Run. Internal execution
 cancellation for faults or unstarted outcomes is separate from operation
 cancellation and does not invent a context.Canceled error for the caller. A
 custom parent cancellation cause remains discoverable alongside
-`context.Canceled` across all operation phases.
+`context.Canceled` across all operation phases. Cleanup triggered by an existing
+run failure cancels outstanding commands with that failure as its cause, rather
+than manufacturing an interruption classification.
 
 Committed worker evidence retains its nil worker error even when cancellation
 wins the operation. Collected worker and unstarted evidence is retained in

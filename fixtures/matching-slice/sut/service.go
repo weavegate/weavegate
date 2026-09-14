@@ -51,7 +51,7 @@ func (s *service) assign(
 			return
 		}
 		rollbackErr := tx.Rollback()
-		if !commitAttempted && (rollbackErr == nil || errors.Is(rollbackErr, sql.ErrTxDone)) {
+		if !commitAttempted && rollbackErr == nil {
 			transactionCompleted = true
 			return
 		}

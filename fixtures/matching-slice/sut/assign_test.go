@@ -171,6 +171,15 @@ func TestAssignUnknownTransactionCompletionFaultsSession(t *testing.T) {
 			},
 			want: []error{workflowErr, rollbackErr},
 		},
+		{
+			name:      "automatic rollback completion unproven",
+			connector: transactionOutcomeConnector{rollbackErr: sql.ErrTxDone},
+			syncPoint: &recordingSyncPoint{
+				failPoint: AfterReadRequest,
+				failErr:   workflowErr,
+			},
+			want: []error{workflowErr},
+		},
 	}
 
 	for _, test := range tests {

@@ -35,6 +35,8 @@ its context. Independent acquisition or transaction-start errors and cancellatio
 causes remain discoverable with `errors.Is`; the parent is observed through the
 same worker-local ordering lock when either failure is finalized. The adapter
 holds the worker reservation until cleanup and stream closure, then permits reuse.
+An explicit rollback proves completion only when it returns nil; `sql.ErrTxDone`
+can mean database/sql's asynchronous context rollback is still unresolved.
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
@@ -58,7 +60,9 @@ implementation with a usable zero value. The first non-nil failure closes the
 notification channel and remains visible to all current and late observers.
 Subsequent failures do not replace it. Adapters and observers must not mutate a
 published fault or cause. Closing the notification channel while `Err()` remains
-nil is an adapter protocol error and invalidates provisional evaluation.
+nil after a post-notification recheck is an adapter protocol error and invalidates
+provisional evaluation. The recheck distinguishes a malformed surface from a
+fault published between the observer's initial read and notification wait.
 Successful Stop completes fault publication; failed Stop cannot prove cleanup or
 rule out later failures.
 
@@ -78,11 +82,16 @@ operation context error and a distinct custom cancellation cause across these
 phases.
 
 Collectors stay active through Stop and drain available evidence before shutdown.
+After collector cancellation, each collector consumes at most one already-ready
+value before stopping, so a continuously readable faulty stream cannot block
+cleanup indefinitely.
 Canceled and failed runs retain known worker and unstarted results in scenario
 order. A committed result keeps its nil worker error even when Run returns the
 operation context error. Evaluation and run fingerprint are provisional and are
 cleared on any run error. If a trace observer rejects an event, trace recording
-stays stopped at that event while cleanup still collects worker facts.
+stays stopped at that event while cleanup still collects worker facts. Outstanding
+commands receive that run failure as their cleanup cancellation cause, avoiding a
+spurious caller-interruption classification.
 
 ## Errors and verdicts
 
