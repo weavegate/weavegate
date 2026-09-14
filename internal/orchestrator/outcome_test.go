@@ -443,6 +443,85 @@ func TestOutcomeErrorAggregation(t *testing.T) {
 	t.Log("SUT_OUTCOME_ERRORS_RESULT worker=evidence evaluation=joined session=joined cancellation=joined stop=joined provisional=discarded")
 }
 
+func TestOutcomeOrdersConcurrentCollectorErrorsByScenario(t *testing.T) {
+	streams := map[string]chan sut.InvocationOutcome{
+		"w1": make(chan sut.InvocationOutcome),
+		"w2": make(chan sut.InvocationOutcome),
+	}
+	producerDone := make(chan struct{})
+	a := &outcomeAdapter{}
+	a.invoke = func(ctx context.Context, worker string) (<-chan sut.InvocationOutcome, error) {
+		if worker == "w2" {
+			go func() {
+				defer close(producerDone)
+				streams["w2"] <- sut.InvocationOutcome{}
+				close(streams["w2"])
+				<-ctx.Done()
+				streams["w1"] <- sut.InvocationOutcome{}
+				close(streams["w1"])
+			}()
+		}
+		return streams[worker], nil
+	}
+	a.stop = func(context.Context) error {
+		<-producerDone
+		return nil
+	}
+	runtime := &collectorOrderingRuntime{Runtime: syncpoint.New()}
+	value := scenario.Scenario{
+		Name: "collector-order",
+		Workers: []scenario.Worker{
+			{ID: "w1", Command: "command"},
+			{ID: "w2", Command: "command"},
+		},
+		SyncPoints: []string{"point"},
+	}
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "point"},
+		{Worker: "w2", Point: "point"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := newTestOrchestrator(t, Config{
+		Fixture: &recordingFixture{}, DB: &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return a },
+		BlockInferenceTimeout: time.Second,
+		StepTimeout:           time.Second,
+		RunTimeout:            3 * time.Second,
+		StopTimeout:           time.Second,
+	})
+
+	result, err := o.Run(context.Background(), value, schedule, stableEvaluator)
+	if err == nil {
+		t.Fatal("concurrent collector failures returned nil")
+	}
+	w1 := strings.Index(err.Error(), `worker "w1" must return exactly one outcome kind`)
+	w2 := strings.Index(err.Error(), `worker "w2" must return exactly one outcome kind`)
+	if w1 < 0 || w2 < 0 || w1 > w2 {
+		t.Fatalf("collector error order = %v, want w1 before w2", err)
+	}
+	assertNoProvisionalEvaluation(t, result)
+}
+
+type collectorOrderingRuntime struct {
+	syncpoint.Runtime
+}
+
+func (r *collectorOrderingRuntime) WaitArrive(
+	ctx context.Context,
+	worker string,
+	_ string,
+	_ time.Duration,
+) (syncpoint.ArriveStatus, error) {
+	if worker == "w1" {
+		return syncpoint.ArriveStatusTimeout, nil
+	}
+	<-ctx.Done()
+	return syncpoint.ArriveStatusUnknown, ctx.Err()
+}
+
 func TestOutcomeStreamValidation(t *testing.T) {
 	worker := sut.InvocationOutcome{Worker: &sut.WorkerResult{WorkerID: "w1"}}
 	for _, test := range []struct {

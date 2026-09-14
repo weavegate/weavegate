@@ -87,7 +87,7 @@ jobs:
       - name: Assert the SUT adapter invariants
         run: |
           grep -F 'SUT_ADAPTER_RESULT command=probe workers=2 distinct_connections=2 errors=0 async=true worker_identity=preserved' fixture.log
-          grep -F 'SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true' fixture.log
+          grep -F 'SUT_STOP_RESULT active_worker=cancelled outcome=unknown session_fault=true result_closed=true in_use=0 stop_idempotent=true' fixture.log
           grep -F 'SUT_WORKER_ID_RESULT duplicate_active=error extra_connection=false reuse_after_terminal=ok' fixture.log
           grep -F 'SUT_REGISTRY_RESULT commands=1 unknown_command=error missing_db=error stop_idempotent=true' fixture.log
 

@@ -755,6 +755,34 @@ func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
 			t.Fatalf("fixture-reset cancellation retained provisional result: %#v", result)
 		}
 	})
+
+	t.Run("run deadline during fixture reset", func(t *testing.T) {
+		resetErr := errors.New("reset failed after run deadline")
+		fixtureRunner := &deadlineResetFixture{err: resetErr}
+		orchestrator := newTestOrchestrator(t, Config{
+			Fixture:               fixtureRunner,
+			DB:                    &fixture.DB{},
+			NewRuntime:            syncpoint.New,
+			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			BlockInferenceTimeout: testBlockTimeout,
+			StepTimeout:           testStepTimeout,
+			RunTimeout:            10 * time.Millisecond,
+			StopTimeout:           testStopTimeout,
+		})
+
+		result, err := orchestrator.Run(
+			context.Background(),
+			matchingScenario(),
+			matchingSchedule(t),
+			stableEvaluator,
+		)
+		if !errors.Is(err, resetErr) || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("fixture-reset deadline = %v, want reset and run-deadline causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("fixture-reset deadline retained provisional result: %#v", result)
+		}
+	})
 }
 
 func TestRunStopsWorkersBeforeCancelingCollectors(t *testing.T) {
@@ -904,10 +932,21 @@ type cancelingResetFixture struct {
 	cause  error
 }
 
+type deadlineResetFixture struct {
+	recordingFixture
+	err error
+}
+
 func (f *cancelingResetFixture) Reset(ctx context.Context) error {
 	f.resetCalls++
 	f.cancel(f.cause)
 	return ctx.Err()
+}
+
+func (f *deadlineResetFixture) Reset(ctx context.Context) error {
+	f.resetCalls++
+	<-ctx.Done()
+	return f.err
 }
 
 func (*recordingFixture) Provision(context.Context, fixture.FixtureSpec) (*fixture.DB, error) {

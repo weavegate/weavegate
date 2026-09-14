@@ -473,6 +473,63 @@ func TestGoNativeUnknownTransactionOutcomeSessionFault(t *testing.T) {
 	}
 }
 
+func TestGoNativeMasksAcceptedCommandCancellationSentinel(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		result  CommandResult
+		unknown bool
+	}{
+		{name: "unstarted", result: CommandResult{}},
+		{name: "unknown transaction", result: CommandResult{TransactionStarted: true}, unknown: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parentCtx, cancelParent := context.WithCancelCause(context.Background())
+			defer cancelParent(nil)
+			wantCause := errors.New("orchestration failed after command acceptance")
+			adapter, db, connector, _ := newCleanupTestAdapter(t)
+			defer func() { _ = db.Close() }()
+			connector.connect = func(context.Context) (driver.Conn, error) {
+				return cleanupTestConn{}, nil
+			}
+			entered := make(chan struct{})
+			adapter.commands["command"] = func(ctx context.Context, _ string, _ *sql.Conn) CommandResult {
+				close(entered)
+				<-ctx.Done()
+				result := test.result
+				result.Err = ctx.Err()
+				return result
+			}
+
+			stream, err := adapter.Invoke(parentCtx, "worker", "command")
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-entered
+			cancelParent(wantCause)
+			outcome, ok := <-stream
+			if test.unknown {
+				if ok {
+					t.Fatalf("unknown transaction published outcome: %#v", outcome)
+				}
+				fault := adapter.Faults().Err()
+				if !errors.Is(fault, wantCause) || errors.Is(fault, context.Canceled) {
+					t.Fatalf("session fault = %v, want run cause without cancellation sentinel", fault)
+				}
+				return
+			}
+			if !ok || outcome.Unstarted == nil || outcome.Worker != nil {
+				t.Fatalf("unstarted outcome = %#v, open=%v", outcome, ok)
+			}
+			if !errors.Is(outcome.Unstarted.Err, wantCause) || errors.Is(outcome.Unstarted.Err, context.Canceled) {
+				t.Fatalf("unstarted error = %v, want run cause without cancellation sentinel", outcome.Unstarted.Err)
+			}
+			if _, open := <-stream; open {
+				t.Fatal("unstarted outcome stream remained open")
+			}
+		})
+	}
+}
+
 func TestWorkerAcceptanceSerializesCancellation(t *testing.T) {
 	t.Run("cancellation wins", func(t *testing.T) {
 		parentCtx, cancelParent := context.WithCancelCause(context.Background())
@@ -510,6 +567,35 @@ func TestWorkerAcceptanceSerializesCancellation(t *testing.T) {
 			t.Fatalf("worker context cause = %v, want %v", context.Cause(workerCtx), cause)
 		}
 		cancelParent(nil)
+	})
+
+	t.Run("stop observes parent cause", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		workerCtx, cancelWorker := context.WithCancelCause(context.Background())
+		cause := errors.New("run failed before Stop observed its worker")
+		done := make(chan struct{})
+		close(done)
+		worker := &activeWorker{
+			workerID:  "worker",
+			parentCtx: parentCtx,
+			cancel:    cancelWorker,
+			done:      done,
+		}
+		adapter := &adapter{
+			state:  adapterStateStarted,
+			active: map[string]*activeWorker{"worker": worker},
+		}
+
+		cancelParent(cause)
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		if !errors.Is(context.Cause(workerCtx), cause) {
+			t.Fatalf("worker cancellation cause = %v, want %v", context.Cause(workerCtx), cause)
+		}
+		if errors.Is(context.Cause(workerCtx), context.Canceled) {
+			t.Fatalf("generic Stop cancellation replaced run cause: %v", context.Cause(workerCtx))
+		}
 	})
 
 	t.Log("SUT_COMMAND_ACCEPT_RESULT cancellation_wins=unstarted acceptance_wins=command_called ordering=serialized")

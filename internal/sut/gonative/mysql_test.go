@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,20 +166,37 @@ func testActiveStop(
 
 	entered := make(chan string, 1)
 	registry := staticRegistry{
-		"block": func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult {
-			return runRollbackCommand(ctx, conn, func(tx *sql.Tx) error {
+		"block": func(commandCtx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(commandCtx, conn, func(tx *sql.Tx) error {
 				var connectionID int64
-				if err := tx.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+				if err := tx.QueryRowContext(commandCtx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
 					return fmt.Errorf("read connection ID: %w", err)
 				}
 
 				select {
 				case entered <- workerID:
-				case <-ctx.Done():
-					return ctx.Err()
+				case <-commandCtx.Done():
+					return commandCtx.Err()
 				}
-				<-ctx.Done()
-				return ctx.Err()
+				<-commandCtx.Done()
+				// Observe database/sql's automatic rollback boundary without a
+				// timing assumption, then let runRollbackCommand see ErrTxDone.
+				for {
+					var probe int
+					err := tx.QueryRowContext(context.Background(), "SELECT 1").Scan(&probe)
+					if errors.Is(err, sql.ErrTxDone) {
+						return commandCtx.Err()
+					}
+					if err != nil && !errors.Is(err, commandCtx.Err()) {
+						return errors.Join(commandCtx.Err(), fmt.Errorf("observe automatic rollback: %w", err))
+					}
+					select {
+					case <-ctx.Done():
+						return errors.Join(commandCtx.Err(), fmt.Errorf("observe automatic rollback: %w", ctx.Err()))
+					default:
+						runtime.Gosched()
+					}
+				}
 			})
 		},
 	}
@@ -197,27 +216,28 @@ func testActiveStop(
 
 	stopCtx, cancelStop := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelStop()
-	if err := adapter.Stop(stopCtx); err != nil {
-		t.Fatalf("stop active adapter: %v", err)
+	stopErr := adapter.Stop(stopCtx)
+	if !errors.Is(stopErr, sql.ErrTxDone) || !strings.Contains(stopErr.Error(), "transaction completion is unknown") {
+		t.Fatalf("stop active adapter error = %v, want unknown rollback outcome", stopErr)
 	}
 
-	result := receiveWorkerResult(t, ctx, results)
-	if result.WorkerID != "stop-worker" {
-		t.Fatalf("stopped result worker ID = %q, want stop-worker", result.WorkerID)
+	if outcome, ok := <-results; ok {
+		t.Fatalf("unknown rollback outcome fabricated result: %#v", outcome)
 	}
-	if !errors.Is(result.Err, context.Canceled) {
-		t.Fatalf("stopped result error = %v, want %v", result.Err, context.Canceled)
+	fault := handle.Faults().Err()
+	if !errors.Is(fault, sql.ErrTxDone) || !strings.Contains(fault.Error(), "transaction completion is unknown") {
+		t.Fatalf("session fault = %v, want unknown rollback outcome", fault)
 	}
 	if got := db.SQL.Stats().InUse; got != 0 {
 		t.Fatalf("in-use connections after Stop = %d, want 0", got)
 	}
-	if err := adapter.Stop(context.Background()); err != nil {
-		t.Fatalf("stop adapter twice: %v", err)
+	if err := adapter.Stop(context.Background()); !errors.Is(err, sql.ErrTxDone) {
+		t.Fatalf("stop adapter twice: %v, want latched session fault", err)
 	}
 	_, err = handle.Invoke(ctx, "late-worker", "block")
 	assertErrorContains(t, err, "stopped")
 
-	t.Log("SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true")
+	t.Log("SUT_STOP_RESULT active_worker=cancelled outcome=unknown session_fault=true result_closed=true in_use=0 stop_idempotent=true")
 }
 
 func testWorkerIDLifecycle(
@@ -328,9 +348,6 @@ func runRollbackCommand(
 	}
 	runErr := run(tx)
 	rollbackErr := tx.Rollback()
-	if errors.Is(rollbackErr, sql.ErrTxDone) {
-		rollbackErr = nil
-	}
 	return CommandResult{
 		TransactionStarted:   true,
 		TransactionCompleted: rollbackErr == nil,
@@ -394,9 +411,6 @@ func testCommitWinsCancellation(t *testing.T, ctx context.Context, db *fixture.D
 		defer func() { _ = tx.Rollback() }()
 		if _, err := tx.ExecContext(ctx, "UPDATE fixture_item SET name = 'committed' WHERE id = 1"); err != nil {
 			rollbackErr := tx.Rollback()
-			if errors.Is(rollbackErr, sql.ErrTxDone) {
-				rollbackErr = nil
-			}
 			return CommandResult{
 				TransactionStarted:   true,
 				TransactionCompleted: rollbackErr == nil,

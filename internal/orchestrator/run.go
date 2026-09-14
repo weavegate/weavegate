@@ -69,6 +69,8 @@ type runCoordinator struct {
 	firstSteps  map[string]int
 	preObserved map[int]bool
 	pending     map[int]bool
+
+	rebuildCollectionErrors bool
 }
 
 // Run resets the fixture and executes one saved control schedule. Worker
@@ -124,6 +126,12 @@ func (o *Orchestrator) Run(
 
 	runCtx, cancelRun := context.WithTimeout(ctx, o.config.RunTimeout)
 	defer cancelRun()
+	defer func() {
+		// This boundary is installed before fixture reset and executes after the
+		// full adapter/runtime cleanup defer when that later boundary exists.
+		returnErr = joinRunError(returnErr, runCtx.Err())
+		returnErr = joinRunError(returnErr, context.Cause(runCtx))
+	}()
 	executionCtx, cancelExecution := context.WithCancelCause(runCtx)
 	defer cancelExecution(nil)
 	if err := o.config.Fixture.Reset(runCtx); err != nil {
@@ -162,7 +170,12 @@ func (o *Orchestrator) Run(
 		cancelCollectors()
 		collectorsWait.Wait()
 		if coordinator != nil {
-			returnErr = joinRunError(returnErr, coordinator.finalizeEvidence())
+			collectionErr := coordinator.finalizeEvidence()
+			if coordinator.rebuildCollectionErrors && collectionErr != nil {
+				returnErr = fmt.Errorf("run schedule %q: %w", schedule.ID, collectionErr)
+			} else {
+				returnErr = joinRunError(returnErr, collectionErr)
+			}
 		}
 		if stopErr != nil {
 			returnErr = joinRunError(returnErr, fmt.Errorf("run schedule %q: stop adapter: %w", schedule.ID, stopErr))
@@ -171,13 +184,11 @@ func (o *Orchestrator) Run(
 		if stopWatcher != nil {
 			stopWatcher()
 		}
-		// Observe run timeouts and session faults after all cleanup work. The
-		// outer operation-context boundary runs after this defer.
+		// Observe session faults after all cleanup work. The run- and operation-
+		// context boundaries run after this defer.
 		if faults != nil {
 			returnErr = joinRunError(returnErr, sessionFaultError(faults))
 		}
-		returnErr = joinRunError(returnErr, runCtx.Err())
-		returnErr = joinRunError(returnErr, context.Cause(runCtx))
 	}()
 
 	adapter = o.config.NewAdapter(runtime)
@@ -222,6 +233,8 @@ func (o *Orchestrator) Run(
 		pending:           make(map[int]bool),
 	}
 	if err := coordinator.execute(); err != nil {
+		coordinator.rebuildCollectionErrors = solelyWrapsCollectorFailure(err) ||
+			(solelyWraps(err, executionCtx.Err()) && solelyWrapsCollectorFailure(context.Cause(executionCtx)))
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, executionError(executionCtx, err))
 	}
 

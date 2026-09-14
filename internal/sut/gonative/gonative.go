@@ -45,6 +45,7 @@ type activeWorker struct {
 
 	workerID   string
 	command    string
+	parentCtx  context.Context
 	cancel     context.CancelCauseFunc
 	accepted   bool
 	cancelErr  error
@@ -184,11 +185,12 @@ func (a *adapter) Invoke(
 	// acceptance and cancellation have one serialized ordering point.
 	workerCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	worker := &activeWorker{
-		workerID: workerID,
-		command:  commandName,
-		cancel:   cancel,
-		results:  make(chan sut.InvocationOutcome, 1),
-		done:     make(chan struct{}),
+		workerID:  workerID,
+		command:   commandName,
+		parentCtx: ctx,
+		cancel:    cancel,
+		results:   make(chan sut.InvocationOutcome, 1),
+		done:      make(chan struct{}),
 	}
 	a.active[workerID] = worker
 	db := a.db.SQL
@@ -262,7 +264,7 @@ func (a *adapter) Stop(ctx context.Context) error {
 	a.mu.Unlock()
 
 	for _, worker := range workers {
-		worker.requestCancel(context.Canceled)
+		worker.requestStop()
 	}
 
 	var stopErr error
@@ -315,7 +317,7 @@ func (a *adapter) runWorker(
 			a.completeWorker(worker, nil, closeErr)
 			return
 		}
-		cause := commandResult.Err
+		cause := workerContextError(ctx, commandResult.Err)
 		if canceled := worker.finishUnstarted(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
@@ -328,7 +330,7 @@ func (a *adapter) runWorker(
 			worker.workerID,
 			worker.command,
 		)
-		cause := errors.Join(fault, commandResult.Err)
+		cause := errors.Join(fault, workerContextError(ctx, commandResult.Err))
 		if canceled := context.Cause(ctx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
@@ -421,6 +423,26 @@ func (w *activeWorker) requestCancel(cause error) {
 	defer w.mu.Unlock()
 	if w.cancelErr != nil {
 		return
+	}
+	w.cancelErr = cause
+	w.cancel(cause)
+}
+
+// requestStop observes the invocation parent under the same lock that orders
+// parent notification and Stop. This prevents cleanup's generic wakeup from
+// replacing a run failure that is already observable on the parent context.
+func (w *activeWorker) requestStop() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.cancelErr != nil {
+		return
+	}
+	cause := error(context.Canceled)
+	if w.parentCtx != nil && w.parentCtx.Err() != nil {
+		cause = context.Cause(w.parentCtx)
+		if cause == nil {
+			cause = w.parentCtx.Err()
+		}
 	}
 	w.cancelErr = cause
 	w.cancel(cause)

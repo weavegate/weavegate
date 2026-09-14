@@ -11,6 +11,18 @@ import (
 
 var errFaultNotificationWithoutLatchedError = errors.New("SUT session fault notification closed without a latched error")
 
+type collectorFailure struct{ cause error }
+
+func (e *collectorFailure) Error() string { return e.cause.Error() }
+func (e *collectorFailure) Unwrap() error { return e.cause }
+
+func newCollectorFailure(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &collectorFailure{cause: cause}
+}
+
 func sessionFaultError(faults sut.SessionFaults) error {
 	if fault := faults.Err(); fault != nil {
 		return fault
@@ -84,7 +96,7 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 	defer func() {
 		collected <- value
 		if value.err != nil {
-			r.cancel(value.err)
+			r.cancel(newCollectorFailure(value.err))
 		}
 	}()
 	readyReadsAfterCancel := 2
@@ -128,7 +140,7 @@ func (r *runCoordinator) collectInvocation(workerID string, stream <-chan sut.In
 	if value.err != nil {
 		// Wake runtime waits as soon as the first outcome is known to fail. The
 		// collector remains alive to validate closure and multiplicity through Stop.
-		r.cancel(value.err)
+		r.cancel(newCollectorFailure(value.err))
 	}
 	multiple := false
 	for {
@@ -156,7 +168,7 @@ func (r *runCoordinator) acceptCollected(execution *workerExecution, value colle
 		execution.terminal = true
 		execution.collectionErr = joinRunError(execution.collectionErr, r.emitTerminal(execution, step))
 	}
-	return execution.collectionErr
+	return newCollectorFailure(execution.collectionErr)
 }
 
 // finalizeEvidence runs only after collectors stop. Retain known facts even on
@@ -195,6 +207,47 @@ func joinRunError(current, next error) error {
 		return current
 	}
 	return errors.Join(current, next)
+}
+
+// solelyWraps reports whether err is a single wrapping chain ending at target.
+// Joined independent errors deliberately return false so collector ordering
+// repair cannot discard a concurrent non-collector failure.
+func solelyWraps(err, target error) bool {
+	if err == nil || target == nil {
+		return false
+	}
+	for {
+		if err == target {
+			return true
+		}
+		if _, joined := err.(interface{ Unwrap() []error }); joined {
+			return false
+		}
+		unwrapped := errors.Unwrap(err)
+		if unwrapped == nil {
+			return false
+		}
+		err = unwrapped
+	}
+}
+
+func solelyWrapsCollectorFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	for {
+		if _, ok := err.(*collectorFailure); ok {
+			return true
+		}
+		if _, joined := err.(interface{ Unwrap() []error }); joined {
+			return false
+		}
+		unwrapped := errors.Unwrap(err)
+		if unwrapped == nil {
+			return false
+		}
+		err = unwrapped
+	}
 }
 
 // Replace cancellation injected solely to wake execution with its actual cause.

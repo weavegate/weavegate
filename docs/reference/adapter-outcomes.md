@@ -122,20 +122,23 @@ without Docker:
 
 ```bash
 go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
-  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
+  -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
   -v -count=20
 go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
-  -run 'TestOutcome|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
+  -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
   -count=20
 ```
 
-The actual MySQL transaction test commits an update, signals the commit barrier,
-then observes cancellation before returning the command's nil error. It verifies
-the committed row through the fixture pool and checks connection return:
+The actual MySQL transaction tests cover both terminal boundaries. One commits
+an update, signals the commit barrier, then observes cancellation before returning
+the command's nil error. The other cancels an active transaction, observes
+database/sql's completed automatic rollback, and verifies that the resulting
+`sql.ErrTxDone` remains an unknown outcome and a session fault:
 
 ```bash
 go test ./internal/sut/gonative \
-  -run 'TestGoNativeMySQL/preserves_commit_before_cancellation' -v -count=20
+  -run 'TestGoNativeMySQL/(preserves_commit_before_cancellation|stops_an_active_worker)' \
+  -v -count=20
 ```
 
 These fixed test markers are checked with `grep -F` in the smoke workflow:
@@ -149,6 +152,7 @@ These fixed test markers are checked with `grep -F` in the smoke workflow:
 - `SUT_ASYNC_UNSTARTED_RESULT`
 - `SUT_COMMAND_ACCEPT_RESULT`
 - `SUT_COMMIT_CANCEL_RESULT`
+- `SUT_STOP_RESULT`
 
 The markers describe Go boundary and MySQL adapter evidence. They do not claim
 execution of the shared external wire vectors or Java lifecycle conformance.
