@@ -195,6 +195,9 @@ func cloneRunResult(value RunResult) RunResult {
 	if value.Workers != nil {
 		cloned.Workers = append([]sut.WorkerResult(nil), value.Workers...)
 	}
+	if value.Unstarted != nil {
+		cloned.Unstarted = append([]sut.UnstartedResult(nil), value.Unstarted...)
+	}
 	if value.Terminals != nil {
 		cloned.Terminals = value.Terminals.Clone()
 	}

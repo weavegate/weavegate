@@ -5,11 +5,14 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weavegate/weavegate/internal/fixture"
+	"github.com/weavegate/weavegate/internal/sut"
 )
 
 func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
@@ -22,13 +25,109 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 		}
 
 		results, err := adapter.Invoke(context.Background(), "worker", "command")
-		assertErrorContains(t, err, wantErr.Error())
-		if results != nil {
-			t.Fatal("results channel is non-nil after connection acquisition failure")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil || !errors.Is(outcome.Unstarted.Err, wantErr) {
+			t.Fatalf("unstarted outcome = %#v", outcome)
 		}
 		assertUnstartedWorkerCompleted(t, adapter, <-captured)
 		assertWorkerIDReusable(t, adapter, "worker")
 
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("connection acquisition failure with cancellation", func(t *testing.T) {
+		wantConnectErr := errors.New("connect failed independently")
+		wantCancelErr := errors.New("cancel while connecting")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		adapter, db, connector, captured := newCleanupTestAdapter(t)
+		connector.connect = func(workerCtx context.Context) (driver.Conn, error) {
+			captureActiveWorker(t, adapter, captured, "worker")
+			cancel(wantCancelErr)
+			<-workerCtx.Done()
+			return nil, wantConnectErr
+		}
+
+		results, err := adapter.Invoke(ctx, "worker", "command")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("unstarted outcome = %#v", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, wantConnectErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want connection and cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, <-captured)
+
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("connection acquisition masks cleanup cancellation sentinel", func(t *testing.T) {
+		wantCancelErr := errors.New("cleanup started after orchestration failure")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		adapter, db, connector, captured := newCleanupTestAdapter(t)
+		connector.connect = func(workerCtx context.Context) (driver.Conn, error) {
+			captureActiveWorker(t, adapter, captured, "worker")
+			cancel(wantCancelErr)
+			<-workerCtx.Done()
+			return nil, workerCtx.Err()
+		}
+
+		results, err := adapter.Invoke(ctx, "worker", "command")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted outcome = %#v, want cleanup cause", outcome)
+		}
+		if errors.Is(outcome.Unstarted.Err, context.Canceled) {
+			t.Fatalf("cleanup cancellation sentinel escaped: %v", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, <-captured)
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("connection acquisition failure observes parent directly", func(t *testing.T) {
+		wantConnectErr := errors.New("connect failed before watcher ran")
+		wantCancelErr := errors.New("parent canceled before acquisition returned")
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			cancelParent(wantCancelErr)
+			return nil, wantConnectErr
+		}
+		workerCtx, cancelWorker := context.WithCancelCause(context.WithoutCancel(parentCtx))
+		worker := &activeWorker{
+			workerID: "worker",
+			command:  "command",
+			cancel:   cancelWorker,
+			results:  make(chan sut.InvocationOutcome, 1),
+			done:     make(chan struct{}),
+		}
+		adapter.active[worker.workerID] = worker
+
+		// Start synchronously without the parent watcher to exercise the
+		// acquisition-completion boundary itself.
+		adapter.startWorker(parentCtx, workerCtx, worker, adapter.commands["command"], db)
+		outcome := <-worker.results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("unstarted outcome = %#v", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, wantConnectErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want connection and parent cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, worker)
 		if err := db.Close(); err != nil {
 			t.Fatalf("close database: %v", err)
 		}
@@ -44,9 +143,12 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 		}
 
 		results, err := adapter.Invoke(ctx, "worker", "command")
-		assertErrorContains(t, err, context.Canceled.Error())
-		if results != nil {
-			t.Fatal("results channel is non-nil after cancellation before command start")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil || !errors.Is(outcome.Unstarted.Err, context.Canceled) {
+			t.Fatalf("unstarted outcome = %#v", outcome)
 		}
 		worker := <-captured
 		assertUnstartedWorkerCompleted(t, adapter, worker)
@@ -55,6 +157,91 @@ func TestGoNativeUnstartedWorkerCleanup(t *testing.T) {
 		}
 		assertWorkerIDReusable(t, adapter, "worker")
 
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("transaction start failure after command acceptance", func(t *testing.T) {
+		wantCancelErr := errors.New("cancel before begin transaction")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		adapter, db, connector, captured := newCleanupTestAdapter(t)
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			captureActiveWorker(t, adapter, captured, "worker")
+			return cleanupTestConn{}, nil
+		}
+		beginErrs := make(chan error, 1)
+		adapter.commands["command"] = func(commandCtx context.Context, _ string, conn *sql.Conn) CommandResult {
+			cancel(wantCancelErr)
+			<-commandCtx.Done()
+			tx, err := conn.BeginTx(commandCtx, nil)
+			if tx != nil || err == nil {
+				t.Fatalf("BeginTx result = (%v, %v), want nil transaction and error", tx, err)
+			}
+			beginErrs <- err
+			return CommandResult{Err: fmt.Errorf("begin command transaction: %w", err)}
+		}
+
+		results, err := adapter.Invoke(ctx, "worker", "command")
+		if err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+		beginErr := <-beginErrs
+		outcome := <-results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("transaction-start outcome = %#v, want unstarted", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, beginErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want begin and cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, <-captured)
+		if fault := adapter.Faults().Err(); fault != nil {
+			t.Fatalf("transaction-start failure became session fault: %v", fault)
+		}
+
+		if err := db.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
+
+	t.Run("transaction start failure observes parent directly", func(t *testing.T) {
+		wantBeginErr := errors.New("begin failed before watcher ran")
+		wantCancelErr := errors.New("parent canceled before command returned")
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		workerCtx, cancelWorker := context.WithCancelCause(context.WithoutCancel(parentCtx))
+		worker := &activeWorker{
+			workerID: "worker",
+			command:  "command",
+			cancel:   cancelWorker,
+			accepted: true,
+			results:  make(chan sut.InvocationOutcome, 1),
+			done:     make(chan struct{}),
+		}
+		adapter.active[worker.workerID] = worker
+		conn, err := db.Conn(workerCtx)
+		if err != nil {
+			t.Fatalf("acquire test connection: %v", err)
+		}
+		command := func(context.Context, string, *sql.Conn) CommandResult {
+			cancelParent(wantCancelErr)
+			return CommandResult{Err: wantBeginErr}
+		}
+
+		// Run synchronously without the parent watcher to exercise the
+		// post-command unstarted boundary itself.
+		adapter.runWorker(parentCtx, workerCtx, worker, command, conn)
+		outcome := <-worker.results
+		if outcome.Worker != nil || outcome.Unstarted == nil {
+			t.Fatalf("unstarted outcome = %#v", outcome)
+		}
+		if !errors.Is(outcome.Unstarted.Err, wantBeginErr) || !errors.Is(outcome.Unstarted.Err, wantCancelErr) {
+			t.Fatalf("unstarted error = %v, want transaction-start and parent cancellation causes", outcome.Unstarted.Err)
+		}
+		assertUnstartedWorkerCompleted(t, adapter, worker)
 		if err := db.Close(); err != nil {
 			t.Fatalf("close database: %v", err)
 		}
@@ -71,9 +258,9 @@ func newCleanupTestAdapter(t *testing.T) (*adapter, *sql.DB, *cleanupTestConnect
 		state: adapterStateStarted,
 		db:    &fixture.DB{SQL: db},
 		commands: map[string]CommandFunc{
-			"command": func(context.Context, string, *sql.Conn) error {
+			"command": func(context.Context, string, *sql.Conn) CommandResult {
 				t.Fatal("command started on an unstarted-worker cleanup path")
-				return nil
+				return CommandResult{}
 			},
 		},
 		active: make(map[string]*activeWorker),
@@ -123,12 +310,21 @@ func assertWorkerIDReusable(t *testing.T, adapter *adapter, workerID string) {
 		t.Fatalf("close reuse-check database: %v", err)
 	}
 	adapter.db.SQL = closedDB
-	_, err := adapter.Invoke(context.Background(), workerID, "command")
-	if err == nil {
-		t.Fatal("repeat Invoke returned nil error on the failing test connector")
-	}
-	if strings.Contains(err.Error(), "worker ID is already active") {
+	results, err := adapter.Invoke(context.Background(), workerID, "command")
+	if err != nil && strings.Contains(err.Error(), "worker ID is already active") {
 		t.Fatalf("repeat Invoke retained worker ID %q: %v", workerID, err)
+	}
+	if err != nil {
+		t.Fatalf("repeat Invoke: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	outcome := receiveWithin(t, ctx, results, "reused worker outcome")
+	if outcome.Unstarted == nil {
+		t.Fatal("expected unstarted outcome on closed DB")
+	}
+	if _, ok := <-results; ok {
+		t.Fatal("expected stream closure")
 	}
 }
 
@@ -169,4 +365,346 @@ func (cleanupTestConn) Begin() (driver.Tx, error) {
 
 func (cleanupTestConn) Ping(context.Context) error {
 	return io.EOF
+}
+
+func TestGoNativeAsyncUnstarted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	adapter, db, connector, captured := newCleanupTestAdapter(t)
+	t.Cleanup(func() { _ = db.Close() })
+	entered := make(chan struct{})
+	connector.connect = func(ctx context.Context) (driver.Conn, error) {
+		captureActiveWorker(t, adapter, captured, "worker")
+		close(entered)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	defer cancelWorker()
+	stream, err := adapter.Invoke(workerCtx, "worker", "command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if duplicate, err := adapter.Invoke(ctx, "worker", "command"); err == nil || duplicate != nil {
+		t.Fatal("worker reservation released before asynchronous outcome")
+	}
+	cancelWorker()
+	outcome := receiveWithin(t, ctx, stream, "unstarted outcome")
+	if outcome.Worker != nil || outcome.Unstarted == nil || !errors.Is(outcome.Unstarted.Err, context.Canceled) {
+		t.Fatalf("outcome = %#v", outcome)
+	}
+	assertUnstartedWorkerCompleted(t, adapter, <-captured)
+	assertWorkerIDReusable(t, adapter, "worker")
+	if adapter.Faults().Err() != nil {
+		t.Fatalf("unstarted invocation became session failure: %v", adapter.Faults().Err())
+	}
+	t.Log("SUT_ASYNC_UNSTARTED_RESULT invoke=nonblocking reservation=held cancellation=preserved resources=returned stream=closed worker_id=reusable")
+}
+
+func TestGoNativeCleanupSessionFault(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	adapter, db, connector, _ := newCleanupTestAdapter(t)
+	t.Cleanup(func() { _ = db.Close() })
+	connector.connect = func(context.Context) (driver.Conn, error) { return cleanupTestConn{}, nil }
+	// A broken command returns its lease itself. The adapter can no longer
+	// establish its own required successful connection-return boundary.
+	adapter.commands["command"] = func(_ context.Context, _ string, conn *sql.Conn) CommandResult {
+		return CommandResult{
+			TransactionStarted:   true,
+			TransactionCompleted: true,
+			Err:                  conn.Close(),
+		}
+	}
+	stream, err := adapter.Invoke(ctx, "worker", "command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case outcome, ok := <-stream:
+		if ok {
+			t.Fatalf("cleanup fault fabricated outcome: %#v", outcome)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if !errors.Is(adapter.Faults().Err(), sql.ErrConnDone) {
+		t.Fatalf("fault = %v", adapter.Faults().Err())
+	}
+	if next, err := adapter.Invoke(ctx, "other", "command"); next != nil || !errors.Is(err, sql.ErrConnDone) {
+		t.Fatalf("faulted session accepted invocation: %v", err)
+	}
+	if err := adapter.Stop(ctx); !errors.Is(err, sql.ErrConnDone) {
+		t.Fatalf("Stop lost retired worker cleanup cause: %v", err)
+	}
+}
+
+func TestGoNativeUnknownTransactionOutcomeSessionFault(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	wantErr := errors.New("transaction completion unknown")
+	adapter, db, connector, _ := newCleanupTestAdapter(t)
+	t.Cleanup(func() { _ = db.Close() })
+	connector.connect = func(context.Context) (driver.Conn, error) { return cleanupTestConn{}, nil }
+	adapter.commands["command"] = func(context.Context, string, *sql.Conn) CommandResult {
+		return CommandResult{TransactionStarted: true, Err: wantErr}
+	}
+
+	stream, err := adapter.Invoke(ctx, "worker", "command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, ok := <-stream; ok {
+		t.Fatalf("unknown transaction outcome fabricated result: %#v", outcome)
+	}
+	if !errors.Is(adapter.Faults().Err(), wantErr) {
+		t.Fatalf("session fault = %v, want %v", adapter.Faults().Err(), wantErr)
+	}
+	if next, err := adapter.Invoke(ctx, "other", "command"); next != nil || !errors.Is(err, wantErr) {
+		t.Fatalf("faulted session accepted later invocation: stream=%v error=%v", next, err)
+	}
+	if err := adapter.Stop(ctx); !errors.Is(err, wantErr) {
+		t.Fatalf("Stop error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestGoNativeMasksAcceptedCommandCancellationSentinel(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		result  CommandResult
+		unknown bool
+	}{
+		{name: "unstarted", result: CommandResult{}},
+		{name: "unknown transaction", result: CommandResult{TransactionStarted: true}, unknown: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parentCtx, cancelParent := context.WithCancelCause(context.Background())
+			defer cancelParent(nil)
+			wantCause := errors.New("orchestration failed after command acceptance")
+			adapter, db, connector, _ := newCleanupTestAdapter(t)
+			defer func() { _ = db.Close() }()
+			connector.connect = func(context.Context) (driver.Conn, error) {
+				return cleanupTestConn{}, nil
+			}
+			entered := make(chan struct{})
+			adapter.commands["command"] = func(ctx context.Context, _ string, _ *sql.Conn) CommandResult {
+				close(entered)
+				<-ctx.Done()
+				result := test.result
+				result.Err = ctx.Err()
+				return result
+			}
+
+			stream, err := adapter.Invoke(parentCtx, "worker", "command")
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-entered
+			cancelParent(wantCause)
+			outcome, ok := <-stream
+			if test.unknown {
+				if ok {
+					t.Fatalf("unknown transaction published outcome: %#v", outcome)
+				}
+				fault := adapter.Faults().Err()
+				if !errors.Is(fault, wantCause) || errors.Is(fault, context.Canceled) {
+					t.Fatalf("session fault = %v, want run cause without cancellation sentinel", fault)
+				}
+				return
+			}
+			if !ok || outcome.Unstarted == nil || outcome.Worker != nil {
+				t.Fatalf("unstarted outcome = %#v, open=%v", outcome, ok)
+			}
+			if !errors.Is(outcome.Unstarted.Err, wantCause) || errors.Is(outcome.Unstarted.Err, context.Canceled) {
+				t.Fatalf("unstarted error = %v, want run cause without cancellation sentinel", outcome.Unstarted.Err)
+			}
+			if _, open := <-stream; open {
+				t.Fatal("unstarted outcome stream remained open")
+			}
+		})
+	}
+
+	t.Run("invalid transaction report", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		defer cancelParent(nil)
+		wantCause := errors.New("orchestration failure before invalid report")
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		defer func() { _ = db.Close() }()
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		entered := make(chan struct{})
+		adapter.commands["command"] = func(ctx context.Context, _ string, _ *sql.Conn) CommandResult {
+			close(entered)
+			<-ctx.Done()
+			return CommandResult{
+				TransactionCompleted: true,
+				Err:                  ctx.Err(),
+			}
+		}
+
+		stream, err := adapter.Invoke(parentCtx, "worker", "command")
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		cancelParent(wantCause)
+		if outcome, ok := <-stream; ok {
+			t.Fatalf("invalid transaction report published outcome: %#v", outcome)
+		}
+		fault := adapter.Faults().Err()
+		if fault == nil || !strings.Contains(fault.Error(), "completed transaction that never started") ||
+			!errors.Is(fault, wantCause) || errors.Is(fault, context.Canceled) {
+			t.Fatalf("session fault = %v, want run cause without cancellation sentinel", fault)
+		}
+	})
+
+	t.Run("unknown transaction observes parent directly", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		wantCause := errors.New("parent canceled before unknown outcome publication")
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		defer func() { _ = db.Close() }()
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		workerCtx, cancelWorker := context.WithCancelCause(context.WithoutCancel(parentCtx))
+		worker := &activeWorker{
+			workerID:  "worker",
+			command:   "command",
+			parentCtx: parentCtx,
+			cancel:    cancelWorker,
+			accepted:  true,
+			results:   make(chan sut.InvocationOutcome, 1),
+			done:      make(chan struct{}),
+		}
+		adapter.active[worker.workerID] = worker
+		conn, err := db.Conn(workerCtx)
+		if err != nil {
+			t.Fatalf("acquire test connection: %v", err)
+		}
+		command := func(context.Context, string, *sql.Conn) CommandResult {
+			cancelParent(wantCause)
+			return CommandResult{TransactionStarted: true, Err: context.Canceled}
+		}
+
+		adapter.runWorker(parentCtx, workerCtx, worker, command, conn)
+		if outcome, ok := <-worker.results; ok {
+			t.Fatalf("unknown transaction published outcome: %#v", outcome)
+		}
+		fault := adapter.Faults().Err()
+		if !errors.Is(fault, wantCause) || errors.Is(fault, context.Canceled) {
+			t.Fatalf("session fault = %v, want parent cause without cancellation sentinel", fault)
+		}
+	})
+
+	t.Run("completed transaction cleanup fault", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		defer cancelParent(nil)
+		wantCause := errors.New("orchestration failure triggered cleanup")
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		defer func() { _ = db.Close() }()
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		entered := make(chan struct{})
+		adapter.commands["command"] = func(ctx context.Context, _ string, conn *sql.Conn) CommandResult {
+			close(entered)
+			<-ctx.Done()
+			return CommandResult{
+				TransactionStarted:   true,
+				TransactionCompleted: true,
+				Err:                  errors.Join(ctx.Err(), conn.Close()),
+			}
+		}
+
+		stream, err := adapter.Invoke(parentCtx, "worker", "command")
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		cancelParent(wantCause)
+		if outcome, ok := <-stream; ok {
+			t.Fatalf("cleanup fault published outcome: %#v", outcome)
+		}
+		fault := adapter.Faults().Err()
+		if !errors.Is(fault, wantCause) || !errors.Is(fault, sql.ErrConnDone) || errors.Is(fault, context.Canceled) {
+			t.Fatalf("session fault = %v, want run and close causes without cancellation sentinel", fault)
+		}
+	})
+}
+
+func TestWorkerAcceptanceSerializesCancellation(t *testing.T) {
+	t.Run("cancellation wins", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		workerCtx, cancelWorker := context.WithCancelCause(context.Background())
+		worker := &activeWorker{cancel: cancelWorker, done: make(chan struct{})}
+		cause := errors.New("cancel before command acceptance")
+
+		worker.requestCancel(cause)
+		if err := worker.accept(parentCtx); !errors.Is(err, cause) {
+			t.Fatalf("accept error = %v, want cancellation cause", err)
+		}
+		if worker.accepted {
+			t.Fatal("worker accepted after cancellation won")
+		}
+		if !errors.Is(context.Cause(workerCtx), cause) {
+			t.Fatalf("worker context cause = %v, want %v", context.Cause(workerCtx), cause)
+		}
+		cancelParent(nil)
+	})
+
+	t.Run("acceptance wins", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		workerCtx, cancelWorker := context.WithCancelCause(context.Background())
+		worker := &activeWorker{cancel: cancelWorker, done: make(chan struct{})}
+		cause := errors.New("cancel after command acceptance")
+
+		if err := worker.accept(parentCtx); err != nil {
+			t.Fatalf("accept worker: %v", err)
+		}
+		worker.requestCancel(cause)
+		if !worker.accepted {
+			t.Fatal("accepted worker lost its started state")
+		}
+		if !errors.Is(context.Cause(workerCtx), cause) {
+			t.Fatalf("worker context cause = %v, want %v", context.Cause(workerCtx), cause)
+		}
+		cancelParent(nil)
+	})
+
+	t.Run("stop observes parent cause", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		workerCtx, cancelWorker := context.WithCancelCause(context.Background())
+		cause := errors.New("run failed before Stop observed its worker")
+		done := make(chan struct{})
+		close(done)
+		worker := &activeWorker{
+			workerID:  "worker",
+			parentCtx: parentCtx,
+			cancel:    cancelWorker,
+			done:      done,
+		}
+		adapter := &adapter{
+			state:  adapterStateStarted,
+			active: map[string]*activeWorker{"worker": worker},
+		}
+
+		cancelParent(cause)
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		if !errors.Is(context.Cause(workerCtx), cause) {
+			t.Fatalf("worker cancellation cause = %v, want %v", context.Cause(workerCtx), cause)
+		}
+		if errors.Is(context.Cause(workerCtx), context.Canceled) {
+			t.Fatalf("generic Stop cancellation replaced run cause: %v", context.Cause(workerCtx))
+		}
+	})
+
+	t.Log("SUT_COMMAND_ACCEPT_RESULT cancellation_wins=unstarted acceptance_wins=command_called ordering=serialized")
 }

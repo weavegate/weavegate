@@ -36,7 +36,6 @@ func TestRunSavedScheduleWithOracle(t *testing.T) {
 		NewRuntime: func() syncpoint.Runtime { return runtime },
 		NewAdapter: func(client syncpoint.Client) sut.Adapter {
 			adapter = newScriptedAdapter(client)
-			adapter.keepResultsOpen = true
 			return adapter
 		},
 		BlockInferenceTimeout: testBlockTimeout,
@@ -690,6 +689,121 @@ func TestRunCleanup(t *testing.T) {
 	}
 }
 
+func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
+	newOrchestrator := func(t *testing.T, fixtureRunner fixture.Fixture) *Orchestrator {
+		t.Helper()
+		return newTestOrchestrator(t, Config{
+			Fixture:               fixtureRunner,
+			DB:                    &fixture.DB{},
+			NewRuntime:            syncpoint.New,
+			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			BlockInferenceTimeout: testBlockTimeout,
+			StepTimeout:           testStepTimeout,
+			RunTimeout:            testRunTimeout,
+			StopTimeout:           testStopTimeout,
+		})
+	}
+
+	t.Run("nil evaluator", func(t *testing.T) {
+		cause := errors.New("cancel before evaluator validation")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+		fixtureRunner := &recordingFixture{}
+		orchestrator := newOrchestrator(t, fixtureRunner)
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), nil)
+		if err == nil || !strings.Contains(err.Error(), "Oracle evaluator is required") ||
+			!errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+			t.Fatalf("nil-evaluator cancellation = %v, want validation, context, and custom causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("nil-evaluator cancellation retained provisional result: %#v", result)
+		}
+		if fixtureRunner.resetCalls != 0 {
+			t.Fatalf("nil-evaluator fixture resets = %d, want 0", fixtureRunner.resetCalls)
+		}
+	})
+
+	t.Run("cancellation after final success observation", func(t *testing.T) {
+		cause := errors.New("cancel after final context observation")
+		baseCtx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+		ctx := &activeOnFirstErrContext{Context: baseCtx}
+		orchestrator := newOrchestrator(t, &recordingFixture{})
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), nil)
+		if err == nil || !strings.Contains(err.Error(), "Oracle evaluator is required") {
+			t.Fatalf("nil-evaluator validation = %v, want validation error", err)
+		}
+		if errors.Is(err, cause) || errors.Is(err, context.Canceled) {
+			t.Fatalf("post-boundary cancellation escaped: %v", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("post-boundary cancellation retained provisional result: %#v", result)
+		}
+	})
+
+	t.Run("run gate", func(t *testing.T) {
+		cause := errors.New("cancel while waiting for active run")
+		orchestrator := newOrchestrator(t, &recordingFixture{})
+		<-orchestrator.runGate
+		defer func() { orchestrator.runGate <- struct{}{} }()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), stableEvaluator)
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+			t.Fatalf("run-gate cancellation = %v, want context and custom causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("run-gate cancellation retained provisional result: %#v", result)
+		}
+	})
+
+	t.Run("fixture reset", func(t *testing.T) {
+		cause := errors.New("cancel during fixture reset")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		fixtureRunner := &cancelingResetFixture{cancel: cancel, cause: cause}
+		orchestrator := newOrchestrator(t, fixtureRunner)
+
+		result, err := orchestrator.Run(ctx, matchingScenario(), matchingSchedule(t), stableEvaluator)
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+			t.Fatalf("fixture-reset cancellation = %v, want context and custom causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("fixture-reset cancellation retained provisional result: %#v", result)
+		}
+	})
+
+	t.Run("run deadline during fixture reset", func(t *testing.T) {
+		resetErr := errors.New("reset failed after run deadline")
+		fixtureRunner := &deadlineResetFixture{err: resetErr}
+		orchestrator := newTestOrchestrator(t, Config{
+			Fixture:               fixtureRunner,
+			DB:                    &fixture.DB{},
+			NewRuntime:            syncpoint.New,
+			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			BlockInferenceTimeout: testBlockTimeout,
+			StepTimeout:           testStepTimeout,
+			RunTimeout:            10 * time.Millisecond,
+			StopTimeout:           testStopTimeout,
+		})
+
+		result, err := orchestrator.Run(
+			context.Background(),
+			matchingScenario(),
+			matchingSchedule(t),
+			stableEvaluator,
+		)
+		if !errors.Is(err, resetErr) || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("fixture-reset deadline = %v, want reset and run-deadline causes", err)
+		}
+		if result.Fingerprint != "" || len(result.Evaluation.Results) != 0 {
+			t.Fatalf("fixture-reset deadline retained provisional result: %#v", result)
+		}
+	})
+}
+
 func TestRunStopsWorkersBeforeCancelingCollectors(t *testing.T) {
 	rootErr := errors.New("injected wait failure")
 	runtime := newRuntimeProbe()
@@ -831,6 +945,41 @@ type recordingFixture struct {
 	resetErr   error
 }
 
+type cancelingResetFixture struct {
+	recordingFixture
+	cancel context.CancelCauseFunc
+	cause  error
+}
+
+type deadlineResetFixture struct {
+	recordingFixture
+	err error
+}
+
+type activeOnFirstErrContext struct {
+	context.Context
+	observed atomic.Bool
+}
+
+func (c *activeOnFirstErrContext) Err() error {
+	if c.observed.CompareAndSwap(false, true) {
+		return nil
+	}
+	return c.Context.Err()
+}
+
+func (f *cancelingResetFixture) Reset(ctx context.Context) error {
+	f.resetCalls++
+	f.cancel(f.cause)
+	return ctx.Err()
+}
+
+func (f *deadlineResetFixture) Reset(ctx context.Context) error {
+	f.resetCalls++
+	<-ctx.Done()
+	return f.err
+}
+
 func (*recordingFixture) Provision(context.Context, fixture.FixtureSpec) (*fixture.DB, error) {
 	return nil, errors.New("recording fixture does not provision")
 }
@@ -967,12 +1116,12 @@ func (r *runtimeProbe) Close() {
 }
 
 type scriptedAdapter struct {
+	faults sut.FaultLatch
 	client syncpoint.Client
 
 	startErr             error
 	invokeErr            error
 	stopErr              error
-	keepResultsOpen      bool
 	unbufferedResults    bool
 	w1WaitsForW2Final    bool
 	w2VisitsBeforeInsert bool
@@ -1020,7 +1169,7 @@ func (a *scriptedAdapter) Invoke(
 	_ context.Context,
 	workerID string,
 	_ string,
-) (<-chan sut.WorkerResult, error) {
+) (<-chan sut.InvocationOutcome, error) {
 	if a.invokeErr != nil {
 		return nil, a.invokeErr
 	}
@@ -1036,15 +1185,13 @@ func (a *scriptedAdapter) Invoke(
 	if a.unbufferedResults {
 		resultBuffer = 0
 	}
-	results := make(chan sut.WorkerResult, resultBuffer)
+	results := make(chan sut.InvocationOutcome, resultBuffer)
 	a.wait.Add(1)
 	a.active.Add(1)
 	go func() {
 		defer a.wait.Done()
 		defer a.active.Add(-1)
-		if !a.keepResultsOpen {
-			defer close(results)
-		}
+		defer close(results)
 
 		var workerErr error
 		switch workerID {
@@ -1097,13 +1244,13 @@ func (a *scriptedAdapter) Invoke(
 }
 
 func (a *scriptedAdapter) publishTerminal(
-	results chan<- sut.WorkerResult,
+	results chan<- sut.InvocationOutcome,
 	result sut.WorkerResult,
 ) {
 	// This fake has no database, so the flag models the production adapter's
 	// transaction/connection release cut immediately before terminal publication.
 	a.terminalResourcesReleased.Add(1)
-	results <- result
+	results <- sut.InvocationOutcome{Worker: &result}
 }
 
 func (a *scriptedAdapter) Stop(ctx context.Context) error {
@@ -1128,3 +1275,5 @@ func (a *scriptedAdapter) Stop(ctx context.Context) error {
 		return errors.Join(a.stopErr, fmt.Errorf("stop scripted adapter: %w", ctx.Err()))
 	}
 }
+
+func (a *scriptedAdapter) Faults() sut.SessionFaults { return &a.faults }

@@ -21,6 +21,7 @@ type RunResult struct {
 	ScheduleID      string
 	Steps           int
 	Workers         []sut.WorkerResult
+	Unstarted       []sut.UnstartedResult
 	Terminals       trace.Terminals
 	Trace           trace.Trace
 	Evaluation      oracle.Evaluation
@@ -31,13 +32,16 @@ type RunResult struct {
 }
 
 type collectedResult struct {
-	result sut.WorkerResult
-	err    error
+	result    sut.WorkerResult
+	unstarted *sut.UnstartedResult
+	err       error
 }
 
 type workerExecution struct {
 	worker          scenario.Worker
 	result          sut.WorkerResult
+	unstarted       *sut.UnstartedResult
+	collectionErr   error
 	collected       bool
 	terminal        bool
 	terminalState   TerminalState
@@ -47,8 +51,10 @@ type workerExecution struct {
 
 type runCoordinator struct {
 	ctx      context.Context
+	cancel   context.CancelCauseFunc
 	runtime  syncpoint.Runtime
 	handle   sut.Handle
+	faults   sut.SessionFaults
 	value    scenario.Scenario
 	schedule scenario.Schedule
 	result   *RunResult
@@ -63,6 +69,8 @@ type runCoordinator struct {
 	firstSteps  map[string]int
 	preObserved map[int]bool
 	pending     map[int]bool
+
+	rebuildCollectionErrors bool
 }
 
 // Run resets the fixture and executes one saved control schedule. Worker
@@ -86,6 +94,16 @@ func (o *Orchestrator) Run(
 	if ctx == nil {
 		return result, errors.New("run schedule: context is required")
 	}
+	defer func() {
+		// Observe the operation context on every return path, including the run
+		// input validation, run gate, and fixture reset before adapter finalization
+		// is installed.
+		returnErr = joinObservedContextError(returnErr, ctx)
+		if returnErr != nil {
+			result.Evaluation = oracle.Evaluation{}
+			result.Fingerprint = ""
+		}
+	}()
 	if isNilEvaluator(evaluator) {
 		return result, errors.New("run schedule: Oracle evaluator is required")
 	}
@@ -107,6 +125,13 @@ func (o *Orchestrator) Run(
 
 	runCtx, cancelRun := context.WithTimeout(ctx, o.config.RunTimeout)
 	defer cancelRun()
+	defer func() {
+		// This boundary is installed before fixture reset and executes after the
+		// full adapter/runtime cleanup defer when that later boundary exists.
+		returnErr = joinObservedContextError(returnErr, runCtx)
+	}()
+	executionCtx, cancelExecution := context.WithCancelCause(runCtx)
+	defer cancelExecution(nil)
 	if err := o.config.Fixture.Reset(runCtx); err != nil {
 		return result, fmt.Errorf("run schedule %q: reset fixture: %w", schedule.ID, NewFixtureError(err))
 	}
@@ -121,34 +146,57 @@ func (o *Orchestrator) Run(
 
 	var (
 		adapter        sut.Adapter
+		coordinator    *runCoordinator
+		faults         sut.SessionFaults
+		stopWatcher    func()
 		collectorsWait sync.WaitGroup
 	)
 	collectorsCtx, cancelCollectors := context.WithCancel(context.WithoutCancel(runCtx))
 	defer func() {
+		// Abort outstanding commands with the run failure that triggered cleanup,
+		// but keep a successful session active through Stop and keep collectors
+		// alive in both cases.
+		if returnErr != nil {
+			cancelExecution(returnErr)
+		}
+		var stopErr error
 		if adapter != nil {
 			stopCtx, cancelStop := context.WithTimeout(
 				context.WithoutCancel(ctx),
 				o.config.StopTimeout,
 			)
-			stopErr := adapter.Stop(stopCtx)
+			stopErr = adapter.Stop(stopCtx)
 			cancelStop()
-			if stopErr != nil {
-				returnErr = errors.Join(
-					returnErr,
-					fmt.Errorf("run schedule %q: stop adapter: %w", schedule.ID, stopErr),
-				)
-			}
 		}
 		cancelCollectors()
 		collectorsWait.Wait()
+		if coordinator != nil {
+			collectionErr := coordinator.finalizeEvidence()
+			if coordinator.rebuildCollectionErrors && collectionErr != nil {
+				returnErr = fmt.Errorf("run schedule %q: %w", schedule.ID, collectionErr)
+			} else {
+				returnErr = joinRunError(returnErr, collectionErr)
+			}
+		}
+		if stopErr != nil {
+			returnErr = joinRunError(returnErr, fmt.Errorf("run schedule %q: stop adapter: %w", schedule.ID, stopErr))
+		}
 		runtime.Close()
+		if stopWatcher != nil {
+			stopWatcher()
+		}
+		// Observe session faults after all cleanup work. The run- and operation-
+		// context boundaries run after this defer.
+		if faults != nil {
+			returnErr = joinRunError(returnErr, sessionFaultError(faults))
+		}
 	}()
 
 	adapter = o.config.NewAdapter(runtime)
 	if adapter == nil {
 		return result, fmt.Errorf("run schedule %q: adapter factory returned nil", schedule.ID)
 	}
-	handle, err := adapter.Start(runCtx, value.Clone().SUTConfig, o.config.DB)
+	handle, err := adapter.Start(executionCtx, value.Clone().SUTConfig, o.config.DB)
 	if err != nil {
 		return result, fmt.Errorf("run schedule %q: start adapter: %w", schedule.ID, err)
 	}
@@ -156,10 +204,22 @@ func (o *Orchestrator) Run(
 		return result, fmt.Errorf("run schedule %q: adapter start returned nil handle", schedule.ID)
 	}
 
-	coordinator := &runCoordinator{
-		ctx:               runCtx,
+	candidateFaults := handle.Faults()
+	if isNilInterface(candidateFaults) || candidateFaults.Done() == nil {
+		return result, fmt.Errorf("run schedule %q: adapter start returned nil fault surface", schedule.ID)
+	}
+	faults = candidateFaults
+	stopWatcher = watchSessionFaults(faults, cancelExecution)
+	if fault := sessionFaultError(faults); fault != nil {
+		return result, fault
+	}
+
+	coordinator = &runCoordinator{
+		ctx:               executionCtx,
+		cancel:            cancelExecution,
 		runtime:           runtime,
 		handle:            handle,
+		faults:            faults,
 		value:             value.Clone(),
 		schedule:          schedule.Clone(),
 		result:            &result,
@@ -174,16 +234,30 @@ func (o *Orchestrator) Run(
 		pending:           make(map[int]bool),
 	}
 	if err := coordinator.execute(); err != nil {
-		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, err)
+		coordinator.rebuildCollectionErrors = solelyWrapsCollectorFailure(err) ||
+			solelyWraps(err, executionCtx.Err())
+		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, executionError(executionCtx, err))
 	}
 
+	if fault := sessionFaultError(faults); fault != nil {
+		return result, fault
+	}
+	if err := runCtx.Err(); err != nil {
+		return result, err
+	}
 	result.Trace = trace.clone()
-	evaluated, err := evaluator.Evaluate(runCtx, o.config.DB.SQL, oracle.RunContext{
+	evaluated, err := evaluator.Evaluate(executionCtx, o.config.DB.SQL, oracle.RunContext{
 		Trace:     result.Trace.Clone(),
 		Terminals: result.Terminals.Clone(),
 	})
 	if err != nil {
-		return result, fmt.Errorf("run schedule %q: evaluate oracles: %w", schedule.ID, err)
+		return result, fmt.Errorf("run schedule %q: evaluate oracles: %w", schedule.ID, executionError(executionCtx, err))
+	}
+	if fault := sessionFaultError(faults); fault != nil {
+		return result, fault
+	}
+	if err := runCtx.Err(); err != nil {
+		return result, err
 	}
 	validated, err := oracle.ValidateEvaluation(evaluated)
 	if err != nil {
@@ -197,15 +271,31 @@ func (o *Orchestrator) Run(
 	return result, nil
 }
 
+// joinObservedContextError treats the Err read as the operation boundary. Cause
+// belongs to the same cancellation snapshot only when Err already observed the
+// canceled state; cancellation after an active observation belongs to the caller.
+func joinObservedContextError(current error, ctx context.Context) error {
+	err := ctx.Err()
+	if err == nil {
+		return current
+	}
+	current = joinRunError(current, err)
+	return joinRunError(current, context.Cause(ctx))
+}
+
 func isNilEvaluator(evaluator oracle.Evaluator) bool {
-	if evaluator == nil {
+	return isNilInterface(evaluator)
+}
+
+func isNilInterface(value any) bool {
+	if value == nil {
 		return true
 	}
-	value := reflect.ValueOf(evaluator)
-	switch value.Kind() {
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map,
 		reflect.Pointer, reflect.Slice:
-		return value.IsNil()
+		return reflected.IsNil()
 	default:
 		return false
 	}
@@ -299,40 +389,7 @@ func (r *runCoordinator) invoke(worker scenario.Worker) error {
 	collected := make(chan collectedResult, 1)
 	r.executions[worker.ID].collectedResult = collected
 	r.collectorsWait.Add(1)
-	go func() {
-		defer r.collectorsWait.Done()
-		defer close(collected)
-
-		select {
-		case result, ok := <-results:
-			if !ok {
-				collected <- collectedResult{err: fmt.Errorf(
-					"worker %q result channel closed without a result",
-					worker.ID,
-				)}
-				return
-			}
-			if result.WorkerID != worker.ID {
-				collected <- collectedResult{err: fmt.Errorf(
-					"worker %q returned result for %q",
-					worker.ID,
-					result.WorkerID,
-				)}
-				return
-			}
-			if err := r.runtime.Finish(result.WorkerID, result.Err); err != nil {
-				collected <- collectedResult{err: fmt.Errorf(
-					"finish worker %q: %w",
-					worker.ID,
-					err,
-				)}
-				return
-			}
-			collected <- collectedResult{result: result}
-		case <-r.collectorsContext.Done():
-			return
-		}
-	}()
+	go r.collectInvocation(worker.ID, results, collected)
 	return r.trace.emit(Event{
 		Kind:   EventWorkerInvoked,
 		Step:   -1,
@@ -589,13 +646,7 @@ func (r *runCoordinator) collect(workerID string, step int) error {
 		if !ok {
 			return fmt.Errorf("collect worker %q: collector closed without a result", workerID)
 		}
-		if collected.err != nil {
-			return fmt.Errorf("collect worker %q: %w", workerID, collected.err)
-		}
-		execution.result = collected.result
-		execution.collected = true
-		execution.terminal = true
-		return r.emitTerminal(execution, step)
+		return r.acceptCollected(execution, collected, step)
 	case <-r.ctx.Done():
 		return fmt.Errorf("collect worker %q: %w", workerID, r.ctx.Err())
 	}
@@ -612,13 +663,7 @@ func (r *runCoordinator) pollCollector(workerID string, step int) error {
 		if !ok {
 			return fmt.Errorf("collect worker %q: collector closed without a result", workerID)
 		}
-		if collected.err != nil {
-			return fmt.Errorf("collect worker %q: %w", workerID, collected.err)
-		}
-		execution.result = collected.result
-		execution.collected = true
-		execution.terminal = true
-		return r.emitTerminal(execution, step)
+		return r.acceptCollected(execution, collected, step)
 	default:
 		return nil
 	}

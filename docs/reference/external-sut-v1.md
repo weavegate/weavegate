@@ -139,17 +139,18 @@ exception detail internally but sends only this summary for cancellation.
 Explicit rollback without an application exception still needs an application
 error indicating rollback. Wire kinds are not diagnostic codes or verdicts.
 
-E emits exactly one `WorkerResult` then closes its channel only for a validated
+E emits one `InvocationOutcome` containing a `WorkerResult` then closes its
+channel only for a validated
 `committed` or `rolled_back` terminal after all invocation bridge tasks have
 unwound. A `not_started` wire terminal must instead use the separate asynchronous
-unstarted outcome required by ADR gap G5; it cannot publish WorkerResult or call
-runtime Finish. That API and its stream closure/worker-reuse rules must be decided
-before implementation; no current Go channel behavior is implied here.
+`UnstartedResult` defined by [ADR 0014](../adr/0014-adapter-outcome-boundaries.md);
+it cannot publish WorkerResult or call runtime Finish. The
+[Go outcome contract](adapter-outcomes.md) defines stream closure and worker reuse.
 Null error maps to nil;
 non-null maps to an error, preserving MySQL vendor metadata (1213 deadlock,
 1205 ordinary error) and cancellation identity. E measures Duration locally
 from dispatch to terminal receipt; it is volatile and not sent on the wire.
-Adapter-wide faults follow ADR gap G2, never `WorkerResult{Err:nil}` or an ordinary
+Adapter-wide faults use the typed session latch defined by ADR 0014, never `WorkerResult{Err:nil}` or an ordinary
 worker error that would permit an oracle verdict to stand as a successful run.
 
 ## Cancellation, failures, and bounded stop
@@ -175,9 +176,9 @@ exception to cross its proxy boundary under rollback rules. JDBC cancel/interrup
 is a request, not proof that a driver or server has stopped. A transaction already
 committed must truthfully return `committed`, with nil WorkerResult.Err when the
 wire error is null. Reporting cancellation of the enclosing operation is a
-separate run-level obligation gated on ADR G6; Handle does not publish a second
-asynchronous error. The G6 decision must retain the operation context error
-without rewriting the database outcome as rollback.
+separate run-level obligation defined by ADR 0014; Handle does not publish a
+second asynchronous error. Run retains the operation context error through final
+cleanup without rewriting the database outcome as rollback.
 
 Any non-cancellation error from the runtime bridge is a fatal protocol error; it is never converted into release or a successful terminal.
 

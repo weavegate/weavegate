@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +39,9 @@ func TestGoNativeMySQL(t *testing.T) {
 		t.Fatalf("provision MySQL fixture: %v", err)
 	}
 
+	t.Run("preserves commit before cancellation", func(t *testing.T) {
+		testCommitWinsCancellation(t, ctx, db)
+	})
 	t.Run("runs workers asynchronously on dedicated connections", func(t *testing.T) {
 		testDedicatedConnections(t, ctx, db)
 	})
@@ -58,24 +63,26 @@ func testDedicatedConnections(
 	observations := make(chan connectionObservation, 2)
 	release := make(chan struct{})
 	registry := staticRegistry{
-		"probe": func(ctx context.Context, workerID string, conn *sql.Conn) error {
-			var connectionID int64
-			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
-				return fmt.Errorf("read connection ID: %w", err)
-			}
+		"probe": func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(ctx, conn, func(tx *sql.Tx) error {
+				var connectionID int64
+				if err := tx.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+					return fmt.Errorf("read connection ID: %w", err)
+				}
 
-			select {
-			case observations <- connectionObservation{workerID: workerID, connectionID: connectionID}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+				select {
+				case observations <- connectionObservation{workerID: workerID, connectionID: connectionID}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 
-			select {
-			case <-release:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+				select {
+				case <-release:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
 		},
 	}
 
@@ -90,7 +97,7 @@ func testDedicatedConnections(
 		}
 	})
 
-	results := make(map[string]<-chan sut.WorkerResult, 2)
+	results := make(map[string]<-chan sut.InvocationOutcome, 2)
 	for _, workerID := range []string{"w1", "w2"} {
 		result, err := handle.Invoke(ctx, workerID, "probe")
 		if err != nil {
@@ -159,19 +166,38 @@ func testActiveStop(
 
 	entered := make(chan string, 1)
 	registry := staticRegistry{
-		"block": func(ctx context.Context, workerID string, conn *sql.Conn) error {
-			var connectionID int64
-			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
-				return fmt.Errorf("read connection ID: %w", err)
-			}
+		"block": func(commandCtx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(commandCtx, conn, func(tx *sql.Tx) error {
+				var connectionID int64
+				if err := tx.QueryRowContext(commandCtx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+					return fmt.Errorf("read connection ID: %w", err)
+				}
 
-			select {
-			case entered <- workerID:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			<-ctx.Done()
-			return ctx.Err()
+				select {
+				case entered <- workerID:
+				case <-commandCtx.Done():
+					return commandCtx.Err()
+				}
+				<-commandCtx.Done()
+				// Observe database/sql's automatic rollback boundary without a
+				// timing assumption, then let runRollbackCommand see ErrTxDone.
+				for {
+					var probe int
+					err := tx.QueryRowContext(context.Background(), "SELECT 1").Scan(&probe)
+					if errors.Is(err, sql.ErrTxDone) {
+						return commandCtx.Err()
+					}
+					if err != nil && !errors.Is(err, commandCtx.Err()) {
+						return errors.Join(commandCtx.Err(), fmt.Errorf("observe automatic rollback: %w", err))
+					}
+					select {
+					case <-ctx.Done():
+						return errors.Join(commandCtx.Err(), fmt.Errorf("observe automatic rollback: %w", ctx.Err()))
+					default:
+						runtime.Gosched()
+					}
+				}
+			})
 		},
 	}
 
@@ -190,27 +216,28 @@ func testActiveStop(
 
 	stopCtx, cancelStop := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelStop()
-	if err := adapter.Stop(stopCtx); err != nil {
-		t.Fatalf("stop active adapter: %v", err)
+	stopErr := adapter.Stop(stopCtx)
+	if !errors.Is(stopErr, sql.ErrTxDone) || !strings.Contains(stopErr.Error(), "transaction completion is unknown") {
+		t.Fatalf("stop active adapter error = %v, want unknown rollback outcome", stopErr)
 	}
 
-	result := receiveWorkerResult(t, ctx, results)
-	if result.WorkerID != "stop-worker" {
-		t.Fatalf("stopped result worker ID = %q, want stop-worker", result.WorkerID)
+	if outcome, ok := <-results; ok {
+		t.Fatalf("unknown rollback outcome fabricated result: %#v", outcome)
 	}
-	if !errors.Is(result.Err, context.Canceled) {
-		t.Fatalf("stopped result error = %v, want %v", result.Err, context.Canceled)
+	fault := handle.Faults().Err()
+	if !errors.Is(fault, sql.ErrTxDone) || !strings.Contains(fault.Error(), "transaction completion is unknown") {
+		t.Fatalf("session fault = %v, want unknown rollback outcome", fault)
 	}
 	if got := db.SQL.Stats().InUse; got != 0 {
 		t.Fatalf("in-use connections after Stop = %d, want 0", got)
 	}
-	if err := adapter.Stop(context.Background()); err != nil {
-		t.Fatalf("stop adapter twice: %v", err)
+	if err := adapter.Stop(context.Background()); !errors.Is(err, sql.ErrTxDone) {
+		t.Fatalf("stop adapter twice: %v, want latched session fault", err)
 	}
 	_, err = handle.Invoke(ctx, "late-worker", "block")
 	assertErrorContains(t, err, "stopped")
 
-	t.Log("SUT_STOP_RESULT active_worker=cancelled result_closed=true in_use=0 stop_idempotent=true")
+	t.Log("SUT_STOP_RESULT active_worker=cancelled outcome=unknown session_fault=true result_closed=true in_use=0 stop_idempotent=true")
 }
 
 func testWorkerIDLifecycle(
@@ -223,23 +250,25 @@ func testWorkerIDLifecycle(
 	entered := make(chan string, 2)
 	release := make(chan struct{}, 2)
 	registry := staticRegistry{
-		"block": func(ctx context.Context, workerID string, conn *sql.Conn) error {
-			var connectionID int64
-			if err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
-				return fmt.Errorf("read connection ID: %w", err)
-			}
+		"block": func(ctx context.Context, workerID string, conn *sql.Conn) CommandResult {
+			return runRollbackCommand(ctx, conn, func(tx *sql.Tx) error {
+				var connectionID int64
+				if err := tx.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&connectionID); err != nil {
+					return fmt.Errorf("read connection ID: %w", err)
+				}
 
-			select {
-			case entered <- workerID:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			select {
-			case <-release:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+				select {
+				case entered <- workerID:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				select {
+				case <-release:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
 		},
 	}
 
@@ -308,14 +337,36 @@ type connectionObservation struct {
 	connectionID int64
 }
 
+func runRollbackCommand(
+	ctx context.Context,
+	conn *sql.Conn,
+	run func(*sql.Tx) error,
+) CommandResult {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandResult{Err: err}
+	}
+	runErr := run(tx)
+	rollbackErr := tx.Rollback()
+	return CommandResult{
+		TransactionStarted:   true,
+		TransactionCompleted: rollbackErr == nil,
+		Err:                  errors.Join(runErr, rollbackErr),
+	}
+}
+
 func receiveWorkerResult(
 	t *testing.T,
 	ctx context.Context,
-	results <-chan sut.WorkerResult,
+	results <-chan sut.InvocationOutcome,
 ) sut.WorkerResult {
 	t.Helper()
 
-	result := receiveWithin(t, ctx, results, "worker result")
+	outcome := receiveWithin(t, ctx, results, "worker result")
+	if outcome.Worker == nil || outcome.Unstarted != nil {
+		t.Fatalf("expected worker result, got %#v", outcome)
+	}
+	result := *outcome.Worker
 	select {
 	case _, ok := <-results:
 		if ok {
@@ -346,4 +397,59 @@ func receiveWithin[T any](
 		var zero T
 		return zero
 	}
+}
+
+func testCommitWinsCancellation(t *testing.T, ctx context.Context, db *fixture.DB) {
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	defer cancelWorker()
+	committed := make(chan struct{})
+	adapter := New(staticRegistry{"commit": func(ctx context.Context, _ string, conn *sql.Conn) CommandResult {
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return CommandResult{Err: err}
+		}
+		defer func() { _ = tx.Rollback() }()
+		if _, err := tx.ExecContext(ctx, "UPDATE fixture_item SET name = 'committed' WHERE id = 1"); err != nil {
+			rollbackErr := tx.Rollback()
+			return CommandResult{
+				TransactionStarted:   true,
+				TransactionCompleted: rollbackErr == nil,
+				Err:                  errors.Join(err, rollbackErr),
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return CommandResult{TransactionStarted: true, Err: err}
+		}
+		close(committed)
+		<-ctx.Done() // Cancellation is ordered strictly after successful Commit.
+		return CommandResult{TransactionStarted: true, TransactionCompleted: true}
+	}})
+	handle, err := adapter.Start(ctx, sut.SUTConfig{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	stream, err := handle.Invoke(workerCtx, "committer", "commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-committed:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	cancelWorker()
+	result := receiveWorkerResult(t, ctx, stream)
+	if result.Err != nil || db.SQL.Stats().InUse != 0 {
+		t.Fatalf("committed result=%v, connections in use=%d", result.Err, db.SQL.Stats().InUse)
+	}
+	var name string
+	if err := db.SQL.QueryRowContext(ctx, "SELECT name FROM fixture_item WHERE id = 1").Scan(&name); err != nil || name != "committed" {
+		t.Fatalf("committed state = %q, error = %v", name, err)
+	}
+	t.Log("SUT_COMMIT_CANCEL_RESULT transaction=committed cancellation=after_commit worker_error=nil connection=returned")
 }

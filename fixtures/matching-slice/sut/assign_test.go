@@ -3,10 +3,13 @@ package matchingsut
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -98,6 +101,243 @@ func TestRegistryDefaultsAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestAssignBeginFailureReportsUnstarted(t *testing.T) {
+	wantErr := errors.New("begin assignment failed")
+	database := sql.OpenDB(beginFailureConnector{err: wantErr})
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("close begin-failure database: %v", err)
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	adapter := gonative.New(NewRegistry(nil))
+	handle, err := adapter.Start(ctx, internalsut.SUTConfig{
+		Variant: string(variantVulnerable),
+		Params:  map[string]string{"request_id": fmt.Sprint(seededRequestID)},
+	}, &fixture.DB{SQL: database})
+	if err != nil {
+		t.Fatalf("start matching adapter: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := adapter.Stop(context.Background()); err != nil {
+			t.Errorf("stop matching adapter: %v", err)
+		}
+	})
+
+	stream, err := handle.Invoke(ctx, "begin-failure-worker", CommandAssign)
+	if err != nil {
+		t.Fatalf("invoke assignment: %v", err)
+	}
+	outcome := <-stream
+	if outcome.Worker != nil || outcome.Unstarted == nil {
+		t.Fatalf("begin-failure outcome = %#v, want unstarted", outcome)
+	}
+	if !errors.Is(outcome.Unstarted.Err, wantErr) {
+		t.Fatalf("begin-failure error = %v, want %v", outcome.Unstarted.Err, wantErr)
+	}
+	if _, ok := <-stream; ok {
+		t.Fatal("begin-failure stream remained open")
+	}
+	if fault := handle.Faults().Err(); fault != nil {
+		t.Fatalf("begin failure became session fault: %v", fault)
+	}
+}
+
+func TestAssignUnknownTransactionCompletionFaultsSession(t *testing.T) {
+	commitErr := errors.New("commit assignment failed")
+	workflowErr := errors.New("assignment workflow failed")
+	rollbackErr := errors.New("rollback assignment failed")
+	tests := []struct {
+		name      string
+		connector transactionOutcomeConnector
+		syncPoint SyncPoint
+		want      []error
+	}{
+		{
+			name:      "commit failure",
+			connector: transactionOutcomeConnector{commitErr: commitErr},
+			syncPoint: NoopSyncPoint{},
+			want:      []error{commitErr},
+		},
+		{
+			name:      "rollback failure",
+			connector: transactionOutcomeConnector{rollbackErr: rollbackErr},
+			syncPoint: &recordingSyncPoint{
+				failPoint: AfterReadRequest,
+				failErr:   workflowErr,
+			},
+			want: []error{workflowErr, rollbackErr},
+		},
+		{
+			name:      "automatic rollback completion unproven",
+			connector: transactionOutcomeConnector{rollbackErr: sql.ErrTxDone},
+			syncPoint: &recordingSyncPoint{
+				failPoint: AfterReadRequest,
+				failErr:   workflowErr,
+			},
+			want: []error{workflowErr, sql.ErrTxDone},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			database := sql.OpenDB(test.connector)
+			t.Cleanup(func() {
+				if err := database.Close(); err != nil {
+					t.Errorf("close transaction-outcome database: %v", err)
+				}
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			adapter := gonative.New(NewRegistry(test.syncPoint))
+			handle, err := adapter.Start(ctx, internalsut.SUTConfig{
+				Variant: string(variantVulnerable),
+				Params:  map[string]string{"request_id": fmt.Sprint(seededRequestID)},
+			}, &fixture.DB{SQL: database})
+			if err != nil {
+				t.Fatalf("start matching adapter: %v", err)
+			}
+
+			stream, err := handle.Invoke(ctx, "unknown-transaction-worker", CommandAssign)
+			if err != nil {
+				t.Fatalf("invoke assignment: %v", err)
+			}
+			if outcome, ok := <-stream; ok {
+				t.Fatalf("unknown transaction completion fabricated outcome: %#v", outcome)
+			}
+			fault := handle.Faults().Err()
+			for _, wantErr := range test.want {
+				if !errors.Is(fault, wantErr) {
+					t.Errorf("session fault = %v, want cause %v", fault, wantErr)
+				}
+			}
+			if err := adapter.Stop(ctx); err == nil {
+				t.Fatal("stop after unknown transaction completion returned nil error")
+			}
+		})
+	}
+}
+
+type beginFailureConnector struct {
+	err error
+}
+
+func (c beginFailureConnector) Connect(context.Context) (driver.Conn, error) {
+	return beginFailureConn(c), nil
+}
+
+func (beginFailureConnector) Driver() driver.Driver { return beginFailureDriver{} }
+
+type beginFailureDriver struct{}
+
+func (beginFailureDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("begin-failure driver must be opened through its connector")
+}
+
+type beginFailureConn struct {
+	err error
+}
+
+func (beginFailureConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (beginFailureConn) Close() error { return nil }
+
+func (c beginFailureConn) Begin() (driver.Tx, error) { return nil, c.err }
+
+type transactionOutcomeConnector struct {
+	commitErr   error
+	rollbackErr error
+}
+
+func (c transactionOutcomeConnector) Connect(context.Context) (driver.Conn, error) {
+	return &transactionOutcomeConn{commitErr: c.commitErr, rollbackErr: c.rollbackErr}, nil
+}
+
+func (transactionOutcomeConnector) Driver() driver.Driver { return transactionOutcomeDriver{} }
+
+type transactionOutcomeDriver struct{}
+
+func (transactionOutcomeDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("transaction-outcome driver must be opened through its connector")
+}
+
+type transactionOutcomeConn struct {
+	commitErr   error
+	rollbackErr error
+}
+
+func (*transactionOutcomeConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (*transactionOutcomeConn) Close() error { return nil }
+
+func (c *transactionOutcomeConn) Begin() (driver.Tx, error) {
+	return &transactionOutcomeTx{commitErr: c.commitErr, rollbackErr: c.rollbackErr}, nil
+}
+
+func (c *transactionOutcomeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return c.Begin()
+}
+
+func (*transactionOutcomeConn) QueryContext(
+	_ context.Context,
+	query string,
+	_ []driver.NamedValue,
+) (driver.Rows, error) {
+	switch {
+	case strings.Contains(query, "SELECT status"):
+		return &transactionOutcomeRows{value: "ACTIVE"}, nil
+	case strings.Contains(query, "SELECT EXISTS"):
+		return &transactionOutcomeRows{value: false}, nil
+	default:
+		return nil, fmt.Errorf("unsupported transaction-outcome query: %s", query)
+	}
+}
+
+func (*transactionOutcomeConn) ExecContext(
+	context.Context,
+	string,
+	[]driver.NamedValue,
+) (driver.Result, error) {
+	return transactionOutcomeResult{}, nil
+}
+
+type transactionOutcomeTx struct {
+	commitErr   error
+	rollbackErr error
+}
+
+func (tx *transactionOutcomeTx) Commit() error   { return tx.commitErr }
+func (tx *transactionOutcomeTx) Rollback() error { return tx.rollbackErr }
+
+type transactionOutcomeRows struct {
+	value driver.Value
+	read  bool
+}
+
+func (*transactionOutcomeRows) Columns() []string { return []string{"value"} }
+func (*transactionOutcomeRows) Close() error      { return nil }
+
+func (r *transactionOutcomeRows) Next(values []driver.Value) error {
+	if r.read {
+		return io.EOF
+	}
+	r.read = true
+	values[0] = r.value
+	return nil
+}
+
+type transactionOutcomeResult struct{}
+
+func (transactionOutcomeResult) LastInsertId() (int64, error) { return 1, nil }
+func (transactionOutcomeResult) RowsAffected() (int64, error) { return 1, nil }
 
 func testSequentialVariant(
 	t *testing.T,
@@ -306,7 +546,7 @@ func invokeAssignment(
 		t.Fatalf("invoke assignment worker %q: %v", workerID, err)
 	}
 	select {
-	case result, ok := <-results:
+	case outcome, ok := <-results:
 		if !ok {
 			t.Fatalf("assignment worker %q result channel closed without a result", workerID)
 		}
@@ -318,6 +558,10 @@ func invokeAssignment(
 		case <-ctx.Done():
 			t.Fatalf("wait for assignment worker %q result close: %v", workerID, ctx.Err())
 		}
+		if outcome.Worker == nil || outcome.Unstarted != nil {
+			t.Fatalf("expected worker result, got %#v", outcome)
+		}
+		result := *outcome.Worker
 		if result.WorkerID != workerID {
 			t.Fatalf("assignment result worker ID = %q, want %q", result.WorkerID, workerID)
 		}

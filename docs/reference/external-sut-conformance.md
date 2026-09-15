@@ -58,7 +58,8 @@ forbids emitting any WorkerResult for the affected incomplete invocation.
 `invalidate_evaluation` rejects even a previously obtained passing evaluation.
 `quarantine_fixture` requires `reset_rejected` until teardown/reprovisioning.
 `operation_context_error` is a run-level assertion for the Go run-level harness,
-gated on G6 even when listed beside a terminal observation; it is not another
+defined by [ADR 0014](../adr/0014-adapter-outcome-boundaries.md) even when listed
+beside a terminal observation; it is not another
 Handle result. The standalone Go adapter harness checks only its supplied
 context and worker outcome; it cannot claim the run-level assertion passed.
 A `completion` event supplies independently observed proxy-exit, transaction,
@@ -199,13 +200,13 @@ Implementation prerequisites have explicit owners:
 | Work | Owner | Required before |
 | --- | --- | --- |
 | G1 fixture connection descriptor (resolved) | [#118](https://github.com/weavegate/weavegate/issues/118) and the [fixture connection contract](fixture-connection.md) | Real database provisioning for the external adapter |
-| G2 session faults, G5 unstarted outcomes, G6 operation cancellation | [#119](https://github.com/weavegate/weavegate/issues/119) | Production Go result mapping and run-level conformance |
+| G2 session faults, G5 unstarted outcomes, G6 operation cancellation (Go boundary resolved) | [#119](https://github.com/weavegate/weavegate/issues/119) and [adapter outcomes](adapter-outcomes.md) | External Go result mapping must consume the implemented boundary and prove wire conformance |
 | G3 quarantine and recovery after uncertain cleanup | [#120](https://github.com/weavegate/weavegate/issues/120) | External execution/repeat enablement |
 | G4 launch, configuration and budget composition | [#110](https://github.com/weavegate/weavegate/issues/110) | External CLI enablement |
 | Executable assertion dispatch and remaining wire/lifecycle coverage | [#121](https://github.com/weavegate/weavegate/issues/121), implemented by #108/#109 | Language implementation acceptance; live paired evidence remains #111 |
 
-These are planned implementation gates, not unfinished protocol choices that
-require adding those implementations to this design change.
+The unresolved rows remain implementation gates. Go boundary tests do not prove
+external transport or Java transaction conformance.
 
 ## Sequence review
 
@@ -241,10 +242,9 @@ clock or later kill substitutes for Java self-termination.
 
 `cancel_before_accepted` requires a distinct `unstarted_outcome`, preserving
 cancellation and proving no command/transaction/lease began. It forbids a
-WorkerResult and runtime Finish. The Go harness for this case depends on ADR G5;
-its future asynchronous outcome API must be decided before this case can run.
-Do not satisfy it by closing the current result channel without a result or by
-inventing a rollback.
+WorkerResult and runtime Finish. The Go harness must use ADR 0014
+and its implemented UnstartedResult API. Do not satisfy it by closing the
+invocation stream without an outcome or by inventing a rollback.
 
 `process_death` continues past fault detection: the canceled runtime call returns
 without release, then a named detached Stop closes pipes and observes child
@@ -268,7 +268,7 @@ the committed terminal but before Go receives that terminal. Java must consume
 the retired invocation's cancel without changing its stored outcome, issuing
 another terminal, rolling back, or raising fatal. Go still receives the original
 committed result. The separate `check_operation_result` observer then requires
-the enclosing Run's cancellation error under the pending G6 decision. It observes
+the enclosing Run's cancellation error under ADR 0014's final observation boundary. It observes
 the run-level result after completion, not another return from Handle or another
 WorkerResult; it must not manufacture an error from the vector's expectation.
 
@@ -406,7 +406,7 @@ configuration enablement; [Spring evidence #111](https://github.com/weavegate/we
 owns the combined MySQL reproduction. Do not mark this design checklist complete
 on the strength of prose or a mock-only test.
 
-- [ ] Resolve remaining ADR gaps G2–G6 in separately reviewable decisions before enabling external CLI execution: asynchronous fault propagation, reset quarantine, launch/config/budgets, asynchronous unstarted outcomes, and run-level cancellation precedence. G1 is resolved by the fixture connection contract.
+- [ ] Resolve remaining ADR gaps G3 and G4 before enabling external CLI execution: reset quarantine and launch/config/budgets. G1 is resolved by the fixture connection contract; G2/G5/G6 are resolved at the Go boundary by ADR 0014. External implementations must still prove their mappings.
 - [ ] Consume all shared vector IDs targeting the implementation under test. Go owns runtime mapping, channel closure, process supervision, and error propagation; Java owns framing, dispatch, gates, proxy/lease tracking, and local cancellation. Both test malformed input and duplicate handling.
 - [ ] Implement only child-JVM launch with framed stdin/stdout. Test fragmented/coalesced frames, invalid JSON/UTF-8/fields/version, unknown names/IDs, gaps, conflicting duplicates, sequence exhaustion, and capacity exhaustion without changing application state on rejection.
 - [ ] Exercise concurrent arrivals and releases with barriers, including a blocked worker while another commits. The pipe reader/writer must remain live; no sleep-based coordination or polling for readiness.
