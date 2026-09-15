@@ -154,8 +154,11 @@ func (o *Orchestrator) Run(
 	collectorsCtx, cancelCollectors := context.WithCancel(context.WithoutCancel(runCtx))
 	defer func() {
 		// Abort outstanding commands with the run failure that triggered cleanup,
-		// but keep collectors alive through Stop.
-		cancelExecution(returnErr)
+		// but keep a successful session active through Stop and keep collectors
+		// alive in both cases.
+		if returnErr != nil {
+			cancelExecution(returnErr)
+		}
 		var stopErr error
 		if adapter != nil {
 			stopCtx, cancelStop := context.WithTimeout(

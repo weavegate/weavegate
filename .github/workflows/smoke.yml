@@ -220,9 +220,9 @@ jobs:
       - name: Repeat adapter outcome boundary tests
         run: |
           go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
-            -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' -count=20
+            -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted|TestAssignUnknownTransactionCompletionFaultsSession' -count=20
           go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
-            -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' -count=20
+            -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted|TestAssignUnknownTransactionCompletionFaultsSession' -count=20
 
       - name: Run the race detector
         run: |

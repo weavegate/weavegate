@@ -39,7 +39,8 @@ causes remain discoverable with `errors.Is`; the parent is observed through the
 same worker-local ordering lock when either failure is finalized. The adapter
 holds the worker reservation until cleanup and stream closure, then permits reuse.
 An explicit rollback proves completion only when it returns nil; `sql.ErrTxDone`
-can mean database/sql's asynchronous context rollback is still unresolved.
+can mean database/sql's asynchronous context rollback is still unresolved and
+remains retained as evidence for that unknown outcome.
 
 Unknown transaction outcome or unproven resource cleanup requires a session
 fault; neither outcome type can represent it. A fault is latched before closing
@@ -90,6 +91,10 @@ context with the configured stop budget so
 cancellation does not skip cleanup. The final boundary preserves both the
 operation context error and a distinct custom cancellation cause across these
 phases.
+The execution context supplied to `Start` remains active through `Stop` after a
+successful run. Cleanup cancels it before `Stop` only when an existing run error
+must abort outstanding commands; the final deferred release still cancels it
+after cleanup returns.
 
 Collectors stay active through Stop and drain available evidence before shutdown.
 After collector cancellation, each collector permits one ready final outcome and
@@ -105,9 +110,10 @@ commands receive that run failure as their cleanup cancellation cause, avoiding 
 spurious caller-interruption classification.
 
 The Go-native adapter observes that parent directly under the worker ordering
-lock before publishing an unknown-outcome or completed-transaction cleanup
-fault. Its fault retains the run cause and cleanup error while masking a generic
-`context.Canceled` used only to wake the accepted command.
+lock before any post-command path closes without an outcome, including an
+invalid start/completion report, an unknown outcome, or a completed-transaction
+cleanup fault. Its fault retains the run cause and cleanup error while masking a
+generic `context.Canceled` used only to wake the accepted command.
 
 ## Errors and verdicts
 
@@ -132,10 +138,10 @@ without Docker:
 
 ```bash
 go test ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
-  -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
+  -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted|TestAssignUnknownTransactionCompletionFaultsSession' \
   -v -count=20
 go test -race ./internal/orchestrator ./internal/sut ./internal/sut/gonative ./fixtures/matching-slice/sut \
-  -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted' \
+  -run 'TestOutcome|TestRunPreservesCancellationBeforeFinalizationSetup|TestFaultLatch|TestGoNativeUnstartedWorkerCleanup|TestGoNativeAsyncUnstarted|TestGoNativeCleanupSessionFault|TestGoNativeMasksAcceptedCommandCancellationSentinel|TestWorkerAcceptance|TestAssignBeginFailureReportsUnstarted|TestAssignUnknownTransactionCompletionFaultsSession' \
   -count=20
 ```
 

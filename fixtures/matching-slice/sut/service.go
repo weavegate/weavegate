@@ -55,7 +55,7 @@ func (s *service) assign(
 			transactionCompleted = true
 			return
 		}
-		if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		if rollbackErr != nil {
 			returnErr = errors.Join(
 				returnErr,
 				fmt.Errorf("rollback assignment transaction: %w", rollbackErr),

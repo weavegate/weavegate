@@ -21,6 +21,7 @@ Use these pages when you need the exact CLI, configuration, artifact, or diagnos
 - [Exit codes](reference/exit-codes.md) — Interpret process status across pass, fail, flaky, and usage outcomes.
 - [Fixture application connection descriptor](reference/fixture-connection.md) — Consume the prepared database's application endpoint without leaking its ephemeral credential.
 - [Report schema](reference/report-schema.md) — Consume run artifacts without guessing their fields or stability guarantees.
+- [Adapter outcomes](reference/adapter-outcomes.md) — Invocation streams, session faults, cancellation boundaries, and reproducible Go evidence.
 - [External SUT wire v1 (proposed)](reference/external-sut-v1.md) — Review the planned child-process protocol; external adapters are not implemented.
 - [External SUT conformance (proposed)](reference/external-sut-conformance.md) — Share protocol vectors, lifecycle sequences, and implementation acceptance checks.
 - [WG001](reference/diagnostics/WG001.md) — Understand evidence for an invariant violation under a controlled schedule.
@@ -54,6 +55,7 @@ Use these records when you need the rationale behind a durable design boundary.
 - [ADR 0011: Report Markdown rendering boundary](adr/0011-report-markdown-rendering-boundary.md) — See how runtime values remain one-line and inert in Markdown reports.
 - [ADR 0012: Preserve evidence when diagnostic derivation fails](adr/0012-diagnostic-derivation-failure-evidence.md) — Learn why a completed run retains evidence and exits 5 when diagnostic production fails.
 - [ADR 0013: Scope a clean-run differential Oracle](adr/0013-clean-run-differential-oracle-scope.md) — See which second invariant justifies a richer Oracle and how v0.2.0 bounds it.
+- [ADR 0014: Adapter outcome boundaries](adr/0014-adapter-outcome-boundaries.md) — Session faults, unstarted invocations, cancellation, and error aggregation.
 
 ## Measured results
 
@@ -68,6 +70,3 @@ Use these experiments for reproduced observations; their measured values are tie
 Use these notes when maintaining repository-facing documentation and visuals.
 
 - [README editorial and visual maintenance](maintainers/readme-maintenance.md) — Follow the content, evidence, and visual contracts for focused README updates.
-
-- [ADR 0014: Adapter outcome boundaries](adr/0014-adapter-outcome-boundaries.md) — Session faults, unstarted invocations, cancellation, and error aggregation.
-- [Adapter outcomes](reference/adapter-outcomes.md) — Invocation streams, session faults, cancellation boundaries, and reproducible Go evidence.

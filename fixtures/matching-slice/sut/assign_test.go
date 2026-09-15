@@ -178,7 +178,7 @@ func TestAssignUnknownTransactionCompletionFaultsSession(t *testing.T) {
 				failPoint: AfterReadRequest,
 				failErr:   workflowErr,
 			},
-			want: []error{workflowErr},
+			want: []error{workflowErr, sql.ErrTxDone},
 		},
 	}
 

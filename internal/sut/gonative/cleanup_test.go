@@ -529,6 +529,41 @@ func TestGoNativeMasksAcceptedCommandCancellationSentinel(t *testing.T) {
 		})
 	}
 
+	t.Run("invalid transaction report", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		defer cancelParent(nil)
+		wantCause := errors.New("orchestration failure before invalid report")
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		defer func() { _ = db.Close() }()
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		entered := make(chan struct{})
+		adapter.commands["command"] = func(ctx context.Context, _ string, _ *sql.Conn) CommandResult {
+			close(entered)
+			<-ctx.Done()
+			return CommandResult{
+				TransactionCompleted: true,
+				Err:                  ctx.Err(),
+			}
+		}
+
+		stream, err := adapter.Invoke(parentCtx, "worker", "command")
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		cancelParent(wantCause)
+		if outcome, ok := <-stream; ok {
+			t.Fatalf("invalid transaction report published outcome: %#v", outcome)
+		}
+		fault := adapter.Faults().Err()
+		if fault == nil || !strings.Contains(fault.Error(), "completed transaction that never started") ||
+			!errors.Is(fault, wantCause) || errors.Is(fault, context.Canceled) {
+			t.Fatalf("session fault = %v, want run cause without cancellation sentinel", fault)
+		}
+	})
+
 	t.Run("unknown transaction observes parent directly", func(t *testing.T) {
 		parentCtx, cancelParent := context.WithCancelCause(context.Background())
 		wantCause := errors.New("parent canceled before unknown outcome publication")

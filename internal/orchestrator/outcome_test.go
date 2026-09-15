@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,11 +19,13 @@ import (
 type outcomeAdapter struct {
 	faults       sut.FaultLatch
 	faultSurface sut.SessionFaults
+	startCtx     context.Context
 	invoke       func(context.Context, string) (<-chan sut.InvocationOutcome, error)
 	stop         func(context.Context) error
 }
 
-func (a *outcomeAdapter) Start(context.Context, sut.SUTConfig, *fixture.DB) (sut.Handle, error) {
+func (a *outcomeAdapter) Start(ctx context.Context, _ sut.SUTConfig, _ *fixture.DB) (sut.Handle, error) {
+	a.startCtx = ctx
 	return a, nil
 }
 func (a *outcomeAdapter) Faults() sut.SessionFaults {
@@ -358,6 +361,24 @@ func TestOutcomeCleanupUsesRunFailureCause(t *testing.T) {
 	}
 	if len(result.Unstarted) != 1 || !errors.Is(result.Unstarted[0].Err, observerErr) {
 		t.Fatalf("cleanup unstarted evidence = %#v, want observer cause", result.Unstarted)
+	}
+}
+
+func TestOutcomeKeepsExecutionContextActiveThroughSuccessfulStop(t *testing.T) {
+	a := &outcomeAdapter{}
+	a.stop = func(context.Context) error {
+		if err := a.startCtx.Err(); err != nil {
+			return fmt.Errorf("Start context canceled before successful Stop: %w", err)
+		}
+		return nil
+	}
+
+	result, err := runOutcomeTest(t, context.Background(), a, nil, nil, stableEvaluator)
+	if err != nil {
+		t.Fatalf("successful cleanup = %v", err)
+	}
+	if len(result.Workers) != 1 {
+		t.Fatalf("successful result workers = %#v", result.Workers)
 	}
 }
 

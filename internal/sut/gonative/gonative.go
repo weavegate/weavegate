@@ -212,10 +212,7 @@ func (a *adapter) startWorker(
 ) {
 	conn, err := db.Conn(workerCtx)
 	if err != nil {
-		cause := fmt.Errorf("acquire connection: %w", workerContextError(workerCtx, err))
-		if canceled := worker.finishWithoutOutcome(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
-			cause = errors.Join(cause, canceled)
-		}
+		cause := worker.finishCause(parentCtx, workerCtx, fmt.Errorf("acquire connection: %w", err))
 		a.completeUnstartedWorker(worker, cause, nil)
 		return
 	}
@@ -302,7 +299,8 @@ func (a *adapter) runWorker(
 			worker.workerID,
 			worker.command,
 		)
-		a.failSession(errors.Join(fault, commandResult.Err, closeErr))
+		cause := worker.finishCause(parentCtx, ctx, commandResult.Err)
+		a.failSession(errors.Join(fault, cause, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
 	}
@@ -313,14 +311,12 @@ func (a *adapter) runWorker(
 				worker.workerID,
 				worker.command,
 			)
-			a.failSession(errors.Join(fault, closeErr))
+			cause := worker.finishCause(parentCtx, ctx, nil)
+			a.failSession(errors.Join(fault, cause, closeErr))
 			a.completeWorker(worker, nil, closeErr)
 			return
 		}
-		cause := workerContextError(ctx, commandResult.Err)
-		if canceled := worker.finishWithoutOutcome(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
-			cause = errors.Join(cause, canceled)
-		}
+		cause := worker.finishCause(parentCtx, ctx, commandResult.Err)
 		a.completeUnstartedWorker(worker, cause, closeErr)
 		return
 	}
@@ -330,11 +326,7 @@ func (a *adapter) runWorker(
 			worker.workerID,
 			worker.command,
 		)
-		canceled := worker.finishWithoutOutcome(parentCtx)
-		cause := errors.Join(fault, workerContextError(ctx, commandResult.Err))
-		if canceled != nil && !errors.Is(cause, canceled) {
-			cause = errors.Join(cause, canceled)
-		}
+		cause := errors.Join(fault, worker.finishCause(parentCtx, ctx, commandResult.Err))
 		a.failSession(errors.Join(cause, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
@@ -347,11 +339,7 @@ func (a *adapter) runWorker(
 		Duration: time.Since(startedAt),
 	}
 	if closeErr != nil {
-		canceled := worker.finishWithoutOutcome(parentCtx)
-		cause := workerContextError(ctx, commandResult.Err)
-		if canceled != nil && !errors.Is(cause, canceled) {
-			cause = errors.Join(cause, canceled)
-		}
+		cause := worker.finishCause(parentCtx, ctx, commandResult.Err)
 		a.failSession(errors.Join(cause, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
@@ -476,6 +464,15 @@ func (w *activeWorker) finishWithoutOutcome(parentCtx context.Context) error {
 	w.cancelErr = context.Canceled
 	w.cancel(context.Canceled)
 	return nil
+}
+
+func (w *activeWorker) finishCause(parentCtx, workerCtx context.Context, err error) error {
+	canceled := w.finishWithoutOutcome(parentCtx)
+	cause := workerContextError(workerCtx, err)
+	if canceled != nil && !errors.Is(cause, canceled) {
+		cause = errors.Join(cause, canceled)
+	}
+	return cause
 }
 
 func (w *activeWorker) watchParent(parentCtx context.Context) {

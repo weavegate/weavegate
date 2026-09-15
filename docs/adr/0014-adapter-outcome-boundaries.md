@@ -58,9 +58,13 @@ publishes no invocation outcome. A command that reports no started transaction
 and no cause is also an adapter session fault. When a command reports that its
 transaction never started, the adapter observes parent cancellation under the
 worker-local ordering lock before publishing the unstarted outcome.
+Every post-command path that closes without an outcome uses that same ordering
+boundary and masks a generic cancellation used only to wake cleanup, including
+invalid start/completion reports and completed-transaction cleanup faults.
 `sql.ErrTxDone` from an explicit rollback does not prove completion because
 database/sql may have claimed the transaction for asynchronous context rollback
-before the driver reports its result.
+before the driver reports its result. The error remains in the unknown-outcome
+cause as concrete evidence even though it cannot prove completion.
 Neither an unstarted outcome nor a stream closure calls runtime Finish or creates
 a rollback, worker terminal, or oracle verdict. The coordinator aborts execution,
 collects the outcome, and returns its cause as a run error.
@@ -99,6 +103,8 @@ custom parent cancellation cause remains discoverable alongside
 `context.Canceled` across all operation phases. Cleanup triggered by an existing
 run failure cancels outstanding commands with that failure as its cause, rather
 than manufacturing an interruption classification.
+On successful execution, the context supplied to adapter `Start` remains active
+through `Stop`; only an existing run failure cancels it before cleanup begins.
 
 Committed worker evidence retains its nil worker error even when cancellation
 wins the operation. Collected worker and unstarted evidence is retained in
