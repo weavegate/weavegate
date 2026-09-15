@@ -104,13 +104,19 @@ stays stopped at that event while cleanup still collects worker facts. Outstandi
 commands receive that run failure as their cleanup cancellation cause, avoiding a
 spurious caller-interruption classification.
 
+The Go-native adapter observes that parent directly under the worker ordering
+lock before publishing an unknown-outcome or completed-transaction cleanup
+fault. Its fault retains the run cause and cleanup error while masking a generic
+`context.Canceled` used only to wake the accepted command.
+
 ## Errors and verdicts
 
 Worker errors remain evidence for the oracles. Unstarted, protocol, execution,
 evaluation, session, operation-context, and Stop errors fail Run; independent
 causes are joined rather than masked. Collection errors are ordered by scenario
-worker order. `errors.Is` and `errors.As` retain the underlying causes and typed
-session/unstarted errors. Internal cancellation used to wake runtime waiters
+worker order, ahead of operation cancellation even when the parent cancellation
+reaches execution first. `errors.Is` and `errors.As` retain the underlying causes
+and typed session/unstarted errors. Internal cancellation used to wake runtime waiters
 reports its actual cause instead of introducing an unrelated operation-canceled
 error. Only oracles judge invariants; the coordinator does not create violations.
 

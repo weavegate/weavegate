@@ -213,7 +213,7 @@ func (a *adapter) startWorker(
 	conn, err := db.Conn(workerCtx)
 	if err != nil {
 		cause := fmt.Errorf("acquire connection: %w", workerContextError(workerCtx, err))
-		if canceled := worker.finishUnstarted(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
+		if canceled := worker.finishWithoutOutcome(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, nil)
@@ -318,7 +318,7 @@ func (a *adapter) runWorker(
 			return
 		}
 		cause := workerContextError(ctx, commandResult.Err)
-		if canceled := worker.finishUnstarted(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
+		if canceled := worker.finishWithoutOutcome(parentCtx); canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
 		a.completeUnstartedWorker(worker, cause, closeErr)
@@ -330,8 +330,9 @@ func (a *adapter) runWorker(
 			worker.workerID,
 			worker.command,
 		)
+		canceled := worker.finishWithoutOutcome(parentCtx)
 		cause := errors.Join(fault, workerContextError(ctx, commandResult.Err))
-		if canceled := context.Cause(ctx); canceled != nil && !errors.Is(cause, canceled) {
+		if canceled != nil && !errors.Is(cause, canceled) {
 			cause = errors.Join(cause, canceled)
 		}
 		a.failSession(errors.Join(cause, closeErr))
@@ -346,7 +347,12 @@ func (a *adapter) runWorker(
 		Duration: time.Since(startedAt),
 	}
 	if closeErr != nil {
-		a.failSession(errors.Join(commandResult.Err, closeErr))
+		canceled := worker.finishWithoutOutcome(parentCtx)
+		cause := workerContextError(ctx, commandResult.Err)
+		if canceled != nil && !errors.Is(cause, canceled) {
+			cause = errors.Join(cause, canceled)
+		}
+		a.failSession(errors.Join(cause, closeErr))
 		a.completeWorker(worker, nil, closeErr)
 		return
 	}
@@ -448,10 +454,10 @@ func (w *activeWorker) requestStop() {
 	w.cancel(cause)
 }
 
-// finishUnstarted serializes parent cancellation with an unstarted completion.
-// A nil result means completion won while the parent was active; otherwise the
-// returned cause was already accepted by the worker.
-func (w *activeWorker) finishUnstarted(parentCtx context.Context) error {
+// finishWithoutOutcome serializes parent cancellation with a completion that
+// cannot publish an invocation outcome. A nil result means completion won while
+// the parent was active; otherwise the returned cause was accepted by the worker.
+func (w *activeWorker) finishWithoutOutcome(parentCtx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

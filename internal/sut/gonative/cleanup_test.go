@@ -528,6 +528,79 @@ func TestGoNativeMasksAcceptedCommandCancellationSentinel(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("unknown transaction observes parent directly", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		wantCause := errors.New("parent canceled before unknown outcome publication")
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		defer func() { _ = db.Close() }()
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		workerCtx, cancelWorker := context.WithCancelCause(context.WithoutCancel(parentCtx))
+		worker := &activeWorker{
+			workerID:  "worker",
+			command:   "command",
+			parentCtx: parentCtx,
+			cancel:    cancelWorker,
+			accepted:  true,
+			results:   make(chan sut.InvocationOutcome, 1),
+			done:      make(chan struct{}),
+		}
+		adapter.active[worker.workerID] = worker
+		conn, err := db.Conn(workerCtx)
+		if err != nil {
+			t.Fatalf("acquire test connection: %v", err)
+		}
+		command := func(context.Context, string, *sql.Conn) CommandResult {
+			cancelParent(wantCause)
+			return CommandResult{TransactionStarted: true, Err: context.Canceled}
+		}
+
+		adapter.runWorker(parentCtx, workerCtx, worker, command, conn)
+		if outcome, ok := <-worker.results; ok {
+			t.Fatalf("unknown transaction published outcome: %#v", outcome)
+		}
+		fault := adapter.Faults().Err()
+		if !errors.Is(fault, wantCause) || errors.Is(fault, context.Canceled) {
+			t.Fatalf("session fault = %v, want parent cause without cancellation sentinel", fault)
+		}
+	})
+
+	t.Run("completed transaction cleanup fault", func(t *testing.T) {
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		defer cancelParent(nil)
+		wantCause := errors.New("orchestration failure triggered cleanup")
+		adapter, db, connector, _ := newCleanupTestAdapter(t)
+		defer func() { _ = db.Close() }()
+		connector.connect = func(context.Context) (driver.Conn, error) {
+			return cleanupTestConn{}, nil
+		}
+		entered := make(chan struct{})
+		adapter.commands["command"] = func(ctx context.Context, _ string, conn *sql.Conn) CommandResult {
+			close(entered)
+			<-ctx.Done()
+			return CommandResult{
+				TransactionStarted:   true,
+				TransactionCompleted: true,
+				Err:                  errors.Join(ctx.Err(), conn.Close()),
+			}
+		}
+
+		stream, err := adapter.Invoke(parentCtx, "worker", "command")
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		cancelParent(wantCause)
+		if outcome, ok := <-stream; ok {
+			t.Fatalf("cleanup fault published outcome: %#v", outcome)
+		}
+		fault := adapter.Faults().Err()
+		if !errors.Is(fault, wantCause) || !errors.Is(fault, sql.ErrConnDone) || errors.Is(fault, context.Canceled) {
+			t.Fatalf("session fault = %v, want run and close causes without cancellation sentinel", fault)
+		}
+	})
 }
 
 func TestWorkerAcceptanceSerializesCancellation(t *testing.T) {

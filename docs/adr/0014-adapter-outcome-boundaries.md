@@ -122,6 +122,11 @@ order; already represented causes need not be duplicated. errors.Is/errors.As
 remain usable for all retained causes. No total priority discards another error.
 Worker errors remain evidence when any of these errors coexist.
 
+Scenario-ordered collector errors remain ahead of operation cancellation even
+when parent cancellation reaches the execution context before a collector
+failure. Finalization rebuilds the collector portion from retained evidence and
+then appends the independently observed operation context.
+
 ## Validation scope
 
 Barrier-driven Go tests cover faults before, during, and after evaluation,

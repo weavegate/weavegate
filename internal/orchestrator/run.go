@@ -232,7 +232,7 @@ func (o *Orchestrator) Run(
 	}
 	if err := coordinator.execute(); err != nil {
 		coordinator.rebuildCollectionErrors = solelyWrapsCollectorFailure(err) ||
-			(solelyWraps(err, executionCtx.Err()) && solelyWrapsCollectorFailure(context.Cause(executionCtx)))
+			solelyWraps(err, executionCtx.Err())
 		return result, fmt.Errorf("run schedule %q: %w", schedule.ID, executionError(executionCtx, err))
 	}
 

@@ -533,8 +533,105 @@ func TestOutcomeOrdersConcurrentCollectorErrorsByScenario(t *testing.T) {
 	assertNoProvisionalEvaluation(t, result)
 }
 
+func TestOutcomeOrdersCollectorErrorsBeforeParentCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	parentCause := errors.New("parent canceled before collectors finished")
+	streams := map[string]chan sut.InvocationOutcome{
+		"w1": make(chan sut.InvocationOutcome),
+		"w2": make(chan sut.InvocationOutcome),
+	}
+	runtime := &parentCancellationOrderingRuntime{
+		Runtime:         syncpoint.New(),
+		w2Waiting:       make(chan struct{}),
+		contextObserved: make(chan struct{}),
+		collectorsReady: make(chan struct{}),
+	}
+	producerDone := make(chan struct{})
+	a := &outcomeAdapter{}
+	a.invoke = func(_ context.Context, worker string) (<-chan sut.InvocationOutcome, error) {
+		if worker == "w2" {
+			go func() {
+				defer close(producerDone)
+				<-runtime.w2Waiting
+				cancel(parentCause)
+				<-runtime.contextObserved
+				streams["w2"] <- sut.InvocationOutcome{}
+				close(streams["w2"])
+				streams["w1"] <- sut.InvocationOutcome{}
+				close(streams["w1"])
+				close(runtime.collectorsReady)
+			}()
+		}
+		return streams[worker], nil
+	}
+	a.stop = func(context.Context) error {
+		<-producerDone
+		return nil
+	}
+	value := scenario.Scenario{
+		Name: "collector-parent-order",
+		Workers: []scenario.Worker{
+			{ID: "w1", Command: "command"},
+			{ID: "w2", Command: "command"},
+		},
+		SyncPoints: []string{"point"},
+	}
+	schedule, err := scenario.NewSchedule([]scenario.CoordinationStep{
+		{Worker: "w1", Point: "point"},
+		{Worker: "w2", Point: "point"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := newTestOrchestrator(t, Config{
+		Fixture: &recordingFixture{}, DB: &fixture.DB{},
+		NewRuntime:            func() syncpoint.Runtime { return runtime },
+		NewAdapter:            func(syncpoint.Client) sut.Adapter { return a },
+		BlockInferenceTimeout: time.Second,
+		StepTimeout:           time.Second,
+		RunTimeout:            3 * time.Second,
+		StopTimeout:           time.Second,
+	})
+
+	result, err := o.Run(ctx, value, schedule, stableEvaluator)
+	if !errors.Is(err, parentCause) {
+		t.Fatalf("parent cancellation cause lost: %v", err)
+	}
+	w1 := strings.Index(err.Error(), `worker "w1" must return exactly one outcome kind`)
+	w2 := strings.Index(err.Error(), `worker "w2" must return exactly one outcome kind`)
+	canceled := strings.Index(err.Error(), context.Canceled.Error())
+	if w1 < 0 || w2 < 0 || canceled < 0 || w1 > w2 || w2 > canceled {
+		t.Fatalf("error order = %v, want w1, w2, then operation cancellation", err)
+	}
+	assertNoProvisionalEvaluation(t, result)
+}
+
 type collectorOrderingRuntime struct {
 	syncpoint.Runtime
+}
+
+type parentCancellationOrderingRuntime struct {
+	syncpoint.Runtime
+	w2Waiting       chan struct{}
+	contextObserved chan struct{}
+	collectorsReady chan struct{}
+}
+
+func (r *parentCancellationOrderingRuntime) WaitArrive(
+	ctx context.Context,
+	worker string,
+	_ string,
+	_ time.Duration,
+) (syncpoint.ArriveStatus, error) {
+	if worker == "w1" {
+		return syncpoint.ArriveStatusTimeout, nil
+	}
+	close(r.w2Waiting)
+	<-ctx.Done()
+	close(r.contextObserved)
+	<-r.collectorsReady
+	return syncpoint.ArriveStatusUnknown, ctx.Err()
 }
 
 func (r *collectorOrderingRuntime) WaitArrive(
