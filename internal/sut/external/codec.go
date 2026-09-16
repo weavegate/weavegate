@@ -323,7 +323,7 @@ func validBody(kind string, b map[string]any) bool {
 		if tx != "committed" && tx != "rolled_back" && tx != "not_started" {
 			return false
 		}
-		if conn != "returned" && !(conn == "not_acquired" && tx == "not_started") {
+		if conn != "returned" && (conn != "not_acquired" || tx != "not_started") {
 			return false
 		}
 		if b["error"] == nil {

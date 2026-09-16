@@ -75,7 +75,7 @@ func (a *adapter) cleanup() {
 			a.mu.Unlock()
 			if p != nil {
 				p.closePipes()
-				p.kill()
+				_ = p.kill() // Reaping is observed separately; a failed kill never proves cleanup.
 			}
 		}()
 		return
@@ -140,7 +140,7 @@ func (a *adapter) cleanup() {
 	a.writerCancel()
 	a.mu.Unlock()
 	if !normal {
-		p.kill()
+		_ = p.kill() // Reaping is observed separately; a failed kill never proves cleanup.
 	}
 	p.closePipes()
 	for _, ch := range append([]<-chan struct{}{a.readDone, a.writeDone, a.stderrDone, a.exitDone}, workers...) {

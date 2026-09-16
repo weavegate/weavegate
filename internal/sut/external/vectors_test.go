@@ -113,7 +113,8 @@ func (h *vectorHarness) step(t *testing.T, row string, index int, s vectorStep) 
 	beforeCalls := h.callCount
 	var f frame
 	var id string
-	if s.Action == "receive" {
+	switch s.Action {
+	case "receive":
 		var err error
 		f, err = decodeFrame(s.Frame)
 		if err != nil {
@@ -122,7 +123,7 @@ func (h *vectorHarness) step(t *testing.T, row string, index int, s vectorStep) 
 		id = str(f.Body["invocation"])
 		h.p.sendFrame(f)
 		reportCheck(t, row, base+"/receive/"+f.Type, "internal/sut/external/vectors_test.go:vectorHarness.step")
-	} else if s.Action == "local" {
+	case "local":
 		args := map[string]any{}
 		if err := json.Unmarshal(s.Args, &args); err != nil {
 			t.Fatal(err)
@@ -168,7 +169,7 @@ func (h *vectorHarness) step(t *testing.T, row string, index int, s vectorStep) 
 			}
 			<-call.returned
 		case "cancel_context":
-			if !fields(args, "invocation") && !(fields(args, "invocation scope") && args["scope"] == "invocation") {
+			if !fields(args, "invocation") && (!fields(args, "invocation scope") || args["scope"] != "invocation") {
 				t.Fatal("unsupported cancellation scope")
 			}
 			id = str(args["invocation"])
@@ -181,7 +182,7 @@ func (h *vectorHarness) step(t *testing.T, row string, index int, s vectorStep) 
 			t.Fatalf("unhandled local event: %s", s.Event)
 		}
 		reportCheck(t, row, base+"/local/"+s.Event, "internal/sut/external/vectors_test.go:vectorHarness.step")
-	} else {
+	default:
 		t.Fatal("unknown target action")
 	}
 	synctest.Wait()

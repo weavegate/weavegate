@@ -24,28 +24,28 @@ func launchJVM(java, jar string) (*child, error) {
 	}
 	outR, outW, err := os.Pipe()
 	if err != nil {
-		inR.Close()
-		inW.Close()
+		_ = inR.Close()
+		_ = inW.Close()
 		return nil, errTransport
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
-		inR.Close()
-		inW.Close()
-		outR.Close()
-		outW.Close()
+		_ = inR.Close()
+		_ = inW.Close()
+		_ = outR.Close()
+		_ = outW.Close()
 		return nil, errTransport
 	}
 	cmd := exec.Command(java, "-jar", jar)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = inR, outW, errW
 	err = cmd.Start()
-	inR.Close()
-	outW.Close()
-	errW.Close()
+	_ = inR.Close()
+	_ = outW.Close()
+	_ = errW.Close()
 	if err != nil {
-		inW.Close()
-		outR.Close()
-		errR.Close()
+		_ = inW.Close()
+		_ = outR.Close()
+		_ = errR.Close()
 		return nil, errTransport
 	}
 	// Explicit pipes, rather than StdoutPipe, let the reader drain buffered
@@ -53,10 +53,12 @@ func launchJVM(java, jar string) (*child, error) {
 	return &child{stdin: inW, stdout: outR, stderr: errR, wait: cmd.Wait, kill: cmd.Process.Kill}, nil
 }
 
+// Closing owned pipes is idempotent best-effort teardown; EOF, process Wait and
+// bridge joins, rather than Close return values, certify normal shutdown.
 func (p *child) closePipes() {
-	p.stdin.Close()
-	p.stdout.Close()
-	p.stderr.Close()
+	_ = p.stdin.Close()
+	_ = p.stdout.Close()
+	_ = p.stderr.Close()
 }
 
 // tail is never exported, formatted, or persisted. Keeping a bounded private

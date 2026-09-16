@@ -14,6 +14,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -199,7 +200,9 @@ func (a *adapter) start(ctx context.Context, body map[string]any) (sut.Handle, e
 		go a.writeLoop(writerCtx)
 		go a.readLoop()
 		go a.watchExit()
-		go func() { io.Copy(&a.logs, p.stderr); close(a.stderrDone) }()
+		// Log read errors cannot authorize protocol completion; stdout and Wait
+		// remain authoritative. Never publish raw stderr errors.
+		go func() { _, _ = io.Copy(&a.logs, p.stderr); close(a.stderrDone) }()
 		if !a.stopping {
 			a.enqueueLocked("start", body, nil)
 		}
@@ -362,7 +365,7 @@ func (a *adapter) failLocked(cause error, kind string, send bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), a.opts.StopTimeout)
 		defer cancel()
-		a.Stop(ctx)
+		_ = a.Stop(ctx) // The original fault and shared Stop result remain latched.
 	}()
 }
 
@@ -602,8 +605,10 @@ func (a *adapter) receiveLocked(f frame) bool {
 		if w.reason != "" {
 			return true
 		}
-		n := 0
-		fmt.Sscan(str(b["arrival"]), &n)
+		n, err := strconv.Atoi(str(b["arrival"]))
+		if err != nil {
+			return false
+		}
 		if w.outstanding || n != w.arrival+1 {
 			return false
 		}
@@ -653,7 +658,7 @@ func (a *adapter) bridge(w *invocation, body map[string]any) {
 	if w.parent.Err() != nil {
 		a.cancelLocked(w, "context")
 	}
-	if err != nil && !(w.ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))) {
+	if err != nil && (w.ctx.Err() == nil || (!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded))) {
 		a.rejectLocked("runtime arrival failed", "protocol")
 	} else if err == nil && w.reason == "" && a.faults.Err() == nil && !w.retired {
 		a.enqueueLocked("release", body, nil)
@@ -691,7 +696,13 @@ func terminalError(w *invocation) error {
 	}
 	switch e["kind"] {
 	case "mysql":
-		err := &mysql.MySQLError{Number: uint16(number(e["mysql_code"])), Message: "external SUT database command failed"}
+		code := number(e["mysql_code"])
+		// The codec already enforces the wire range. Keep the narrowing
+		// conversion locally bounded too, independent of that call path.
+		if code < 1 || code > 65535 {
+			return errProtocol
+		}
+		err := &mysql.MySQLError{Number: uint16(code), Message: "external SUT database command failed"}
 		copy(err.SQLState[:], str(e["sql_state"]))
 		return err
 	case "cancelled":

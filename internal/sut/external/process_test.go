@@ -35,7 +35,9 @@ func runChild(mode string) int {
 		return 2
 	}
 	if mode == "broken_writer" {
-		os.Stdin.Close()
+		if err := os.Stdin.Close(); err != nil {
+			return 13
+		}
 	}
 	seq := 0
 	send := func(kind string, body map[string]any) bool {
@@ -96,9 +98,9 @@ func blockChild() {
 	if err != nil {
 		os.Exit(12)
 	}
-	defer r.Close()
-	defer w.Close()
-	io.Copy(io.Discard, r)
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+	_, _ = io.Copy(io.Discard, r)
 }
 
 func TestOwnedChildRealPipes(t *testing.T) {
@@ -131,7 +133,7 @@ func TestOwnedChildRealPipes(t *testing.T) {
 			t.Cleanup(func() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
-				a.Stop(ctx)
+				_ = a.Stop(ctx)
 			})
 			body := startBody()
 			body["capacity"] = opts.Capacity

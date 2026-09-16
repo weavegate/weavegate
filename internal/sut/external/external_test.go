@@ -80,13 +80,13 @@ func newPeer(t *testing.T) *peer {
 		p.exit(nil)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		a.Stop(ctx)
+		_ = a.Stop(ctx)
 	})
 	return p
 }
 
 func (p *peer) exit(err error) {
-	p.exitOnce.Do(func() { p.output.Close(); p.stderr.Close(); p.input.Close(); p.exitCh <- err })
+	p.exitOnce.Do(func() { _ = p.output.Close(); _ = p.stderr.Close(); _ = p.input.Close(); p.exitCh <- err })
 }
 
 func startBody() map[string]any {
