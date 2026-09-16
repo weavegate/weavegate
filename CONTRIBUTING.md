@@ -64,6 +64,7 @@ check only; it is not an engine or adapter dependency):
 ```bash
 python3 scripts/check-external-sut-vectors.py
 python3 scripts/check-external-sut-vectors.py --self-test
+python3 scripts/test-external-sut-acceptance.py
 ```
 
 These commands check constructed data and the declared role/lifecycle coverage,
@@ -71,6 +72,11 @@ not a running Go/Java protocol implementation. The smoke docs job runs them and
 checks their fixed result markers. See the
 [conformance plan](docs/reference/external-sut-conformance.md) for scope, input/output
 rules, and the implementation evidence still required.
+The acceptance-accounting test verifies the pinned revision in local Git history;
+use a full-history checkout for that check. It tests manifest completeness and
+evidence references, not an external adapter. See the
+[acceptance manifest contract](docs/reference/external-sut-acceptance.md) for
+per-target inventories and the separate `--require-complete` implementation gate.
 
 ## Determinism and evidence rules
 

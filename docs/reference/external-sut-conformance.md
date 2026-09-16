@@ -135,6 +135,10 @@ A language implementation must report each case ID targeting that language and
 its result. Cases targeting only the other language are not applicable, not
 passes. A missing implementation for an applicable case remains failing/incomplete
 acceptance work, not silently skipped coverage.
+The [acceptance manifest contract](external-sut-acceptance.md) pins the reviewed
+vector bytes, enumerates target-side checks and output observations, and records
+Go, Java and paired results separately. The checked-in manifests are incomplete;
+the accounting checker does not execute these histories.
 The repository guard validates the constructed data and declared coverage; executing
 protocol semantics and publishing evidence markers belongs to the implementation
 issues. When those tests add fixed-phrase markers, add their exact CI checks in
