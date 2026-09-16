@@ -24,6 +24,7 @@ Use these pages when you need the exact CLI, configuration, artifact, or diagnos
 - [Adapter outcomes](reference/adapter-outcomes.md) — Invocation streams, session faults, cancellation boundaries, and reproducible Go evidence.
 - [External SUT wire v1 (proposed)](reference/external-sut-v1.md) — Review the planned child-process protocol; external adapters are not implemented.
 - [External SUT conformance (proposed)](reference/external-sut-conformance.md) — Share protocol vectors, lifecycle sequences, and implementation acceptance checks.
+- [External SUT acceptance accounting](reference/external-sut-acceptance.md) — Pin shared vectors and account for per-target handlers, results, and missing runtime evidence.
 - [WG001](reference/diagnostics/WG001.md) — Understand evidence for an invariant violation under a controlled schedule.
 - [WG090](reference/diagnostics/WG090.md) — Diagnose a determinism check that produced inconsistent normalized evidence.
 

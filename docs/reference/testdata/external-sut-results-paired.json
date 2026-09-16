@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "target": "paired",
+  "vector": {
+    "path": "docs/reference/testdata/external-sut-v1.json",
+    "revision": "ee6b037255a499bedf7f88971a448bd343151dee",
+    "sha256": "06d29218799be40013e09920d3d6075fe234ac7021950a89138119231143edd4"
+  },
+  "run": null,
+  "results": {
+    "requirement/paired-live-peers": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/paired-mysql-replay": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}}
+  }
+}

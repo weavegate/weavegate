@@ -289,6 +289,8 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Verify the conformance pin against its reviewed commit.
 
       - name: Check the diagnostic namespace
         run: |
@@ -391,6 +393,20 @@ jobs:
           done
           python3 scripts/check-external-sut-vectors.py | tee /tmp/external-sut-vectors.out
           grep -qF 'EXTERNAL_SUT_VECTOR_RESULT structure=valid scope=explicit coverage=present runtime=not_executed' /tmp/external-sut-vectors.out
+
+      - name: Check external SUT acceptance accounting
+        run: |
+          python3 scripts/test-external-sut-acceptance.py | tee /tmp/external-sut-accounting.out
+          grep -qF 'EXTERNAL_SUT_ACCOUNTING_TEST_RESULT omissions=rejected evidence=required runtime=not_executed' /tmp/external-sut-accounting.out
+          for target in go java paired; do
+            manifest="docs/reference/testdata/external-sut-results-${target}.json"
+            python3 scripts/check-external-sut-acceptance.py --results "$manifest" | tee "/tmp/external-sut-${target}.out"
+            grep -qF "EXTERNAL_SUT_ACCEPTANCE_RESULT target=${target} manifest=valid acceptance=incomplete pass=0" "/tmp/external-sut-${target}.out"
+            if python3 scripts/check-external-sut-acceptance.py --results "$manifest" --require-complete; then
+              echo "unexecuted ${target} manifest unexpectedly passed acceptance" >&2
+              exit 1
+            fi
+          done
 
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@v24
