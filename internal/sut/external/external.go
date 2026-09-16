@@ -217,7 +217,7 @@ func (a *adapter) start(ctx context.Context, body map[string]any) (sut.Handle, e
 	select {
 	case <-a.readyDone:
 		a.mu.Lock()
-		ok := a.ready && !a.stopping && a.faults.Err() == nil && ctx.Err() == nil
+		ok := a.ready && !a.stopping && a.faults.Err() == nil && ctx.Err() == nil && a.now().Before(a.startDeadline)
 		a.mu.Unlock()
 		if ok {
 			return a, nil
@@ -379,15 +379,37 @@ func (a *adapter) rejectLocked(message, kind string) bool {
 
 func (a *adapter) writeLoop(ctx context.Context) {
 	defer close(a.writeDone)
+	defer func() {
+		// Startup may be canceled before its queued frame reaches the writer.
+		// Release credentials in abandoned control messages on every exit path.
+		for {
+			select {
+			case out := <-a.queue:
+				if out.frame.Type == "start" {
+					clear(out.frame.Body)
+				}
+			default:
+				return
+			}
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case out := <-a.queue:
+			if out.frame.Type == "start" {
+				// Also covers an exhausted budget or Stop winning before the write.
+				defer clear(out.frame.Body)
+			}
 			if a.beforeWrite != nil {
 				a.beforeWrite(out.frame.Type)
 			}
 			a.mu.Lock()
+			if ctx.Err() != nil || (out.frame.Type == "start" && a.stopping) {
+				a.mu.Unlock()
+				return
+			}
 			if out.frame.Type == "start" || out.frame.Type == "stop" {
 				deadline, field := a.startDeadline, "startup_ms"
 				if out.frame.Type == "stop" {

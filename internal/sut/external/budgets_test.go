@@ -168,3 +168,39 @@ func TestAcceptedBeforeInvokeWriteIsRejected(t *testing.T) {
 	})
 	reportCheck(t, "requirement/invoke-dispatch-receipt", "observe/evidence", "internal/sut/external/budgets_test.go:TestAcceptedBeforeInvokeWriteIsRejected")
 }
+
+func TestStopBeforeQueuedStartDropsCredentials(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newPeer(t)
+		held, resume := make(chan struct{}), make(chan struct{})
+		p.a.beforeWrite = func(kind string) {
+			if kind == "start" {
+				close(held)
+				<-resume
+			}
+		}
+		body := startBody()
+		started := make(chan error, 1)
+		go func() { _, err := p.a.start(context.Background(), body); started <- err }()
+		<-held
+		stopped := make(chan error, 1)
+		go func() { stopped <- p.a.Stop(context.Background()) }()
+		synctest.Wait()
+		close(resume)
+		if err := <-stopped; err == nil {
+			t.Fatal("uninitialized cleanup reported normal Stop")
+		}
+		if err := <-started; err == nil {
+			t.Fatal("Start returned a handle")
+		}
+		if len(body) != 0 {
+			t.Fatal("abandoned start retained credentials")
+		}
+		p.a.mu.Lock()
+		sent := p.a.startSent
+		p.a.mu.Unlock()
+		if sent {
+			t.Fatal("Stop allowed queued startup to initialize the peer")
+		}
+	})
+}
