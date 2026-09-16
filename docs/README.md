@@ -22,7 +22,8 @@ Use these pages when you need the exact CLI, configuration, artifact, or diagnos
 - [Fixture application connection descriptor](reference/fixture-connection.md) — Consume the prepared database's application endpoint without leaking its ephemeral credential.
 - [Report schema](reference/report-schema.md) — Consume run artifacts without guessing their fields or stability guarantees.
 - [Adapter outcomes](reference/adapter-outcomes.md) — Invocation streams, session faults, cancellation boundaries, and reproducible Go evidence.
-- [External SUT wire v1 (proposed)](reference/external-sut-v1.md) — Review the planned child-process protocol; external adapters are not implemented.
+- [External SUT wire v1 (proposed)](reference/external-sut-v1.md) — Review the child-process protocol; external CLI execution is not enabled.
+- [Go external SUT adapter (in development)](reference/external-sut-go.md) — Inspect the Go peer, executable evidence, and remaining acceptance before enablement.
 - [External SUT conformance (proposed)](reference/external-sut-conformance.md) — Share protocol vectors, lifecycle sequences, and implementation acceptance checks.
 - [External SUT acceptance accounting](reference/external-sut-acceptance.md) — Pin shared vectors and account for per-target handlers, results, and missing runtime evidence.
 - [WG001](reference/diagnostics/WG001.md) — Understand evidence for an invariant violation under a controlled schedule.

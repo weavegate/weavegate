@@ -1,8 +1,10 @@
 # External SUT wire contract v1 (proposed)
 
 This is planned v0.2.0 work from [ADR 0010](../adr/0010-external-sut-protocol.md),
-not an available adapter or configuration format. Normative words describe what
-future implementations must do. Artifact versions and wire versions are
+not an available CLI adapter or configuration format. The
+[Go peer is in development](external-sut-go.md); its complete acceptance gate
+has not passed. Normative words describe what conforming implementations must
+do. Artifact versions and wire versions are
 independent. [Shared conformance cases](external-sut-conformance.md) accompany
 this contract.
 

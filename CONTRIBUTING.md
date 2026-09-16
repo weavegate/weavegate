@@ -57,6 +57,20 @@ go test ./cmd/... -count=1          # Docker required
 go test ./cmd/... -short -count=1   # no Docker; skips the integration test
 ```
 
+Changes to the Go external peer also run its repeated, event-coordinated tests
+and evidence recorder checks (no Docker required):
+
+```bash
+go test ./internal/sut/external -v -count=20
+go test ./internal/sut/external -race -count=20
+python3 scripts/test-external-sut-go-results.py
+```
+
+The [Go adapter reference](docs/reference/external-sut-go.md) explains how to
+publish the generated acceptance manifest. Its missing observers remain
+incomplete; passing package tests does not complete the external implementation
+gate or authorize fixture reuse after uncertain cleanup.
+
 Changes to the proposed external SUT protocol or its shared vectors also run
 the standard-library Python 3.9+ guard (Python is needed for this maintainer/CI
 check only; it is not an engine or adapter dependency):
