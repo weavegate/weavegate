@@ -98,9 +98,14 @@ go test ./internal/sut/external -race -count=20
 python3 scripts/test-external-sut-go-results.py
 ```
 
-The recorder requires each emitted observer check once per repetition. Missing
-checks stay incomplete; unknown check IDs, changed handlers, failed logs and
-incorrect repetition counts are rejected. Existing checked-in result templates
+The recorder assigns observer checks to individual top-level test executions
+using verbose Go test RUN/PASS boundaries. Each check must occur exactly once
+in every repetition of the same test; offsetting omissions and duplicates
+cannot satisfy the count. Parallel test logs are rejected. Handler references
+must name an existing function or receiver method in the referenced Go source;
+comments and string literals do not count as declarations. Missing checks stay
+incomplete; unknown check IDs, changed handlers, failed logs and incorrect
+repetition counts are rejected. Existing checked-in result templates
 remain unchanged. The manifest and referenced log are review evidence, not an
 automatic proof that an observer establishes every claimed effect.
 
