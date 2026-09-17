@@ -32,6 +32,7 @@ class RealPipesTest {
         final Process process;
         final OutputStream stdin;
         final BlockingQueue<Object> frames = new LinkedBlockingQueue<>();
+        volatile boolean killed;
         int seq;
 
         Child(String scenario, boolean readStdout) throws IOException {
@@ -39,6 +40,21 @@ class RealPipesTest {
             process = new ProcessBuilder(java, "-cp", System.getProperty("java.class.path"), PipeChild.class.getName(), scenario)
                     .redirectError(ProcessBuilder.Redirect.DISCARD).start();
             stdin = process.getOutputStream();
+            // Detection bound for parent-side blocking reads and writes: killing the child turns
+            // a hang into EOF or a broken pipe and fails the test instead of stalling the build.
+            Process owned = process;
+            Thread bound = new Thread(() -> {
+                try {
+                    if (!owned.waitFor(2 * BOUND_SECONDS, TimeUnit.SECONDS)) {
+                        killed = true;
+                        owned.destroyForcibly();
+                    }
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "pipe-test-bound");
+            bound.setDaemon(true);
+            bound.start();
             if (readStdout) {
                 Thread reader = new Thread(() -> {
                     FrameReader frameReader = new FrameReader(process.getInputStream());
@@ -83,6 +99,7 @@ class RealPipesTest {
 
         int exit() throws InterruptedException {
             assertThat(process.waitFor(BOUND_SECONDS, TimeUnit.SECONDS)).as("child exited").isTrue();
+            assertThat(killed).as("child exited before the test bound").isFalse();
             return process.exitValue();
         }
 
