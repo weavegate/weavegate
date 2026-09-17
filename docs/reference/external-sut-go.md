@@ -42,6 +42,11 @@ classifier, including deadlock 1213 and ordinary lock-timeout error 1205.
 Cancellation preserves context error identity; a committed nil-error terminal
 stays successful even if the enclosing Run is canceled.
 
+A terminal validated before a session fault is still published after its bridge
+tasks unwind. The session and Stop remain failed; the known transaction outcome
+is retained as evidence. Terminals received after a fault are ignored, and
+invocations without a validated terminal close without an invented outcome.
+
 Peer error text is replaced by stable local summaries. This deliberately loses
 free-form application detail to keep SQL, JDBC URLs, and credentials out of
 public errors. The private stderr tail retains at most 1 MiB and is not exported

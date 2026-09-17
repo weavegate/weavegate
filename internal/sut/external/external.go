@@ -674,7 +674,10 @@ func (a *adapter) finishLocked(w *invocation) {
 	if w.retired {
 		return
 	}
-	if w.terminal != nil && a.faults.Err() == nil {
+	// receiveLocked stores only terminals validated before a session fault;
+	// readLoop ignores subsequent frames. Bridge unwinding delays publication,
+	// not the validity of that outcome. Preserve it without clearing the fault.
+	if w.terminal != nil {
 		err := terminalError(w)
 		if w.terminal["transaction"] == "not_started" {
 			w.results <- sut.InvocationOutcome{Unstarted: &sut.UnstartedResult{WorkerID: w.worker, Err: err}}

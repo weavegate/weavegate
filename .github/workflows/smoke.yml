@@ -448,6 +448,7 @@ jobs:
           grep -F 'EXTERNAL_SUT_BRIDGE_RESULT targeted=true reader=live incremented=true worker_reuse=isolated retired_terminal=no_effect rollback=error' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_CANCEL_RESULT cancel_wins=no_release release_wins=release_then_cancel reuse=fresh' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_DEATH_RESULT fault=transport outcome=absent bridge=unwound child=reaped stop=error' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_TERMINAL_FAULT_RESULT validated=preserved unknown=absent late_terminal=ignored publication=after_bridge stop=error' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_PROCESS_RESULT launch=owned pipes=real writer=bounded eof=supervised child=reaped stop=idempotent' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_RUN_RESULT late_fatal=invalidates late_death=invalidates committed_result=preserved cancellation=run_error fingerprints=stable' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_FRAMING_RESULT pin=ee6b037255a499bedf7f88971a448bd343151dee malformed=rejected control=independent' external-evidence/go.log
