@@ -575,7 +575,8 @@ final class Peer {
     synchronized void leaseAcquired(Invocation invocation) {
         openLeases++;
         if (invocation == null) {
-            if (phase == Phase.READY || phase == Phase.STOPPING) {
+            // Startup work, including the readiness probe, may race a pre-ready Stop.
+            if (startupDone && (phase == Phase.READY || phase == Phase.STOPPING)) {
                 fail("protocol", "database lease outside invocation", true);
             }
             return;
