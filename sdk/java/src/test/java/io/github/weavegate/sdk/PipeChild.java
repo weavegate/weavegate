@@ -1,0 +1,78 @@
+package io.github.weavegate.sdk;
+
+import java.util.List;
+import java.util.concurrent.locks.LockSupport;
+
+/**
+ * Child JVM for real pipe tests. It uses the production bootstrap, writer,
+ * reader, clock, threads and halt; only the application host is scripted.
+ */
+public final class PipeChild {
+    private PipeChild() {
+    }
+
+    public static void main(String[] args) {
+        Host host = new Host(args[0]);
+        WeavegateChild.serve(host, peer -> host.peer = peer);
+    }
+
+    static final class Host implements Seams.Host {
+        private final String scenario;
+        volatile Peer peer;
+
+        Host(String scenario) {
+            this.scenario = scenario;
+        }
+
+        @Override
+        public void initialize(Seams.Start start) {
+            if (scenario.equals("hang_startup")) {
+                parkForever();
+            }
+        }
+
+        @Override
+        public void validateRegistration(List<String> commands, List<String> points) {
+        }
+
+        @Override
+        public void probeDatabase() {
+        }
+
+        @Override
+        public void cancelStartup() {
+        }
+
+        @Override
+        public void execute(CommandContext context) {
+            Peer.Invocation invocation = Peer.current();
+            peer.leaseAcquired(invocation);
+            peer.transactionBegun(invocation);
+            try {
+                Weavegate.syncPoint("after_read");
+            } catch (WeavegateCancelledException e) {
+                if (scenario.equals("hang_cleanup")) {
+                    parkForever();
+                }
+                peer.transactionCompleted(invocation, Peer.Transaction.ROLLED_BACK);
+                peer.leaseReturned(invocation);
+                throw e;
+            }
+            peer.transactionCompleted(invocation, Peer.Transaction.COMMITTED);
+            peer.leaseReturned(invocation);
+        }
+
+        @Override
+        public void close() {
+            if (scenario.equals("hang_shutdown")) {
+                parkForever();
+            }
+        }
+
+        private static void parkForever() {
+            while (true) {
+                LockSupport.park();
+            }
+        }
+    }
+}
