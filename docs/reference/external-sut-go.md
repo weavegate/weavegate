@@ -17,7 +17,9 @@ build a JAR, accept shell commands, attach to a process, or provision a database
 The selected child must not spawn descendants.
 
 `Start` consumes the fixture's [application descriptor](fixture-connection.md).
-The password travels only in the private start frame. The reader validates
+The password travels only in the private start frame. Start rejects invalid
+UTF-8 in configuration and database strings before JSON encoding or launch,
+so encoding cannot silently replace their bytes. The reader validates
 registration equality before returning a handle. Wire decoding rejects unknown
 fields, duplicate keys, invalid Unicode, unsupported versions, malformed
 identities, and invalid state transitions. Foreign sessions do not advance the
@@ -55,9 +57,14 @@ fingerprints. The real orchestrator tests verify identical fingerprints across
 fresh sessions and invalidate provisional evaluation after a late fatal or death.
 
 Startup computes the remaining whole-millisecond budget immediately before
-writing start. Stop establishes one absolute deadline and reserves its second
+writing start. Expiry of the original startup deadline latches a session fault
+and best-effort sends startup fatal; a later stopped cannot restore normal
+cleanup. Explicit Start cancellation or Stop before readiness still permits
+normal cleanup. Stop establishes one absolute deadline and reserves its second
 half for termination/reaping; the stop frame carries only the remaining graceful
-budget. Exhausted submillisecond budgets produce no frame. Normal Stop requires
+budget. Exhausted submillisecond budgets produce no frame. A stopped received
+during the stop write waits for successful delivery before taking effect; a
+failed or stalled write cannot establish normal cleanup. Normal Stop requires
 stopped, stdout EOF, exit zero, closed invocation streams, unwound bridges, and
 no session fault. Concurrent callers share that outcome; an earlier caller
 deadline can return an error without restarting or extending shared cleanup.

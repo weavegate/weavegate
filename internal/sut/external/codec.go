@@ -89,6 +89,35 @@ func writeFrame(w io.Writer, f frame) error {
 	return nil
 }
 
+// JSON marshaling replaces invalid Go UTF-8 with U+FFFD. Validate strings in
+// our outbound body types before marshaling, so decoding cannot hide a change
+// to configuration or credentials. Schema validation still follows encoding.
+func validOutboundUTF8(v any) bool {
+	switch v := v.(type) {
+	case string:
+		return utf8.ValidString(v)
+	case map[string]any:
+		for key, value := range v {
+			if !utf8.ValidString(key) || !validOutboundUTF8(value) {
+				return false
+			}
+		}
+	case map[string]string:
+		for key, value := range v {
+			if !utf8.ValidString(key) || !utf8.ValidString(value) {
+				return false
+			}
+		}
+	case []string:
+		for _, value := range v {
+			if !utf8.ValidString(value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func decodeFrame(raw []byte) (frame, error) {
 	if !utf8.Valid(raw) || !validEscapes(raw) {
 		return frame{}, errProtocol

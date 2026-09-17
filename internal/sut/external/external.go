@@ -82,6 +82,7 @@ type adapter struct {
 	launchDone, readyDone, readDone, writeDone, stderrDone, exitDone chan struct{}
 	stopDone                                                         chan struct{}
 	startDelivered                                                   chan struct{}
+	stopDelivered                                                    chan struct{}
 	stopErr, exitErr                                                 error
 	eof                                                              bool
 	queue                                                            chan outbound
@@ -125,7 +126,7 @@ func New(opts Options, client syncpoint.Client) (sut.Adapter, error) {
 	return &adapter{opts: opts, client: client, launch: launchJVM, id: randomID, now: time.Now,
 		launchDone: make(chan struct{}), readyDone: make(chan struct{}), readDone: make(chan struct{}),
 		writeDone: make(chan struct{}), stderrDone: make(chan struct{}), exitDone: make(chan struct{}),
-		stopDone: make(chan struct{}), startDelivered: make(chan struct{}), queue: make(chan outbound, 2048),
+		stopDone: make(chan struct{}), startDelivered: make(chan struct{}), stopDelivered: make(chan struct{}), queue: make(chan outbound, 2048),
 		digests: map[int][32]byte{}, invocations: map[string]*invocation{}, workers: map[string]*invocation{},
 	}, nil
 }
@@ -175,6 +176,9 @@ func (a *adapter) start(ctx context.Context, body map[string]any) (sut.Handle, e
 		a.startDeadline = deadline
 	}
 	run, session, err := a.identities()
+	if err == nil && !validOutboundUTF8(body) {
+		err = errProtocol
+	}
 	if err == nil {
 		a.run, a.session = run, session
 		raw, marshalErr := json.Marshal(frame{V: 1, Type: "start", Run: run, Session: session, Seq: 1, Body: body})
@@ -230,6 +234,14 @@ func (a *adapter) start(ctx context.Context, body map[string]any) (sut.Handle, e
 	case <-ctx.Done():
 	case <-timer.C:
 	}
+	a.mu.Lock()
+	if ctx.Err() != context.Canceled && !a.stopping && !a.now().Before(a.startDeadline) {
+		// An exhausted startup deadline is a session failure, even if the
+		// peer later claims normal cleanup. Explicit cancellation/Stop still
+		// permits the pre-ready stopped path.
+		a.failLocked(context.DeadlineExceeded, "startup", true)
+	}
+	a.mu.Unlock()
 	err = ctx.Err()
 	if err == nil {
 		if f := a.faults.Err(); f != nil {
@@ -450,6 +462,9 @@ func (a *adapter) writeLoop(ctx context.Context) {
 			if out.frame.Type == "start" {
 				close(a.startDelivered)
 			}
+			if out.frame.Type == "stop" {
+				close(a.stopDelivered)
+			}
 			a.mu.Unlock()
 			if err != nil {
 				return
@@ -507,6 +522,14 @@ func (a *adapter) readLoop() {
 			a.mu.Unlock()
 			select {
 			case <-a.startDelivered:
+			case <-a.faults.Done():
+			}
+			a.mu.Lock()
+		}
+		if f.Type == "stopped" && a.stopSent {
+			a.mu.Unlock()
+			select {
+			case <-a.stopDelivered:
 			case <-a.faults.Done():
 			}
 			a.mu.Lock()
