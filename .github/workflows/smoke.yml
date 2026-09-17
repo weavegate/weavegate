@@ -422,6 +422,59 @@ jobs:
             './**/*.md'
           fail: true
 
+  external-adapter:
+    if: github.event_name != 'schedule'
+    name: external Go peer (partial acceptance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Repeat external adapter tests
+        run: |
+          mkdir -p external-evidence
+          go test ./internal/sut/external -v -count=20 | tee external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_BRIDGE_RESULT targeted=true reader=live incremented=true worker_reuse=isolated retired_terminal=no_effect rollback=error' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_CANCEL_RESULT cancel_wins=no_release release_wins=release_then_cancel reuse=fresh' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_DEATH_RESULT fault=transport outcome=absent bridge=unwound child=reaped stop=error' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_TERMINAL_FAULT_RESULT validated=preserved unknown=absent late_terminal=ignored publication=after_bridge stop=error' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_PROCESS_RESULT launch=owned pipes=real writer=bounded eof=supervised child=reaped stop=idempotent' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_RUN_RESULT late_fatal=invalidates late_death=invalidates committed_result=preserved cancellation=run_error fingerprints=stable' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_FRAMING_RESULT pin=ee6b037255a499bedf7f88971a448bd343151dee malformed=rejected control=independent' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_VECTOR_SUBSET_RESULT cases=11 dispatch=closed assertions=observed acceptance=incomplete' external-evidence/go.log
+
+      - name: Repeat external adapter race tests
+        run: go test ./internal/sut/external -race -count=20 | tee external-evidence/race.log
+
+      - name: Record observed checks without completing missing acceptance
+        run: |
+          python3 scripts/test-external-sut-go-results.py | tee external-evidence/accounting.log
+          grep -F 'EXTERNAL_SUT_GO_RECORD_TEST_RESULT missing=incomplete unknown=rejected repetitions=checked failures=rejected' external-evidence/accounting.log
+          python3 scripts/record-external-sut-go-results.py \
+            --log external-evidence/go.log --output external-evidence/go.json \
+            --revision "$GITHUB_SHA" \
+            --command 'go test ./internal/sut/external -v -count=20' \
+            --go-version "$(go version)"
+          python3 scripts/check-external-sut-acceptance.py --results external-evidence/go.json
+
+      - name: Upload external adapter evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-go-evidence
+          path: external-evidence/
+
   external-links:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: external links
@@ -473,5 +526,5 @@ jobs:
           go test \
             ./internal/ci/... ./internal/config/... ./internal/diagnostic/... ./internal/oracle \
             ./internal/orchestrator/... ./internal/report/... ./internal/scenario/... \
-            ./internal/sut ./internal/syncpoint/... ./internal/trace/... ./rules/... -count=1
+            ./internal/sut ./internal/sut/external ./internal/syncpoint/... ./internal/trace/... ./rules/... -count=1
           printf 'TOOLCHAIN_RESULT go=%s scope=non-container build=ok\n' "$(go env GOVERSION)"

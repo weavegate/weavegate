@@ -1,6 +1,6 @@
 # ADR 0010: External SUT protocol and Spring transaction lifecycle
 
-- Status: Proposed — design for v0.2.0; no external adapter is implemented
+- Status: Proposed — Go peer in development; external CLI execution is not enabled
 - Date: 2026-09-08
 - Issue: [#107](https://github.com/weavegate/weavegate/issues/107)
 - Inspected baseline: `078474f94cad6d1c1ffde0d44fada6853f769a97`
