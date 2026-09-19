@@ -94,9 +94,9 @@ leave their checks absent and the case incomplete.
 - `command`: the exact repeated command that produced the evidence.
 - `repetitions`: an integer of at least 20. Go commands must contain matching
   `-count=N`; use `-count=20` for initial acceptance.
-- `repetition_method`: how that command repeats tests. Java records its actual
-  explicit equivalent, such as the eventual build runner's repeat option;
-  no Java command is claimed to exist yet.
+- `repetition_method`: how that command repeats tests. The Java recorder requires
+  a command with matching `-Dweavegate.repetitions=N`, which generates one JUnit
+  execution per repetition; see the [Java peer](external-sut-java.md).
 - `versions`: nonempty version strings. Go requires `go`; Java requires `java`,
   `spring`, `transaction_manager`, `jdbc_driver`, `pool` and `build_tool`; paired
   requires those Java entries plus `go` and `mysql`.

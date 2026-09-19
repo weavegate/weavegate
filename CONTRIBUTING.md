@@ -92,6 +92,19 @@ evidence references, not an external adapter. See the
 [acceptance manifest contract](docs/reference/external-sut-acceptance.md) for
 per-target inventories and the separate `--require-complete` implementation gate.
 
+Changes to the Java Spring peer in `sdk/java` run its checksum-pinned Maven
+wrapper with Java 21. Docker is required for its MySQL and child-process tests.
+The recorder test needs only Python:
+
+```bash
+(cd sdk/java && ./mvnw -B verify)
+(cd sdk/java && ./mvnw -B verify -Dweavegate.repetitions=20)  # acceptance evidence
+python3 scripts/test-external-sut-java-results.py
+```
+
+See the [Java peer reference](docs/reference/external-sut-java.md) for recording
+a result manifest from the repeated run.
+
 ## Determinism and evidence rules
 
 - A test that claims something about engine behavior must produce the same

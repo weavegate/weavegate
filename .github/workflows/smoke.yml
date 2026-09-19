@@ -475,6 +475,60 @@ jobs:
           name: external-go-evidence
           path: external-evidence/
 
+  external-java:
+    if: github.event_name != 'schedule'
+    name: external Java peer (partial acceptance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Repeat Java peer tests
+        working-directory: sdk/java
+        run: |
+          evidence="$GITHUB_WORKSPACE/external-java-evidence"
+          mkdir -p "$evidence"
+          ./mvnw -B verify -Dweavegate.repetitions=20 -Dweavegate.evidence="$evidence/java.log" | tee "$evidence/build.log"
+          grep -F 'EXTERNAL_SUT_JAVA_VECTOR_RESULT pin=ee6b037255a499bedf7f88971a448bd343151dee cases=28 framing=11 dispatch=closed assertions=observed' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_DISPATCH_RESULT events=closed arguments=closed assertions=closed injection=none' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_EXCEPTION_SHAPE_RESULT phases=3 unknown_phase=rejected injection=none' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_CANCEL_ORIGIN_RESULT context_then_stop=context stop_only=stop first_latched=retained' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_WIRE_MATRIX_RESULT coalesced=ordered invalid=fatal duplicates=consumed acceptance=incomplete' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_DISABLED_RESULT sync_point=immediate stdin=unread protocol_threads=none transaction=unchanged' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_SPRING_RESULT terminal=after_proxy_commit_close begin_failure=not_started rollback_only=rolled_back after_commit=committed_error unknown_commit=fatal unknown_rollback=fatal suppressed_close=fatal cancel=rolled_back jdbc_cancel=requested' "$evidence/java.log"
+          grep -F 'EXTERNAL_SUT_JAVA_PROCESS_RESULT pipes=real success=stopped_eof_exit0 eof=startup,active,post_terminal,stop writer=broken,blocked watchdog=self_exit' "$evidence/java.log"
+
+      - name: Record observed checks without completing missing acceptance
+        run: |
+          evidence=external-java-evidence
+          python3 scripts/test-external-sut-java-results.py | tee "$evidence/accounting.log"
+          grep -F 'EXTERNAL_SUT_JAVA_RECORD_TEST_RESULT missing=incomplete unknown=rejected repetitions=checked failures=rejected' "$evidence/accounting.log"
+          python3 scripts/record-external-sut-java-results.py \
+            --log "$evidence/java.log" --build-log "$evidence/build.log" --output "$evidence/java.json" \
+            --revision "$GITHUB_SHA" \
+            --command './mvnw -B verify -Dweavegate.repetitions=20'
+          python3 scripts/check-external-sut-acceptance.py --results "$evidence/java.json"
+
+      - name: Upload Java peer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-java-evidence
+          path: external-java-evidence/
+
   external-links:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     name: external links

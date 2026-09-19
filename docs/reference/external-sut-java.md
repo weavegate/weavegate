@@ -1,0 +1,157 @@
+# Java Spring external SUT peer (in development)
+
+[`sdk/java`](../../sdk/java/) implements the Java peer of
+[wire v1](external-sut-v1.md) for an explicitly instrumented Spring Boot test
+application. It is not published as a package, the `weavegate` CLI does not
+select it, and its complete Java acceptance gate has not passed.
+
+## Supported baseline
+
+The Maven build enforces one tested baseline. Versions come from the Spring Boot
+parent's dependency management; the build fails on other Java or Maven versions.
+
+| Component | Version | Purpose |
+| --- | --- | --- |
+| Java | 21 | Project baseline selected by [ADR 0010](../adr/0010-external-sut-protocol.md) |
+| Spring Boot / Framework | 4.0.8 / 7.0.9 | Non-web application context, `@Transactional` proxies |
+| Transaction manager | `DataSourceTransactionManager` (spring-jdbc 7.0.9) | Begin, commit, rollback and connection cleanup |
+| Pool | HikariCP 7.0.2 | The single fixture DataSource |
+| JDBC driver | MySQL Connector/J 9.7.0 | MySQL 8.4 fixture access and statement cancellation |
+| Codec | Jackson 3.1.5 | Strict JSON with duplicate-key and trailing-value rejection |
+| Build | Apache Maven 3.9.16 through `./mvnw`, checksum-pinned | Reproducible build and test runner |
+
+Test-only dependencies are Spring Boot's test starter, the JUnit launcher API
+for execution evidence and Testcontainers for a real MySQL 8.4 server.
+
+## Opting in
+
+Instrumentation is inactive unless the child JAR's `main` method calls the
+bootstrap. An ordinary `SpringApplication.run` never reads stdin, starts a
+protocol thread or changes transactions, and inactive sync points return
+immediately.
+
+```java
+public final class InstrumentedMain {
+    public static void main(String[] args) {
+        WeavegateChild.run(MyApplication.class, args);
+    }
+}
+```
+
+The bootstrap reserves stdout for frames before Spring Boot starts, redirects
+`System.out` to stderr and disables the banner. It reads `start`, then builds a
+non-web context with the fixture DataSource and a transaction manager supplied
+by the SDK. Credentials arrive only in the start frame. SQL initialization,
+Flyway and Liquibase are disabled. Startup fails if the context contains another
+DataSource or transaction manager, or enables `@Scheduled` or `@Async`
+processing.
+
+Commands are public methods on proxied Spring beans. Each needs one
+`@Transactional` boundary with `REQUIRED` propagation that rolls back for
+`WeavegateCancelledException` (the default rule for runtime exceptions does).
+The dispatcher calls the bean proxy, so self-invocation cannot bypass it.
+
+```java
+@Service
+public class SeatCommands {
+    private final JdbcTemplate jdbc;
+
+    public SeatCommands(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    @Transactional
+    @WeavegateCommand(value = "assign", points = {"after_read"})
+    public void assign(CommandContext context) {
+        jdbc.queryForObject("SELECT taken_by FROM seat WHERE id = 1 FOR UPDATE", String.class);
+        Weavegate.syncPoint("after_read");
+        jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
+    }
+}
+```
+
+Readiness validates every requested command and point against these
+registrations, then completes a database probe that returns its lease. One
+invocation runs on one worker thread with one transaction and one connection
+lease. Nested transactions, `REQUIRES_NEW` suspension, a second lease, database
+use outside an invocation after readiness and sync points outside the worker's
+proxy call are session failures.
+
+## Completion and cancellation
+
+`Weavegate.syncPoint` installs the gate and sends `arrive` under the peer's
+serialization point, then blocks without a timeout. Only a release for the exact
+invocation, worker, arrival and point wakes it. Cancellation latches its first
+reason irreversibly, wakes the gate with `WeavegateCancelledException`, arms the
+`cancel_ms` watchdog and requests cancellation of executing JDBC statements. A
+release racing cancellation is consumed without resuming the worker.
+
+A terminal is sent only after three independent milestones: the command proxy
+returned or threw, the transaction manager recorded commit or rollback, and the
+tracked connection's `close()` returned. Spring runs completion callbacks before
+it returns the connection, so callbacks are never terminal evidence. A failed
+commit or rollback is an unknown outcome and sends a transaction fatal. A
+connection close failure that Spring logs and suppresses sends a cleanup fatal.
+Neither case produces a terminal. An exception after commit reports `committed`
+with an application error. MySQL vendor code and SQLSTATE come from the
+underlying `SQLException`, not Spring's translated message.
+
+Startup, cancellation, stop and post-fatal watchdogs force a nonzero exit at
+their deadline without waiting for rollback, pool closure or shutdown hooks. A
+later deadline never extends an earlier one. A watchdog fatal write is best
+effort and bounded by 100 ms, after which the process halts even if stdout is
+blocked. After fatal, no terminal or `stopped` is emitted; known cleanup
+completes locally and the process exits 1. Exit 0 happens only after `stopped`
+is flushed and stdout is closed.
+
+## Validation and remaining acceptance
+
+Run from `sdk/java` with Docker available for the MySQL and child-process tests:
+
+```bash
+./mvnw -B verify -Dweavegate.repetitions=20
+```
+
+Each repetition is a separate JUnit execution. A launcher listener writes
+execution boundaries, versions and observer records to
+`target/weavegate-evidence/java.log`. Record a manifest beside that log and the
+captured Maven output:
+
+```bash
+mkdir -p /tmp/weavegate-java-evidence
+(cd sdk/java && ./mvnw -B verify -Dweavegate.repetitions=20 \
+  -Dweavegate.evidence=/tmp/weavegate-java-evidence/java.log) > /tmp/weavegate-java-evidence/build.log
+python3 scripts/record-external-sut-java-results.py \
+  --log /tmp/weavegate-java-evidence/java.log \
+  --build-log /tmp/weavegate-java-evidence/build.log \
+  --output /tmp/weavegate-java-evidence/java.json \
+  --revision "$(git rev-parse HEAD)" \
+  --command './mvnw -B verify -Dweavegate.repetitions=20'
+python3 scripts/check-external-sut-acceptance.py --results /tmp/weavegate-java-evidence/java.json
+python3 scripts/test-external-sut-java-results.py
+```
+
+The tests verify the pinned vector SHA-256 before execution. All 28 lifecycle
+cases and 11 framing cases that target Java run against a scripted engine with
+controllable host, clock, exit and threads. Unknown events, arguments,
+assertions, exception classes and phases fail before injection. The recorder
+accepts a check only if it occurs exactly once in every passing repetition of
+the same test and names an existing Java method.
+
+Independent tests run the production bootstrap in child JVMs over real pipes.
+They cover the success lifecycle through `stopped`, stdout EOF and exit 0;
+EOF during startup, active, post-terminal and Stop phases; and broken and
+blocked writers. Spring tests use the pinned stack against MySQL 8.4. They
+observe proxy exit, driver commit or rollback and physical close outside the
+SDK, and inject begin, commit, rollback and close failures beneath lease
+tracking.
+
+The recorded manifest reports 46 passing rows and one incomplete row.
+`requirement/java-wire-matrix` stays incomplete: its tests exist, but the
+shared vectors do not yet contain the matrix cases that the row requires.
+Adding them changes the pinned input. The strict `--require-complete` gate
+therefore still fails, and
+[#109](https://github.com/weavegate/weavegate/issues/109) stays open. CLI
+launch and budget composition remain
+[#110](https://github.com/weavegate/weavegate/issues/110); live paired MySQL
+evidence remains [#111](https://github.com/weavegate/weavegate/issues/111).
