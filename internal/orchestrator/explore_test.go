@@ -467,10 +467,10 @@ func newExploreTestOrchestrator(
 			cleanup.runtimes = append(cleanup.runtimes, runtime)
 			return runtime
 		},
-		NewAdapter: func(client syncpoint.Client) sut.Adapter {
+		NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
 			adapter := newEagerAdapter(client)
 			cleanup.adapters = append(cleanup.adapters, adapter)
-			return adapter
+			return adapter, nil
 		},
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,

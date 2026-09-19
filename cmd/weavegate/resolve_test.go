@@ -105,6 +105,22 @@ func TestResolve(t *testing.T) {
 		}
 	})
 
+	t.Run("unregistered_adapter", func(t *testing.T) {
+		bad := cfg
+		bad.Target.SUT.Adapter = "does-not-exist"
+		_, err := Resolve(bad, "concurrent-assign", "")
+		if err == nil {
+			t.Fatal("resolve unregistered adapter: want error, got nil")
+		}
+		if got := ci.ExitCode(err, ci.Verdict{}); got != ci.ExitInput {
+			t.Fatalf("unregistered adapter exit = %d, want %d", got, ci.ExitInput)
+		}
+		if !strings.Contains(err.Error(), config.SupportedAdapter) {
+			t.Fatalf("unregistered adapter error = %v, want it to list registered adapters", err)
+		}
+		observed["unregistered_adapter"] = "5"
+	})
+
 	t.Run("unknown_entrypoint", func(t *testing.T) {
 		bad := cfg
 		bad.Target.SUT.Entrypoint = "does-not-exist"
@@ -146,7 +162,8 @@ func TestResolve(t *testing.T) {
 	order := []string{
 		"entrypoint", "adapter", "variant", "workers", "sync_points",
 		"oracles", "oracle_order", "image", "block_ms", "step_ms", "run_ms", "stop_ms",
-		"unknown_entrypoint", "unknown_variant", "bad_scenario", "no_container",
+		"unregistered_adapter", "unknown_entrypoint", "unknown_variant",
+		"bad_scenario", "no_container",
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {

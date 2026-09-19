@@ -34,9 +34,9 @@ func TestRunSavedScheduleWithOracle(t *testing.T) {
 		Fixture:    fixtureRunner,
 		DB:         &fixture.DB{},
 		NewRuntime: func() syncpoint.Runtime { return runtime },
-		NewAdapter: func(client syncpoint.Client) sut.Adapter {
+		NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
 			adapter = newScriptedAdapter(client)
-			return adapter
+			return adapter, nil
 		},
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
@@ -142,7 +142,7 @@ func TestRunDefersPointBehindPendingWorkerArrival(t *testing.T) {
 		Fixture:               fixtureRunner,
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -209,7 +209,7 @@ func TestRunResolvesDeferredWorkerPointsInOrder(t *testing.T) {
 		Fixture:               &recordingFixture{},
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -262,7 +262,7 @@ func TestRunPreservesScheduleBarrierWhenDrainingPending(t *testing.T) {
 		Fixture:               &recordingFixture{},
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -321,7 +321,7 @@ func TestRunReleasesLaterStepsBeforeCollectingFinalWorker(t *testing.T) {
 		Fixture:               &recordingFixture{},
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -375,7 +375,7 @@ func TestRunContinuesPendingDrainBeforeCollectingFinalWorker(t *testing.T) {
 		Fixture:               &recordingFixture{},
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -482,8 +482,8 @@ func TestRunSerializesSharedFixtureLifecycle(t *testing.T) {
 		Fixture:    fixtureRunner,
 		DB:         &fixture.DB{},
 		NewRuntime: syncpoint.New,
-		NewAdapter: func(client syncpoint.Client) sut.Adapter {
-			return newEagerAdapter(client)
+		NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
+			return newEagerAdapter(client), nil
 		},
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
@@ -567,7 +567,7 @@ func TestRunCleanup(t *testing.T) {
 				factoryCalls++
 				return syncpoint.New()
 			},
-			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return newScriptedAdapter(nil), nil },
 			BlockInferenceTimeout: testBlockTimeout,
 			StepTimeout:           testStepTimeout,
 			RunTimeout:            testRunTimeout,
@@ -654,7 +654,7 @@ func TestRunCleanup(t *testing.T) {
 				Fixture:               fixtureRunner,
 				DB:                    &fixture.DB{},
 				NewRuntime:            func() syncpoint.Runtime { return runtime },
-				NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+				NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 				BlockInferenceTimeout: testBlockTimeout,
 				StepTimeout:           testStepTimeout,
 				RunTimeout:            testRunTimeout,
@@ -696,7 +696,7 @@ func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
 			Fixture:               fixtureRunner,
 			DB:                    &fixture.DB{},
 			NewRuntime:            syncpoint.New,
-			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return newScriptedAdapter(nil), nil },
 			BlockInferenceTimeout: testBlockTimeout,
 			StepTimeout:           testStepTimeout,
 			RunTimeout:            testRunTimeout,
@@ -782,7 +782,7 @@ func TestRunPreservesCancellationBeforeFinalizationSetup(t *testing.T) {
 			Fixture:               fixtureRunner,
 			DB:                    &fixture.DB{},
 			NewRuntime:            syncpoint.New,
-			NewAdapter:            func(syncpoint.Client) sut.Adapter { return newScriptedAdapter(nil) },
+			NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return newScriptedAdapter(nil), nil },
 			BlockInferenceTimeout: testBlockTimeout,
 			StepTimeout:           testStepTimeout,
 			RunTimeout:            10 * time.Millisecond,
@@ -814,7 +814,7 @@ func TestRunStopsWorkersBeforeCancelingCollectors(t *testing.T) {
 		Fixture:               &recordingFixture{},
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -846,7 +846,7 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 		Fixture:               &recordingFixture{},
 		DB:                    &fixture.DB{},
 		NewRuntime:            syncpoint.New,
-		NewAdapter:            func(client syncpoint.Client) sut.Adapter { return newScriptedAdapter(client) },
+		NewAdapter:            func(client syncpoint.Client) (sut.Adapter, error) { return newScriptedAdapter(client), nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -892,6 +892,44 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Oracle evaluator is required") {
 		t.Fatalf("nil evaluator error = %v, want Oracle evaluator context", err)
 	}
+}
+
+// TestRunReportsAdapterCompositionFailure covers the factory boundary an
+// out-of-process adapter needs: composing a run's adapter can fail for a
+// reason of its own (an unusable launch setting, an unavailable child), and
+// that reason must reach the run error instead of collapsing into an
+// anonymous factory failure.
+func TestRunReportsAdapterCompositionFailure(t *testing.T) {
+	composeErr := errors.New("compose adapter for this run")
+	fixtureRunner := &recordingFixture{}
+	orchestrator := newTestOrchestrator(t, Config{
+		Fixture:               fixtureRunner,
+		DB:                    &fixture.DB{},
+		NewRuntime:            syncpoint.New,
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return nil, composeErr },
+		BlockInferenceTimeout: testBlockTimeout,
+		StepTimeout:           testStepTimeout,
+		RunTimeout:            testRunTimeout,
+		StopTimeout:           testStopTimeout,
+	})
+
+	_, err := orchestrator.Run(
+		context.Background(),
+		matchingScenario(),
+		matchingSchedule(t),
+		stableEvaluator,
+	)
+	if err == nil {
+		t.Fatal("run with a failing adapter factory: want error, got nil")
+	}
+	if !errors.Is(err, composeErr) {
+		t.Fatalf("run error = %v, want the composition cause", err)
+	}
+	if !strings.Contains(err.Error(), "create adapter") {
+		t.Fatalf("run error = %v, want it to name adapter creation", err)
+	}
+
+	t.Log("ORCHESTRATOR_ADAPTER_FACTORY_RESULT cause=preserved start=not_attempted")
 }
 
 func newTestOrchestrator(t *testing.T, config Config) *Orchestrator {

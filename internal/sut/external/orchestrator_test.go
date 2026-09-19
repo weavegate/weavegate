@@ -42,7 +42,10 @@ func TestOrchestratorLateFaultAndFingerprint(t *testing.T) {
 					return oracle.NewEvaluation(oracle.OracleResult{OracleID: "synthetic-pass"})
 				})
 				o, err := orchestrator.New(orchestrator.Config{Fixture: idleFixture{}, DB: &fixture.DB{}, NewRuntime: syncpoint.New,
-					NewAdapter:            func(client syncpoint.Client) sut.Adapter { p.a.client = client; return preparedAdapter{p.a} },
+					NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
+						p.a.client = client
+						return preparedAdapter{p.a}, nil
+					},
 					BlockInferenceTimeout: time.Second, StepTimeout: time.Second, RunTimeout: 20 * time.Second, StopTimeout: 5 * time.Second})
 				if err != nil {
 					t.Fatal(err)
@@ -130,7 +133,10 @@ func TestOrchestratorRetainsTerminalPendingBridgeAtFault(t *testing.T) {
 		p.a.beforeRelease = func() { close(held); <-resume }
 		o, err := orchestrator.New(orchestrator.Config{
 			Fixture: idleFixture{}, DB: &fixture.DB{}, NewRuntime: syncpoint.New,
-			NewAdapter:            func(client syncpoint.Client) sut.Adapter { p.a.client = client; return preparedAdapter{p.a} },
+			NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
+				p.a.client = client
+				return preparedAdapter{p.a}, nil
+			},
 			BlockInferenceTimeout: time.Second, StepTimeout: time.Second,
 			RunTimeout: 20 * time.Second, StopTimeout: 5 * time.Second,
 		})

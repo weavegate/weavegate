@@ -192,10 +192,14 @@ func (o *Orchestrator) Run(
 		}
 	}()
 
-	adapter = o.config.NewAdapter(runtime)
-	if adapter == nil {
+	created, err := o.config.NewAdapter(runtime)
+	if err != nil {
+		return result, fmt.Errorf("run schedule %q: create adapter: %w", schedule.ID, err)
+	}
+	if created == nil {
 		return result, fmt.Errorf("run schedule %q: adapter factory returned nil", schedule.ID)
 	}
+	adapter = created
 	handle, err := adapter.Start(executionCtx, value.Clone().SUTConfig, o.config.DB)
 	if err != nil {
 		return result, fmt.Errorf("run schedule %q: start adapter: %w", schedule.ID, err)

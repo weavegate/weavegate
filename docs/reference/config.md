@@ -11,7 +11,7 @@ document is rejected rather than silently ignored.
 | `target.db` | string | yes | — | Must start with `mysql:`; only MySQL is supported today. |
 | `target.schema.migrations` | string (path) | yes | — | Directory of `*.sql` migration files, applied in filename order. Relative to the config file's own directory, not the current working directory. |
 | `target.schema.seed` | string (path) | yes | — | Seed SQL file, applied after migrations. Same path-resolution rule as `migrations`. |
-| `target.sut.adapter` | string | yes | — | Must be `gonative`; `springtest` is not implemented yet. |
+| `target.sut.adapter` | string | yes | — | Must be `gonative`. It selects how the run's adapter is composed; the external SUT adapter of [ADR 0010](../adr/0010-external-sut-protocol.md) is planned and not accepted yet. |
 | `target.sut.entrypoint` | string | yes | — | A built-in entrypoint ID, **not a path** (see [Built-in entrypoints](#built-in-entrypoints)). A value containing `/` or `.` is rejected. |
 | `target.sut.variant` | string | yes | — | Must be one of the entrypoint's declared variants (for `matching-slice`: `vulnerable` or `fixed`). Overridable with `--variant`. |
 | `scenarios.<name>.workers` | list | yes, ≥1 | — | Each worker has `id`, `command`, and `args` (see [Worker args](#worker-args)). |

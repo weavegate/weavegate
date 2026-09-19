@@ -24,7 +24,7 @@ func TestTraceRecordsSavedAndRealizedOrder(t *testing.T) {
 		Fixture:               fixtureRunner,
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -120,7 +120,7 @@ func TestTraceObserverErrorTriggersCleanup(t *testing.T) {
 		Fixture:               fixtureRunner,
 		DB:                    &fixture.DB{},
 		NewRuntime:            func() syncpoint.Runtime { return runtime },
-		NewAdapter:            func(syncpoint.Client) sut.Adapter { return adapter },
+		NewAdapter:            func(syncpoint.Client) (sut.Adapter, error) { return adapter, nil },
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
 		RunTimeout:            testRunTimeout,
@@ -164,10 +164,10 @@ func TestTracePreservesClassifiedWorkerCause(t *testing.T) {
 		Fixture:    fixtureRunner,
 		DB:         &fixture.DB{},
 		NewRuntime: syncpoint.New,
-		NewAdapter: func(client syncpoint.Client) sut.Adapter {
+		NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
 			adapter := newEagerAdapter(client)
 			adapter.errors["w1"] = wrapped
-			return adapter
+			return adapter, nil
 		},
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,
