@@ -270,8 +270,8 @@ func newReplayTestOrchestrator(
 		Fixture:    fixtureRunner,
 		DB:         &fixture.DB{},
 		NewRuntime: syncpoint.New,
-		NewAdapter: func(client syncpoint.Client) sut.Adapter {
-			return newEagerAdapter(client)
+		NewAdapter: func(client syncpoint.Client) (sut.Adapter, error) {
+			return newEagerAdapter(client), nil
 		},
 		BlockInferenceTimeout: testBlockTimeout,
 		StepTimeout:           testStepTimeout,

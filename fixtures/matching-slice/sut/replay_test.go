@@ -261,8 +261,8 @@ func replayMatchingVariant(
 		Fixture:    runner,
 		DB:         db,
 		NewRuntime: syncpoint.New,
-		NewAdapter: func(client syncpoint.Client) internalsut.Adapter {
-			return gonative.New(NewRegistry(client))
+		NewAdapter: func(client syncpoint.Client) (internalsut.Adapter, error) {
+			return gonative.New(NewRegistry(client)), nil
 		},
 		BlockInferenceTimeout: replayLockInferenceTimeout,
 		StepTimeout:           replayStepTimeout,

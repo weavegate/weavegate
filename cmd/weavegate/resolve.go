@@ -69,20 +69,24 @@ func Resolve(cfg config.Config, scenarioName, variant string) (Resolved, error) 
 		selectedVariant = cfg.Target.SUT.Variant
 	}
 
-	entry, ok := builtinEntrypoints[cfg.Target.SUT.Entrypoint]
+	kind, ok := builtinAdapters[cfg.Target.SUT.Adapter]
 	if !ok {
 		return Resolved{}, ci.InputError(fmt.Errorf(
-			"resolve entrypoint %q: not a known built-in ID; known IDs: %v",
-			cfg.Target.SUT.Entrypoint,
-			knownEntrypointIDs(),
+			"resolve adapter %q: not a registered adapter; registered adapters: %v",
+			cfg.Target.SUT.Adapter,
+			knownAdapterIDs(),
 		))
 	}
-	if !slices.Contains(entry.Variants, selectedVariant) {
+	bound, err := kind.Bind(cfg)
+	if err != nil {
+		return Resolved{}, err
+	}
+	if !slices.Contains(bound.Variants, selectedVariant) {
 		return Resolved{}, ci.InputError(fmt.Errorf(
 			"resolve variant %q for entrypoint %q: not supported; supported variants: %v",
 			selectedVariant,
 			cfg.Target.SUT.Entrypoint,
-			entry.Variants,
+			bound.Variants,
 		))
 	}
 
@@ -127,14 +131,14 @@ func Resolve(cfg config.Config, scenarioName, variant string) (Resolved, error) 
 		Scenario:   resolvedScenario,
 		Oracle:     oracleSet,
 		NewRuntime: syncpoint.New,
-		NewAdapter: entry.NewAdapter,
+		NewAdapter: bound.NewAdapter,
 		Timeouts: Timeouts{
 			BlockInference: arrive,
 			Step:           20 * arrive,
 			Run:            60 * arrive,
 			Stop:           20 * arrive,
 		},
-		Schedules:   entry.Schedules,
+		Schedules:   bound.Schedules,
 		Diagnostics: diagnosticTable,
 	}, nil
 }
