@@ -179,7 +179,7 @@ class SpringTransactionsTest {
             host.bind(peer);
             output.peer = peer;
             peer.receive(Scripted.frame("start", seq, Map.of("variant", "fixed", "params", Map.of(),
-                    "commands", List.of("assign", "fail_body", "rollback_only", "after_commit_failure", "duplicate_key"),
+                    "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure", "duplicate_key"),
                     "points", List.of("after_read", "before_write"), "capacity", 2,
                     "database", Map.of("driver", "mysql", "host", MYSQL.getHost(), "port", MYSQL.getMappedPort(3306),
                             "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
@@ -218,6 +218,34 @@ class SpringTransactionsTest {
 
     private static String id(int n) {
         return String.format("%032x", n);
+    }
+
+    @TestFactory
+    Stream<DynamicTest> applicationFailurePrecedesCancellationDuringClose() {
+        return RequirementsTest.repeated(() -> {
+            Session s = new Session();
+            int n = 100;
+            for (String command : List.of("fail_body", "after_commit_failure")) {
+                resetSeat();
+                String invocation = id(n++);
+                s.faults.closeEntered = new java.util.concurrent.CountDownLatch(1);
+                s.faults.closeAllowed = new java.util.concurrent.CountDownLatch(1);
+                try {
+                    s.invoke(invocation, "w1", command);
+                    assertThat(s.faults.closeEntered.await(30, TimeUnit.SECONDS)).isTrue();
+                    s.peer.receive(Scripted.cancel(++s.seq, invocation, "w1", "context"));
+                } finally {
+                    s.faults.closeAllowed.countDown();
+                }
+                JsonNode terminal = s.terminal(invocation);
+                assertThat(terminal.get("transaction").stringValue()).isEqualTo(
+                        command.equals("fail_body") ? "rolled_back" : "committed");
+                assertThat(terminal.get("error").get("kind").stringValue()).isEqualTo("application");
+                assertThat(terminal.get("error").get("message").stringValue()).contains("synthetic");
+            }
+            s.stop();
+            EvidenceListener.marker("EXTERNAL_SUT_JAVA_FAILURE_ORDER_RESULT body=before_cleanup after_commit=before_cleanup cancellation=later");
+        });
     }
 
     @TestFactory
@@ -260,7 +288,8 @@ class SpringTransactionsTest {
 
             s.invoke(id(5), "w1", "duplicate_key");
             assertThat(s.terminal(id(5)).toString()).contains("\"transaction\":\"rolled_back\"", "\"kind\":\"mysql\"",
-                    "\"mysql_code\":1062", "\"sql_state\":\"23000\"");
+                    "\"mysql_code\":1062", "\"sql_state\":\"23000\"", "MySQL operation failed")
+                    .doesNotContain("Duplicate entry", "duplicate_key", "INSERT INTO");
 
             // Begin failure: the lease was acquired and returned, but no transaction started.
             s.faults.fault = FaultyDataSource.Fault.BEGIN;
@@ -275,9 +304,11 @@ class SpringTransactionsTest {
             s.invoke(id(7), "w1", "assign");
             s.arrival(id(7));
             s.faults.lockingRead = new java.util.concurrent.CountDownLatch(1);
-            s.invoke(id(8), "w2", "assign");
+            s.faults.statementCancel = new java.util.concurrent.CountDownLatch(1);
+            s.invoke(id(8), "w2", "navigate");
             assertThat(s.faults.lockingRead.await(60, TimeUnit.SECONDS)).isTrue();
             s.peer.receive(Scripted.cancel(++s.seq, id(8), "w2", "context"));
+            assertThat(s.faults.statementCancel.await(60, TimeUnit.SECONDS)).isTrue();
             // Whether the driver's cancel request reaches the server before the lock wait is
             // not decidable here; releasing w1 by cancellation keeps both outcomes bounded.
             s.peer.receive(Scripted.cancel(++s.seq, id(7), "w1", "context"));

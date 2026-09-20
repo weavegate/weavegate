@@ -42,13 +42,16 @@ final class StreamOutput implements Seams.Output {
     @Override
     public void closeAfterDrain(Runnable closed) {
         if (!queue.offer(new Marker(() -> {
-            try {
-                out.close();
-            } catch (IOException ignored) {
-                // Exit status still reports the session outcome; EOF is what the engine observes.
+            if (!failed) {
+                try {
+                    out.close();
+                } catch (IOException e) {
+                    writeFailed();
+                }
             }
             closed.run();
         }, new CountDownLatch(1)))) {
+            writeFailed();
             closed.run();
         }
     }
@@ -73,7 +76,11 @@ final class StreamOutput implements Seams.Output {
                 Object item = queue.take();
                 if (item instanceof Marker marker) {
                     if (!failed) {
-                        out.flush();
+                        try {
+                            out.flush();
+                        } catch (IOException e) {
+                            writeFailed();
+                        }
                     }
                     marker.action().run();
                     marker.done().countDown();
@@ -89,14 +96,18 @@ final class StreamOutput implements Seams.Output {
                 out.flush();
             }
         } catch (IOException e) {
-            failed = true;
-            Peer owner = peer;
-            if (owner != null) {
-                owner.writeFailed();
-            }
+            writeFailed();
             drainAfterFailure();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private void writeFailed() {
+        failed = true;
+        Peer owner = peer;
+        if (owner != null) {
+            owner.writeFailed();
         }
     }
 

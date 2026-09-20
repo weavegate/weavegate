@@ -24,6 +24,9 @@ final class FaultyDataSource implements DataSource {
     volatile Fault fault = Fault.NONE;
     /** Counts down when a locking read reaches the driver, beneath the SDK's statement registration. */
     volatile java.util.concurrent.CountDownLatch lockingRead = new java.util.concurrent.CountDownLatch(0);
+    volatile java.util.concurrent.CountDownLatch statementCancel = new java.util.concurrent.CountDownLatch(0);
+    volatile java.util.concurrent.CountDownLatch closeEntered = new java.util.concurrent.CountDownLatch(0);
+    volatile java.util.concurrent.CountDownLatch closeAllowed = new java.util.concurrent.CountDownLatch(0);
 
     FaultyDataSource(DataSource delegate) {
         this.delegate = delegate;
@@ -35,6 +38,12 @@ final class FaultyDataSource implements DataSource {
         return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
                 (proxy, method, args) -> {
                     String name = method.getName();
+                    if (name.equals("close")) {
+                        closeEntered.countDown();
+                        if (!closeAllowed.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                            throw new AssertionError("test did not release driver close");
+                        }
+                    }
                     if (name.equals("setAutoCommit") && Boolean.FALSE.equals(args[0]) && fault == Fault.BEGIN) {
                         throw new SQLException("synthetic begin failure");
                     }
@@ -57,6 +66,9 @@ final class FaultyDataSource implements DataSource {
                         Class<?> type = statement instanceof java.sql.PreparedStatement
                                 ? java.sql.PreparedStatement.class : java.sql.Statement.class;
                         return Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[] {type}, (p, m, a) -> {
+                            if (m.getName().equals("cancel")) {
+                                statementCancel.countDown();
+                            }
                             String executed = a != null && a.length > 0 && a[0] instanceof String sql ? sql : prepared;
                             if (m.getName().startsWith("execute") && executed.contains("FOR UPDATE")) {
                                 lockingRead.countDown();

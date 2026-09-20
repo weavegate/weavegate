@@ -4,6 +4,7 @@ import io.github.weavegate.sdk.CommandContext;
 import io.github.weavegate.sdk.Weavegate;
 import io.github.weavegate.sdk.WeavegateCommand;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
@@ -26,6 +27,21 @@ public class SeatCommands {
         Weavegate.syncPoint("after_read");
         jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
         Journal.add("body-end");
+    }
+
+    @Transactional
+    @WeavegateCommand(value = "navigate", points = "after_read")
+    public void navigate() {
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            try (var first = connection.unwrap(java.sql.Connection.class).createStatement();
+                 var statement = first.getConnection().createStatement();
+                 var rows = statement.unwrap(java.sql.Statement.class)
+                         .executeQuery("SELECT taken_by FROM seat WHERE id = 1 FOR UPDATE")) {
+                rows.next();
+                Weavegate.syncPoint("after_read");
+            }
+            return null;
+        });
     }
 
     @Transactional

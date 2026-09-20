@@ -46,7 +46,9 @@ Flyway and Liquibase are disabled. Startup fails if the context contains another
 DataSource or transaction manager, or enables `@Scheduled` or `@Async`
 processing.
 
-Commands are public methods on proxied Spring beans. Each needs one
+Commands are public, non-final instance methods on proxied Spring beans. Static
+methods and proxies without accessible, matching transaction advice are rejected.
+Each needs one
 `@Transactional` boundary with `REQUIRED` propagation that rolls back for
 `WeavegateCancelledException` (the default rule for runtime exceptions does).
 The dispatcher calls the bean proxy, so self-invocation cannot bypass it.
@@ -70,12 +72,19 @@ public class SeatCommands {
 }
 ```
 
-Readiness validates every requested command and point against these
-registrations, then completes a database probe that returns its lease. One
+Readiness validates every requested command and point against the selected
+command registrations, then completes a database probe that returns its lease.
+All application-startup leases must also be returned before ready; a lease left
+after application closure prevents normal stopped. One
 invocation runs on one worker thread with one transaction and one connection
 lease. Nested transactions, `REQUIRES_NEW` suspension, a second lease, database
 use outside an invocation after readiness and sync points outside the worker's
 proxy call are session failures.
+
+Standard JDBC `unwrap` returns the tracking proxy when that interface is
+supported; vendor-specific unwrapping is rejected. Statement, result-set and
+metadata navigation retain tracked handles, including `getConnection()` and
+`getStatement()`, so these paths cannot bypass statement cancellation tracking.
 
 ## Completion and cancellation
 
@@ -96,13 +105,30 @@ Neither case produces a terminal. An exception after commit reports `committed`
 with an application error. MySQL vendor code and SQLSTATE come from the
 underlying `SQLException`, not Spring's translated message.
 
+The existing transaction interceptor remains responsible for transaction rules.
+An observer immediately inside it records a command-body failure before Spring
+starts cleanup. Synchronizations are wrapped before commit (and refreshed before
+the driver commit for callbacks added during preparation), preserving callback
+order and propagating their original exceptions. Only propagating before-commit
+and after-commit failures become source evidence; Spring's suppressed completion
+errors remain suppressed. This records failure versus cancellation order without
+using callback completion as terminal evidence.
+
+At the tracking DataSource boundary, driver exceptions contribute a fixed
+`MySQL operation failed` or `database operation failed` summary to wire evidence;
+vendor code and SQLSTATE remain available. Application code still receives the
+original driver exception. Locally authored application exception messages must
+already respect the wire contract's no-secrets/no-SQL-literals requirement.
+
 Startup, cancellation, stop and post-fatal watchdogs force a nonzero exit at
 their deadline without waiting for rollback, pool closure or shutdown hooks. A
 later deadline never extends an earlier one. A watchdog fatal write is best
 effort and bounded by 100 ms, after which the process halts even if stdout is
 blocked. After fatal, no terminal or `stopped` is emitted; known cleanup
 completes locally and the process exits 1. Exit 0 happens only after `stopped`
-is flushed and stdout is closed.
+is flushed and stdout is closed. The peer remains STOPPING during this drain;
+queue overflow, failed writes/flush/close, or an expired Stop deadline retain a
+failed session and cannot produce exit 0.
 
 ## Validation and remaining acceptance
 
@@ -126,7 +152,7 @@ python3 scripts/record-external-sut-java-results.py \
   --build-log /tmp/weavegate-java-evidence/build.log \
   --output /tmp/weavegate-java-evidence/java.json \
   --revision "$(git rev-parse HEAD)" \
-  --command './mvnw -B verify -Dweavegate.repetitions=20'
+  --command './mvnw -B verify -Dweavegate.repetitions=20 -Dweavegate.evidence=/tmp/weavegate-java-evidence/java.log'
 python3 scripts/check-external-sut-acceptance.py --results /tmp/weavegate-java-evidence/java.json
 python3 scripts/test-external-sut-java-results.py
 ```
@@ -136,7 +162,10 @@ cases and 11 framing cases that target Java run against a scripted engine with
 controllable host, clock, exit and threads. Unknown events, arguments,
 assertions, exception classes and phases fail before injection. The recorder
 accepts a check only if it occurs exactly once in every passing repetition of
-the same test and names an existing Java method.
+the same test and names an existing Java method on its actual declaring type.
+Nested types use their enclosing names (for example, `Outer.Inner.observe`);
+methods of sibling or anonymous types cannot validate that reference. CI records
+the exact Maven argument array, including the evidence path, beside its logs.
 
 Independent tests run the production bootstrap in child JVMs over real pipes.
 They cover the success lifecycle through `stopped`, stdout EOF and exit 0;

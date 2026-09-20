@@ -19,6 +19,9 @@ import javax.sql.DataSource;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.aop.Advisor;
+import org.springframework.aop.PointcutAdvisor;
+import org.springframework.aop.framework.Advised;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
@@ -31,6 +34,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionAttribute;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.ReflectionUtils;
 
@@ -137,6 +141,7 @@ final class SpringHost implements Seams.Host {
                     throw new IllegalStateException("duplicate command registration");
                 }
                 if (!Wire.name(command.value()) || !Modifier.isPublic(method.getModifiers())
+                        || Modifier.isStatic(method.getModifiers()) || Modifier.isFinal(method.getModifiers())
                         || method.getParameterCount() > 1
                         || (method.getParameterCount() == 1 && method.getParameterTypes()[0] != CommandContext.class)) {
                     throw new IllegalStateException("invalid command signature");
@@ -145,11 +150,10 @@ final class SpringHost implements Seams.Host {
                     throw new IllegalStateException("command bean is not proxied");
                 }
                 TransactionAttribute attribute = attributes.getTransactionAttribute(method, user);
-                if (attribute == null || attribute.getPropagationBehavior() != TransactionDefinition.PROPAGATION_REQUIRED
-                        || !attribute.rollbackOn(new WeavegateCancelledException("validation"))
-                        || !(attribute.getQualifier() == null || attribute.getQualifier().isEmpty())) {
+                if (!supportedTransaction(attribute)) {
                     throw new IllegalStateException("command transaction must be REQUIRED and roll back on cancellation");
                 }
+                observeCommand(bean, method, user);
                 Set<String> declared = new HashSet<>(List.of(command.points()));
                 if (!declared.stream().allMatch(Wire::name)) {
                     throw new IllegalStateException("invalid point registration");
@@ -159,10 +163,50 @@ final class SpringHost implements Seams.Host {
             }
         }
         Set<String> declaredPoints = new HashSet<>();
-        registered.values().forEach(r -> declaredPoints.addAll(r.points()));
+        commands.stream().filter(registered::containsKey).forEach(c -> declaredPoints.addAll(registered.get(c).points()));
         if (!registered.keySet().containsAll(commands) || !declaredPoints.containsAll(points)) {
             throw new IllegalStateException("unsupported command or point");
         }
+    }
+
+    private static void observeCommand(Object bean, Method method, Class<?> user) {
+        if (!(bean instanceof Advised advised) || advised.isFrozen()) {
+            throw new IllegalStateException("command proxy must expose its transaction advice");
+        }
+        Advisor[] advisors = advised.getAdvisors();
+        int transaction = -1;
+        boolean observed = false;
+        for (int i = 0; i < advisors.length; i++) {
+            Advisor advisor = advisors[i];
+            if (advisor.getAdvice() instanceof FailureObserver) {
+                observed = true;
+            }
+            if (advisor.getAdvice() instanceof TransactionInterceptor interceptor) {
+                if (transaction != -1 || interceptor.getTransactionAttributeSource() == null
+                        || !supportedTransaction(interceptor.getTransactionAttributeSource().getTransactionAttribute(method, user))
+                        || (advisor instanceof PointcutAdvisor pointcut
+                        && (!pointcut.getPointcut().getClassFilter().matches(user)
+                        || !pointcut.getPointcut().getMethodMatcher().matches(method, user)
+                        || pointcut.getPointcut().getMethodMatcher().isRuntime()))) {
+                    throw new IllegalStateException("command requires one matching transaction advice");
+                }
+                transaction = i;
+            }
+        }
+        if (transaction == -1) {
+            throw new IllegalStateException("command lacks transaction advice");
+        }
+        if (!observed) {
+            // Inside the transaction interceptor: observe a body failure before
+            // Spring rolls back or returns the lease. Spring keeps all decisions.
+            advised.addAdvice(transaction + 1, new FailureObserver());
+        }
+    }
+
+    private static boolean supportedTransaction(TransactionAttribute attribute) {
+        return attribute != null && attribute.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRED
+                && attribute.rollbackOn(new WeavegateCancelledException("validation"))
+                && (attribute.getQualifier() == null || attribute.getQualifier().isEmpty());
     }
 
     @Override

@@ -283,7 +283,7 @@ final class Peer {
             if (exited) {
                 return;
             }
-            if (phase == Phase.STARTING && failure != null) {
+            if (phase == Phase.STARTING && (failure != null || openLeases != 0)) {
                 fail("startup", "application startup failed", true);
                 return;
             }
@@ -689,6 +689,11 @@ final class Peer {
     }
 
     private void retire(Invocation invocation) {
+        // send() may synchronously fail the session and retire this invocation
+        // through cancellation before its original progress() call resumes.
+        if (invocation.retired) {
+            return;
+        }
         invocation.retired = true;
         if (invocation.cancelWatchdog != null) {
             invocation.cancelWatchdog.cancel();
@@ -772,8 +777,10 @@ final class Peer {
                     return;
                 }
                 applicationClosed = true;
+                if (openLeases != 0 && phase != Phase.FAILED) {
+                    fail("cleanup", "application retained a database lease", true);
+                }
                 if (!failed && phase == Phase.STOPPING) {
-                    phase = Phase.STOPPED;
                     send("stopped", Wire.object());
                     output.closeAfterDrain(() -> closedThenExit(0));
                 } else {
@@ -788,6 +795,12 @@ final class Peer {
             outputClosed = true;
             if (exited) {
                 return;
+            }
+            if (phase == Phase.FAILED) {
+                status = 1;
+            }
+            if (status == 0) {
+                phase = Phase.STOPPED;
             }
             exited = true;
         }

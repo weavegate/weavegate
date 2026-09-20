@@ -42,7 +42,15 @@ final class WeavegateTransactionManager extends DataSourceTransactionManager {
     }
 
     @Override
+    protected void prepareForCommit(DefaultTransactionStatus status) {
+        FailureObserver.observeSynchronizations();
+        super.prepareForCommit(status);
+    }
+
+    @Override
     protected void doCommit(DefaultTransactionStatus status) {
+        // Include callbacks registered during beforeCommit/beforeCompletion.
+        FailureObserver.observeSynchronizations();
         complete(status, true);
     }
 
