@@ -24,13 +24,32 @@ def source_symbols(source):
     # for declarations, so quoted or commented examples cannot validate evidence.
     code = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'',
                   lambda match: re.sub(r'[^\n]', ' ', match.group()), source.read_text())
-    types = set(re.findall(r'\b(?:class|record|interface|enum)\s+(\w+)', code))
-    methods = set(re.findall(
+    types = {match.end() - 1: match[1] for match in re.finditer(
+        r'\b(?:class|record|interface|enum)\s+(\w+)[^;{}]*\{', code)}
+    methods = {match.end() - 1: match[1] for match in re.finditer(
         r'^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|protected|private|static|final|synchronized|abstract|default)\s+)*'
         r'(?:<[^>]+>\s+)?[\w.<>\[\],?]+(?:\s*<[^>]*>)?\s+(\w+)\s*\([^;{}]*\)\s*(?:throws\s+[\w.,\s]+)?\{',
-        code, re.MULTILINE))
-    methods -= {'if', 'for', 'while', 'switch', 'catch', 'synchronized', 'return', 'new', 'else', 'try', 'throw'}
-    return {t + '.' + m for t in types for m in methods}
+        code, re.MULTILINE)}
+    symbols, scopes = set(), []
+    for brace in re.finditer(r'[{}]', code):
+        if brace[0] == '}':
+            if not scopes:
+                raise ValueError('unbalanced observer source')
+            scopes.pop()
+            continue
+        position = brace.start()
+        if position in types and (not scopes or scopes[-1] is not None):
+            parent = scopes[-1] + '.' if scopes else ''
+            scopes.append(parent + types[position])
+        else:
+            if position in methods and scopes and scopes[-1] is not None:
+                symbols.add(scopes[-1] + '.' + methods[position])
+            # Method bodies, initializers and anonymous types are not named
+            # declaring types. Do not attribute their contents to an outer type.
+            scopes.append(None)
+    if scopes:
+        raise ValueError('unbalanced observer source')
+    return symbols
 
 
 def decode(line, marker):
@@ -103,7 +122,7 @@ def record(log, build_log, revision, command, repetitions):
             if not isinstance(handler, str) or not handler.startswith('sdk/java/src/test/java/'):
                 raise ValueError('invalid observer source reference')
             parts = handler.split(':')
-            if len(parts) != 2 or not re.fullmatch(r'\w+\.\w+', parts[1]):
+            if len(parts) != 2 or not re.fullmatch(r'\w+(?:\.\w+)+', parts[1]):
                 raise ValueError('invalid observer symbol reference')
             source = (ROOT / parts[0]).resolve()
             if not source.is_relative_to(SOURCES) or not source.is_file() or source.suffix != '.java':

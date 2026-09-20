@@ -79,6 +79,28 @@ class RecordingTests(unittest.TestCase):
 ''')
         self.assertEqual(RECORDER['source_symbols'](source), {'Observer.real', 'Observer.generic'})
 
+    def test_symbols_belong_to_the_declaring_type(self):
+        source = Path(self.directory.name) / 'Observers.java'
+        source.write_text('''class First {
+    void run() {}
+    class Nested {
+        void inspect() {}
+    }
+    Runnable callback = new Runnable() {
+        public void anonymous() {}
+    };
+}
+class Second {
+    void observe() {}
+}
+''')
+        self.assertEqual(RECORDER['source_symbols'](source),
+                         {'First.run', 'First.Nested.inspect', 'Second.observe'})
+        self.write([dict(self.entry, handler='sdk/java/src/test/java/io/github/weavegate/sdk/'
+                                            'VectorHarness.java:Context.run')])
+        with self.assertRaises(ValueError):
+            self.record()
+
     def test_repetition_count_and_command(self):
         for count in (19, 21):
             with self.subTest(count=count):
