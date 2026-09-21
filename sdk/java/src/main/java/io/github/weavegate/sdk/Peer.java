@@ -78,6 +78,7 @@ final class Peer {
         Lease lease = Lease.NOT_ACQUIRED;
         Throwable source;
         long sourceOrder;
+        final Map<SQLException, SQLException> driverFailures = new IdentityHashMap<>();
         final Set<Seams.Cancellable> statements = new LinkedHashSet<>();
         int jdbcCancelRequests;
         int dispatches;
@@ -105,6 +106,7 @@ final class Peer {
 
     Phase phase = Phase.AWAIT_START;
     Seams.Start start;
+    private Map<String, Set<String>> commandPoints = Map.of();
     String run;
     String session;
     int received;
@@ -266,6 +268,7 @@ final class Peer {
 
     private void startup(Seams.Start config) {
         Throwable failure = null;
+        Map<String, Set<String>> validated = Map.of();
         try {
             host.initialize(config);
             synchronized (this) {
@@ -273,7 +276,7 @@ final class Peer {
                     throw new IllegalStateException("startup cancelled");
                 }
             }
-            host.validateRegistration(config.commands(), config.points());
+            validated = host.validateRegistration(config.commands(), config.points());
             host.probeDatabase();
         } catch (Throwable t) {
             failure = t;
@@ -288,6 +291,7 @@ final class Peer {
                 return;
             }
             if (phase == Phase.STARTING) {
+                commandPoints = validated;
                 phase = Phase.READY;
                 startupWatchdog.cancel();
                 startupWatchdog = null;
@@ -374,6 +378,7 @@ final class Peer {
             if (thrown != null) {
                 recordSourceLocked(invocation, thrown);
             }
+            invocation.driverFailures.clear();
             invocation.proxy = Proxy.EXITED;
             invocation.thread = null;
             progress(invocation);
@@ -506,7 +511,7 @@ final class Peer {
                 fail("protocol", "sync point outside invocation thread", true);
                 throw cancelled(invocation);
             }
-            if (!Wire.name(point) || !start.points().contains(point)) {
+            if (!Wire.name(point) || !commandPoints.getOrDefault(invocation.command, Set.of()).contains(point)) {
                 fail("protocol", "unknown sync point", true);
                 throw cancelled(invocation);
             }
@@ -613,9 +618,24 @@ final class Peer {
 
     private void recordSourceLocked(Invocation invocation, Throwable source) {
         if (invocation.source == null) {
-            invocation.source = source;
+            invocation.source = escapingDriverSummary(invocation, source);
             invocation.sourceOrder = ++order;
         }
+    }
+
+    synchronized void driverFailure(Invocation invocation, SQLException failure, SQLException summary) {
+        invocation.driverFailures.put(failure, summary);
+    }
+
+    private static Throwable escapingDriverSummary(Invocation invocation, Throwable source) {
+        Set<Throwable> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable candidate = source; candidate != null && seen.add(candidate); candidate = candidate.getCause()) {
+            SQLException summary = invocation.driverFailures.get(candidate);
+            if (summary != null) {
+                return summary;
+            }
+        }
+        return source;
     }
 
     /** Registers an executing statement; returns false if cancellation already won. */

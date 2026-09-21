@@ -2,6 +2,7 @@ package io.github.weavegate.sdk;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
@@ -16,7 +17,7 @@ final class Seams {
     interface Host {
         void initialize(Start start) throws Exception;
 
-        void validateRegistration(List<String> commands, List<String> points) throws Exception;
+        Map<String, Set<String>> validateRegistration(List<String> commands, List<String> points) throws Exception;
 
         void probeDatabase() throws Exception;
 

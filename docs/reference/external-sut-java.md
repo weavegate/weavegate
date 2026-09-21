@@ -44,7 +44,7 @@ non-web context with the fixture DataSource and a transaction manager supplied
 by the SDK. Credentials arrive only in the start frame. SQL initialization,
 Flyway and Liquibase are disabled. Startup fails if the context contains another
 DataSource or transaction manager, or enables `@Scheduled` or `@Async`
-processing.
+processing; processor beans are detected by type, regardless of bean name.
 
 Commands are public, non-final instance methods on proxied Spring beans. Static
 methods and proxies without accessible, matching transaction advice are rejected.
@@ -73,18 +73,23 @@ public class SeatCommands {
 ```
 
 Readiness validates every requested command and point against the selected
-command registrations, then completes a database probe that returns its lease.
+command registrations, retains each command's declared point set, then completes
+a database probe that returns its lease. Every runtime arrival must belong to
+the invoked command rather than only to the session-wide point union.
 All application-startup leases must also be returned before ready; a lease left
 after application closure prevents normal stopped. One
 invocation runs on one worker thread with one transaction and one connection
 lease. Nested transactions, `REQUIRES_NEW` suspension, a second lease, database
 use outside an invocation after readiness and sync points outside the worker's
-proxy call are session failures.
+proxy call are session failures. Application calls to JDBC auto-commit, commit,
+rollback or savepoint controls are rejected; only the SDK-owned transaction
+manager may use them.
 
 Standard JDBC `unwrap` returns the tracking proxy when that interface is
 supported; vendor-specific unwrapping is rejected. Statement, result-set and
 metadata navigation retain tracked handles, including `getConnection()` and
-`getStatement()`, so these paths cannot bypass statement cancellation tracking.
+`getStatement()`. Blocking result-set navigation registers its owning statement
+for cancellation, so streaming rows cannot bypass statement cancellation.
 
 ## Completion and cancellation
 
@@ -114,11 +119,12 @@ and after-commit failures become source evidence; Spring's suppressed completion
 errors remain suppressed. This records failure versus cancellation order without
 using callback completion as terminal evidence.
 
-At the tracking DataSource boundary, driver exceptions contribute a fixed
+When a driver exception escapes the command boundary, it contributes a fixed
 `MySQL operation failed` or `database operation failed` summary to wire evidence;
 vendor code and SQLSTATE remain available. Application code still receives the
-original driver exception. Locally authored application exception messages must
-already respect the wire contract's no-secrets/no-SQL-literals requirement.
+original driver exception, and an exception it catches does not become worker
+failure evidence. Locally authored application exception messages must already
+respect the wire contract's no-secrets/no-SQL-literals requirement.
 
 Startup, cancellation, stop and post-fatal watchdogs force a nonzero exit at
 their deadline without waiting for rollback, pool closure or shutdown hooks. A

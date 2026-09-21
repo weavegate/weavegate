@@ -249,6 +249,30 @@ class RequirementsTest {
         });
     }
 
+    @TestFactory
+    Stream<DynamicTest> arrivalsBelongToTheInvokedCommand() {
+        return repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.receive(Scripted.frame("start", 1, Map.of("variant", "fixed", "params", Map.of(),
+                    "commands", List.of("assign", "other"), "points", List.of("after_read", "before_write"),
+                    "capacity", 1, "database", Map.of("driver", "mysql", "host", "127.0.0.1", "port", 33060,
+                            "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
+                    "startup_ms", 10000, "cancel_ms", 1000)));
+            h.activity.awaitIdle();
+            h.host.completeProbe();
+            h.activity.awaitIdle();
+            h.peer.receive(Scripted.invoke(2, Scripted.I1, "w1", "other"));
+            h.threads.run(Scripted.I1);
+            h.activity.awaitIdle();
+            h.host.script(Scripted.I1).mailbox.put(new Fakes.Arrive("before_write"));
+            h.activity.awaitIdle();
+            h.peer.receive(Scripted.cancel(3, Scripted.I1, "w1", "context"));
+            h.host.script(Scripted.I1).mailbox.put(new Fakes.ExitProxy());
+            h.activity.awaitIdle();
+            assertThat(h.peer.fatalKind).isEqualTo("protocol");
+        });
+    }
+
     private interface Action {
         void run(VectorHarness h);
     }

@@ -3,6 +3,7 @@ package io.github.weavegate.sdk.fixture;
 import io.github.weavegate.sdk.CommandContext;
 import io.github.weavegate.sdk.Weavegate;
 import io.github.weavegate.sdk.WeavegateCommand;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.stereotype.Service;
@@ -77,5 +78,27 @@ public class SeatCommands {
     @WeavegateCommand("duplicate_key")
     public void duplicateKey() {
         jdbc.update("INSERT INTO seat (id, taken_by) VALUES (1, 'duplicate')");
+    }
+
+    @Transactional
+    @WeavegateCommand("caught_duplicate")
+    public void caughtDuplicate() {
+        try {
+            jdbc.update("INSERT INTO seat (id, taken_by) VALUES (1, 'duplicate')");
+        } catch (DataAccessException expected) {
+            // A handled database error is application control flow, not terminal error evidence.
+        }
+        Journal.add("body-end");
+    }
+
+    @Transactional
+    @WeavegateCommand("manual_commit")
+    public void manualCommit(CommandContext context) {
+        jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            connection.commit();
+            return null;
+        });
+        throw new AssertionError("application-managed commit was not rejected");
     }
 }

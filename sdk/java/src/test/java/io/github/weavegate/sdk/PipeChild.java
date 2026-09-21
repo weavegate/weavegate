@@ -1,6 +1,8 @@
 package io.github.weavegate.sdk;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -32,7 +34,9 @@ public final class PipeChild {
         }
 
         @Override
-        public void validateRegistration(List<String> commands, List<String> points) {
+        public Map<String, Set<String>> validateRegistration(List<String> commands, List<String> points) {
+            return commands.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(command -> command,
+                    command -> Set.copyOf(points)));
         }
 
         @Override

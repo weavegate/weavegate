@@ -31,7 +31,12 @@ final class WeavegateTransactionManager extends DataSourceTransactionManager {
             peer.unsupported("transaction", "transaction outside invocation");
             throw new CannotCreateTransactionException("transaction outside weavegate invocation");
         }
-        super.doBegin(transaction, definition);
+        beginControl();
+        try {
+            super.doBegin(transaction, definition);
+        } finally {
+            endControl();
+        }
         peer.transactionBegun(invocation);
     }
 
@@ -62,10 +67,15 @@ final class WeavegateTransactionManager extends DataSourceTransactionManager {
     private void complete(DefaultTransactionStatus status, boolean commit) {
         Peer.Invocation invocation = Peer.current();
         try {
-            if (commit) {
-                super.doCommit(status);
-            } else {
-                super.doRollback(status);
+            beginControl();
+            try {
+                if (commit) {
+                    super.doCommit(status);
+                } else {
+                    super.doRollback(status);
+                }
+            } finally {
+                endControl();
             }
         } catch (RuntimeException | Error e) {
             if (invocation != null) {
@@ -76,5 +86,23 @@ final class WeavegateTransactionManager extends DataSourceTransactionManager {
         if (invocation != null) {
             peer.transactionCompleted(invocation, commit ? Peer.Transaction.COMMITTED : Peer.Transaction.ROLLED_BACK);
         }
+    }
+
+    @Override
+    protected void doCleanupAfterCompletion(Object transaction) {
+        beginControl();
+        try {
+            super.doCleanupAfterCompletion(transaction);
+        } finally {
+            endControl();
+        }
+    }
+
+    private static void beginControl() {
+        TrackingDataSource.beginTransactionControl();
+    }
+
+    private static void endControl() {
+        TrackingDataSource.endTransactionControl();
     }
 }

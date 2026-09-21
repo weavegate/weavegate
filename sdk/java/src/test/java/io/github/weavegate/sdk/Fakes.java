@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
@@ -340,11 +341,15 @@ final class Fakes {
         }
 
         @Override
-        public void validateRegistration(List<String> commands, List<String> points) {
-            if (!List.of("assign").containsAll(commands) || !List.of("after_read", "before_write").containsAll(points)) {
+        public Map<String, Set<String>> validateRegistration(List<String> commands, List<String> points) {
+            if (!List.of("assign", "other").containsAll(commands)
+                    || !List.of("after_read", "before_write").containsAll(points)) {
                 throw new IllegalStateException("unsupported registration");
             }
             validated = true;
+            return commands.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(command -> command,
+                    command -> command.equals("other") ? Set.of("after_read")
+                            : Set.of("after_read", "before_write")));
         }
 
         @Override

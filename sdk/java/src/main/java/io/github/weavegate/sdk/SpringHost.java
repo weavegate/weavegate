@@ -29,7 +29,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.env.MapPropertySource;
-import org.springframework.scheduling.config.TaskManagementConfigUtils;
+import org.springframework.scheduling.annotation.AsyncAnnotationBeanPostProcessor;
+import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
@@ -110,7 +111,7 @@ final class SpringHost implements Seams.Host {
     }
 
     @Override
-    public void validateRegistration(List<String> commands, List<String> points) {
+    public Map<String, Set<String>> validateRegistration(List<String> commands, List<String> points) {
         ConfigurableApplicationContext ctx = context;
         Map<String, DataSource> dataSources = ctx.getBeansOfType(DataSource.class);
         if (dataSources.size() != 1 || dataSources.values().iterator().next() != dataSource) {
@@ -120,8 +121,8 @@ final class SpringHost implements Seams.Host {
         if (managers.size() != 1 || !(managers.values().iterator().next() instanceof WeavegateTransactionManager)) {
             throw new IllegalStateException("exactly one weavegate transaction manager is supported");
         }
-        if (ctx.containsBean(TaskManagementConfigUtils.SCHEDULED_ANNOTATION_PROCESSOR_BEAN_NAME)
-                || ctx.containsBean(TaskManagementConfigUtils.ASYNC_ANNOTATION_PROCESSOR_BEAN_NAME)) {
+        if (ctx.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class, true, false).length > 0
+                || ctx.getBeanNamesForType(AsyncAnnotationBeanPostProcessor.class, true, false).length > 0) {
             throw new IllegalStateException("scheduled and async processing are unsupported");
         }
         AnnotationTransactionAttributeSource attributes = new AnnotationTransactionAttributeSource();
@@ -159,7 +160,7 @@ final class SpringHost implements Seams.Host {
                     throw new IllegalStateException("invalid point registration");
                 }
                 registered.put(command.value(), new Registered(bean,
-                        AopUtils.selectInvocableMethod(method, bean.getClass()), declared));
+                        AopUtils.selectInvocableMethod(method, bean.getClass()), Set.copyOf(declared)));
             }
         }
         Set<String> declaredPoints = new HashSet<>();
@@ -167,6 +168,9 @@ final class SpringHost implements Seams.Host {
         if (!registered.keySet().containsAll(commands) || !declaredPoints.containsAll(points)) {
             throw new IllegalStateException("unsupported command or point");
         }
+        Map<String, Set<String>> selected = new HashMap<>();
+        commands.forEach(command -> selected.put(command, registered.get(command).points()));
+        return Map.copyOf(selected);
     }
 
     private static void observeCommand(Object bean, Method method, Class<?> user) {

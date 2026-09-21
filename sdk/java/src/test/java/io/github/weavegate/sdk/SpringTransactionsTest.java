@@ -8,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -128,8 +129,8 @@ class SpringTransactionsTest {
         }
 
         @Override
-        public void validateRegistration(List<String> commands, List<String> points) {
-            delegate.validateRegistration(commands, points);
+        public Map<String, Set<String>> validateRegistration(List<String> commands, List<String> points) {
+            return delegate.validateRegistration(commands, points);
         }
 
         @Override
@@ -179,7 +180,8 @@ class SpringTransactionsTest {
             host.bind(peer);
             output.peer = peer;
             peer.receive(Scripted.frame("start", seq, Map.of("variant", "fixed", "params", Map.of(),
-                    "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure", "duplicate_key"),
+                    "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure",
+                            "duplicate_key", "caught_duplicate", "manual_commit"),
                     "points", List.of("after_read", "before_write"), "capacity", 2,
                     "database", Map.of("driver", "mysql", "host", MYSQL.getHost(), "port", MYSQL.getMappedPort(3306),
                             "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
@@ -290,6 +292,17 @@ class SpringTransactionsTest {
             assertThat(s.terminal(id(5)).toString()).contains("\"transaction\":\"rolled_back\"", "\"kind\":\"mysql\"",
                     "\"mysql_code\":1062", "\"sql_state\":\"23000\"", "MySQL operation failed")
                     .doesNotContain("Duplicate entry", "duplicate_key", "INSERT INTO");
+
+            s.invoke(id(10), "w1", "caught_duplicate");
+            assertThat(s.terminal(id(10)).toString()).contains("\"transaction\":\"committed\"", "\"error\":null");
+            assertThat(Journal.EVENTS).containsExactly("body-end", "driver-commit", "driver-close",
+                    "proxy-exit returned", "terminal proxy=EXITED lease=RETURNED");
+
+            resetSeat();
+            s.invoke(id(11), "w1", "manual_commit");
+            assertThat(s.terminal(id(11)).toString()).contains("\"transaction\":\"rolled_back\"",
+                    "\"kind\":\"application\"", "application-managed transaction control is unsupported");
+            assertThat(seat()).isNull();
 
             // Begin failure: the lease was acquired and returned, but no transaction started.
             s.faults.fault = FaultyDataSource.Fault.BEGIN;

@@ -20,10 +20,11 @@ import javax.sql.DataSource;
 /**
  * The fixture DataSource as seen by the application. It records each lease's
  * acquisition and successful delegate {@code close()}, including close failures
- * that Spring's cleanup logs and suppresses, and registers executing statements
+ * that Spring's cleanup logs and suppresses, and registers blocking JDBC calls
  * for cancellation.
  */
 final class TrackingDataSource implements DataSource {
+    private static final ThreadLocal<Integer> TRANSACTION_CONTROL = new ThreadLocal<>();
     private final DataSource delegate;
     private final Peer peer;
 
@@ -37,7 +38,7 @@ final class TrackingDataSource implements DataSource {
         try {
             return track(delegate.getConnection());
         } catch (SQLException e) {
-            recordDriverFailure(e);
+            observeDriverFailure(e);
             throw e;
         }
     }
@@ -108,6 +109,9 @@ final class TrackingDataSource implements DataSource {
                 default -> {
                 }
             }
+            if (transactionControl(method.getName()) && !transactionControlAllowed()) {
+                throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
+            }
             Object result = call(connection, method, args);
             if (result instanceof Statement statement) {
                 return trackStatement(statement, invocation, (Connection) proxy);
@@ -123,8 +127,10 @@ final class TrackingDataSource implements DataSource {
                                     Object value = call(metadata, m, a);
                                     if (value instanceof ResultSet rows) {
                                         Statement owner = rows.getStatement();
-                                        yield trackRows(rows, owner == null ? null
-                                                : trackStatement(owner, invocation, (Connection) proxy));
+                                        Statement tracked = owner == null ? null
+                                                : trackStatement(owner, invocation, (Connection) proxy);
+                                        yield trackRows(rows, tracked, invocation,
+                                                owner == null ? null : owner::cancel);
                                     }
                                     yield value;
                                 }
@@ -142,13 +148,28 @@ final class TrackingDataSource implements DataSource {
                 new Executing(statement, invocation, connection));
     }
 
-    private static ResultSet trackRows(ResultSet rows, Statement statement) {
+    private ResultSet trackRows(ResultSet rows, Statement statement, Peer.Invocation invocation,
+                                Seams.Cancellable cancel) {
         return (ResultSet) Proxy.newProxyInstance(ResultSet.class.getClassLoader(), new Class<?>[] {ResultSet.class},
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "getStatement" -> statement;
-                    case "unwrap" -> unwrapTracked(proxy, (Class<?>) args[0]);
-                    case "isWrapperFor" -> ((Class<?>) args[0]).isInstance(proxy);
-                    default -> call(rows, method, args);
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getStatement" -> { return statement; }
+                        case "unwrap" -> { return unwrapTracked(proxy, (Class<?>) args[0]); }
+                        case "isWrapperFor" -> { return ((Class<?>) args[0]).isInstance(proxy); }
+                        case "close" -> { return call(rows, method, args); }
+                        default -> { }
+                    }
+                    if (invocation == null || cancel == null) {
+                        return call(rows, method, args);
+                    }
+                    try {
+                        if (!peer.statementStarted(invocation, cancel)) {
+                            throw new WeavegateCancelledException("cancelled before result-set navigation");
+                        }
+                        return call(rows, method, args);
+                    } finally {
+                        peer.statementFinished(invocation, cancel);
+                    }
                 });
     }
 
@@ -163,11 +184,13 @@ final class TrackingDataSource implements DataSource {
         private final Statement statement;
         private final Peer.Invocation invocation;
         private final Connection connection;
+        private final Seams.Cancellable cancel;
 
         Executing(Statement statement, Peer.Invocation invocation, Connection connection) {
             this.statement = statement;
             this.invocation = invocation;
             this.connection = connection;
+            this.cancel = statement::cancel;
         }
 
         @Override
@@ -180,40 +203,64 @@ final class TrackingDataSource implements DataSource {
             }
             if (invocation == null || !method.getName().startsWith("execute")) {
                 Object value = call(statement, method, args);
-                return value instanceof ResultSet rows ? trackRows(rows, (Statement) proxy) : value;
+                return value instanceof ResultSet rows
+                        ? trackRows(rows, (Statement) proxy, invocation, cancel) : value;
             }
-            Seams.Cancellable cancel = statement::cancel;
             try {
                 if (!peer.statementStarted(invocation, cancel)) {
                     throw new WeavegateCancelledException("cancelled before statement");
                 }
                 Object value = call(statement, method, args);
-                return value instanceof ResultSet rows ? trackRows(rows, (Statement) proxy) : value;
+                return value instanceof ResultSet rows
+                        ? trackRows(rows, (Statement) proxy, invocation, cancel) : value;
             } finally {
                 peer.statementFinished(invocation, cancel);
             }
         }
     }
 
-    private static Object call(Object target, Method method, Object[] args) throws Throwable {
+    private Object call(Object target, Method method, Object[] args) throws Throwable {
         try {
             return method.invoke(target, args);
         } catch (InvocationTargetException e) {
             if (e.getCause() instanceof SQLException sql) {
-                recordDriverFailure(sql);
+                observeDriverFailure(sql);
             }
             throw e.getCause();
         }
     }
 
-    private static void recordDriverFailure(SQLException failure) {
+    private void observeDriverFailure(SQLException failure) {
         Peer.Invocation invocation = Peer.current();
         if (invocation != null) {
-            invocation.peer().recordSource(invocation, driverSummary(failure));
+            peer.driverFailure(invocation, failure, driverSummary(failure));
         }
     }
 
-    /** Keep driver detail in the original application exception, never in wire evidence. */
+    private static boolean transactionControl(String method) {
+        return method.equals("setAutoCommit") || method.equals("commit") || method.equals("rollback")
+                || method.equals("setSavepoint") || method.equals("releaseSavepoint");
+    }
+
+    private static boolean transactionControlAllowed() {
+        return TRANSACTION_CONTROL.get() != null;
+    }
+
+    static void beginTransactionControl() {
+        Integer depth = TRANSACTION_CONTROL.get();
+        TRANSACTION_CONTROL.set(depth == null ? 1 : depth + 1);
+    }
+
+    static void endTransactionControl() {
+        Integer depth = TRANSACTION_CONTROL.get();
+        if (depth == null || depth == 1) {
+            TRANSACTION_CONTROL.remove();
+        } else {
+            TRANSACTION_CONTROL.set(depth - 1);
+        }
+    }
+
+    /** Convert an escaping driver exception to fixed wire-safe evidence. */
     static SQLException driverSummary(SQLException failure) {
         var classified = Peer.classify(failure);
         boolean mysql = classified.get("kind").stringValue().equals("mysql");

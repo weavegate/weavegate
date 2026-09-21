@@ -11,6 +11,8 @@ import org.junit.jupiter.api.TestFactory;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.scheduling.annotation.AsyncAnnotationBeanPostProcessor;
+import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,10 @@ class RegistrationTest {
     }
 
     static void validate(Class<?> commands, List<String> selected, List<String> points) {
+        validate(commands, selected, points, null);
+    }
+
+    static void validate(Class<?> commands, List<String> selected, List<String> points, Class<?> processor) {
         VectorHarness harness = new VectorHarness("independent").quiet();
         TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
         SpringHost host = new SpringHost(Transactions.class, new String[0]);
@@ -51,6 +57,9 @@ class RegistrationTest {
             context.registerBean("transactionManager", WeavegateTransactionManager.class,
                     () -> new WeavegateTransactionManager(dataSource, harness.peer));
             context.register(Transactions.class, commands);
+            if (processor != null) {
+                context.registerBean("customProcessor", processor);
+            }
             context.refresh();
             ReflectionTestUtils.setField(host, "context", context);
             ReflectionTestUtils.setField(host, "dataSource", dataSource);
@@ -74,6 +83,17 @@ class RegistrationTest {
             validate(Commands.class, List.of("selected"), List.of("selected_point"));
             assertThatThrownBy(() -> validate(Commands.class, List.of("selected"), List.of("other_point")))
                     .isInstanceOf(IllegalStateException.class);
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> schedulingProcessorsAreRejectedByType() {
+        return RequirementsTest.repeated(() -> {
+            for (Class<?> processor : List.of(ScheduledAnnotationBeanPostProcessor.class,
+                    AsyncAnnotationBeanPostProcessor.class)) {
+                assertThatThrownBy(() -> validate(Commands.class, List.of("selected"), List.of(), processor))
+                        .isInstanceOf(IllegalStateException.class);
+            }
         });
     }
 }
