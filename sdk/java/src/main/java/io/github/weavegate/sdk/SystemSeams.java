@@ -33,10 +33,7 @@ final class SystemSeams {
     }
 
     /** Forced termination skips shutdown hooks, so a hung pool or driver cannot delay exit. */
-    static final Seams.Exit HALT = status -> {
-        System.err.flush();
-        java.lang.Runtime.getRuntime().halt(status);
-    };
+    static final Seams.Exit HALT = status -> java.lang.Runtime.getRuntime().halt(status);
 
     static final Seams.Threads THREADS = new Seams.Threads() {
         @Override

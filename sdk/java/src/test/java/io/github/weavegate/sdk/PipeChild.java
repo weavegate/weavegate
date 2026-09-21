@@ -14,8 +14,22 @@ public final class PipeChild {
     }
 
     public static void main(String[] args) {
+        if (args[0].equals("halt_with_blocked_stderr")) {
+            haltWithBlockedStderr();
+            return;
+        }
         Host host = new Host(args[0]);
         WeavegateChild.serve(host, peer -> host.peer = peer);
+    }
+
+    private static void haltWithBlockedStderr() {
+        System.setErr(new java.io.PrintStream(java.io.OutputStream.nullOutputStream()) {
+            @Override
+            public void flush() {
+                Host.parkForever();
+            }
+        });
+        SystemSeams.HALT.halt(23);
     }
 
     static final class Host implements Seams.Host {
@@ -73,7 +87,7 @@ public final class PipeChild {
             }
         }
 
-        private static void parkForever() {
+        static void parkForever() {
             while (true) {
                 LockSupport.park();
             }

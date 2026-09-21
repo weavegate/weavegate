@@ -144,6 +144,22 @@ class RealPipesTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> forcedHaltDoesNotWaitForBlockedStderr() {
+        return RequirementsTest.repeated(() -> {
+            String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+            Process child = new ProcessBuilder(java, "-cp", System.getProperty("java.class.path"),
+                    PipeChild.class.getName(), "halt_with_blocked_stderr")
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            try {
+                assertThat(child.waitFor(2, TimeUnit.SECONDS)).as("forced halt completed").isTrue();
+                assertThat(child.exitValue()).isEqualTo(23);
+            } finally {
+                child.destroyForcibly();
+            }
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> faultsOverRealPipes() {
         return RequirementsTest.repeated(() -> {
             List<String> observed = new ArrayList<>();

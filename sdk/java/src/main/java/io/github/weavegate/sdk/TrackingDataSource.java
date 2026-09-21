@@ -32,6 +32,7 @@ final class TrackingDataSource implements DataSource {
             + "(?:@@\\s*(?:(?:SESSION|LOCAL|GLOBAL)\\s*\\.\\s*)?)?AUTOCOMMIT\\b|"
             + "XA\\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\\b)");
     private static final ThreadLocal<Integer> TRANSACTION_CONTROL = new ThreadLocal<>();
+    private static final ThreadLocal<Peer.Invocation> TRANSACTION_BEGIN = new ThreadLocal<>();
     private final DataSource delegate;
     private final Peer peer;
 
@@ -247,6 +248,11 @@ final class TrackingDataSource implements DataSource {
         Peer.Invocation invocation = Peer.current();
         if (invocation != null) {
             peer.driverFailure(invocation, failure, driverSummary(failure));
+            if (TRANSACTION_BEGIN.get() == invocation) {
+                // Begin failures cannot be caught by command code. Preserve their
+                // order before Spring returns the lease and cancellation can race.
+                peer.recordSource(invocation, failure);
+            }
         }
     }
 
@@ -268,41 +274,68 @@ final class TrackingDataSource implements DataSource {
     }
 
     private static boolean transactionSql(String sql) {
-        String remaining = sql;
-        while (true) {
-            remaining = remaining.stripLeading();
-            if (remaining.startsWith("--") || remaining.startsWith("#")) {
-                int line = lineEnd(remaining);
-                if (line == remaining.length()) {
-                    return false;
-                }
-                remaining = remaining.substring(line + 1);
-                continue;
-            }
-            if (!remaining.startsWith("/*")) {
-                return TRANSACTION_SQL.matcher(remaining).find();
-            }
-            int end = remaining.indexOf("*/", 2);
-            if (end < 0) {
-                return false;
-            }
-            if (remaining.startsWith("/*!")) {
-                String executable = remaining.substring(3, end).stripLeading().replaceFirst("^\\d{5,6}\\s*", "");
-                if (transactionSql(executable)) {
-                    return true;
-                }
-            }
-            remaining = remaining.substring(end + 2);
-        }
+        return TRANSACTION_SQL.matcher(normalizeSql(sql).stripLeading()).find();
     }
 
-    private static int lineEnd(String value) {
-        int newline = value.indexOf('\n');
-        int carriage = value.indexOf('\r');
-        if (newline < 0) {
-            return carriage < 0 ? value.length() : carriage;
+    /** Removes MySQL comments outside quoted values; executable comments retain their SQL body. */
+    private static String normalizeSql(String sql) {
+        StringBuilder normalized = new StringBuilder(sql.length());
+        for (int i = 0; i < sql.length();) {
+            char current = sql.charAt(i);
+            if (current == '\'' || current == '"' || current == '`') {
+                i = appendQuoted(sql, i, normalized);
+                continue;
+            }
+            if (current == '#' || (current == '-' && i + 1 < sql.length() && sql.charAt(i + 1) == '-')) {
+                int line = i;
+                while (line < sql.length() && sql.charAt(line) != '\n' && sql.charAt(line) != '\r') {
+                    line++;
+                }
+                normalized.append(' ');
+                i = line;
+                continue;
+            }
+            if (current == '/' && i + 1 < sql.length() && sql.charAt(i + 1) == '*') {
+                int end = sql.indexOf("*/", i + 2);
+                if (end < 0) {
+                    normalized.append(sql, i, sql.length());
+                    break;
+                }
+                if (i + 2 < sql.length() && sql.charAt(i + 2) == '!') {
+                    String executable = sql.substring(i + 3, end).stripLeading()
+                            .replaceFirst("^\\d{5,6}\\s*", "");
+                    normalized.append(' ').append(normalizeSql(executable)).append(' ');
+                } else {
+                    normalized.append(' ');
+                }
+                i = end + 2;
+                continue;
+            }
+            normalized.append(current);
+            i++;
         }
-        return carriage < 0 ? newline : Math.min(newline, carriage);
+        return normalized.toString();
+    }
+
+    private static int appendQuoted(String sql, int offset, StringBuilder normalized) {
+        char quote = sql.charAt(offset);
+        normalized.append(quote);
+        int i = offset + 1;
+        while (i < sql.length()) {
+            char current = sql.charAt(i);
+            normalized.append(current);
+            i++;
+            if (current == '\\' && i < sql.length()) {
+                normalized.append(sql.charAt(i++));
+            } else if (current == quote) {
+                if (i < sql.length() && sql.charAt(i) == quote) {
+                    normalized.append(sql.charAt(i++));
+                } else {
+                    break;
+                }
+            }
+        }
+        return i;
     }
 
     private static boolean transactionControl(String method) {
@@ -317,6 +350,14 @@ final class TrackingDataSource implements DataSource {
     static void beginTransactionControl() {
         Integer depth = TRANSACTION_CONTROL.get();
         TRANSACTION_CONTROL.set(depth == null ? 1 : depth + 1);
+    }
+
+    static void beginTransactionAttempt(Peer.Invocation invocation) {
+        TRANSACTION_BEGIN.set(invocation);
+    }
+
+    static void endTransactionAttempt() {
+        TRANSACTION_BEGIN.remove();
     }
 
     static void endTransactionControl() {

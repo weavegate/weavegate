@@ -32,9 +32,11 @@ final class WeavegateTransactionManager extends DataSourceTransactionManager {
             throw new CannotCreateTransactionException("transaction outside weavegate invocation");
         }
         beginControl();
+        TrackingDataSource.beginTransactionAttempt(invocation);
         try {
             super.doBegin(transaction, definition);
         } finally {
+            TrackingDataSource.endTransactionAttempt();
             endControl();
         }
         peer.transactionBegun(invocation);

@@ -251,6 +251,30 @@ class SpringTransactionsTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> beginFailurePrecedesCancellationDuringClose() {
+        return RequirementsTest.repeated(() -> {
+            Session s = new Session();
+            String invocation = id(102);
+            s.faults.fault = FaultyDataSource.Fault.BEGIN;
+            s.faults.closeEntered = new java.util.concurrent.CountDownLatch(1);
+            s.faults.closeAllowed = new java.util.concurrent.CountDownLatch(1);
+            try {
+                s.invoke(invocation, "w1", "assign");
+                assertThat(s.faults.closeEntered.await(30, TimeUnit.SECONDS)).isTrue();
+                s.peer.receive(Scripted.cancel(++s.seq, invocation, "w1", "context"));
+            } finally {
+                s.faults.closeAllowed.countDown();
+            }
+            JsonNode terminal = s.terminal(invocation);
+            assertThat(terminal.toString()).contains("\"transaction\":\"not_started\"",
+                    "\"connection\":\"returned\"", "\"kind\":\"application\"", "database operation failed")
+                    .doesNotContain("cancelled by context");
+            s.faults.fault = FaultyDataSource.Fault.NONE;
+            s.stop();
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> springTransactionBoundaries() {
         return RequirementsTest.repeated(() -> {
             // Success, rollback, rollback-only, after-commit error, MySQL error and cancellation share one session.

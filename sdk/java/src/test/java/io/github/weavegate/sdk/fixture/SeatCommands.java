@@ -106,7 +106,7 @@ public class SeatCommands {
     @WeavegateCommand("sql_commit")
     public void sqlCommit(CommandContext context) {
         jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
-        jdbc.execute("COMMIT");
+        jdbc.execute("SET /* fixture */ autocommit = 1");
         throw new AssertionError("SQL transaction control was not rejected");
     }
 }

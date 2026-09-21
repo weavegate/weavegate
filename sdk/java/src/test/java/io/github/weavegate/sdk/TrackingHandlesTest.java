@@ -177,12 +177,18 @@ class TrackingHandlesTest {
                 assertThatThrownBy(() -> tracked.prepareStatement("COMMIT")).isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> trackedStatement.execute("SET SESSION autocommit = 1"))
                         .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("SET /* fixture */ autocommit = 1"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("START /* fixture */ TRANSACTION"))
+                        .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> trackedStatement.execute("SAVEPOINT fixture"))
                         .isInstanceOf(SQLException.class);
                 verify(statement, org.mockito.Mockito.never()).execute("COMMIT");
                 verify(statement, org.mockito.Mockito.never()).addBatch("/* fixture */ ROLLBACK");
                 verify(raw, org.mockito.Mockito.never()).prepareStatement("COMMIT");
                 verify(statement, org.mockito.Mockito.never()).execute("SET SESSION autocommit = 1");
+                verify(statement, org.mockito.Mockito.never()).execute("SET /* fixture */ autocommit = 1");
+                verify(statement, org.mockito.Mockito.never()).execute("START /* fixture */ TRANSACTION");
                 verify(statement, org.mockito.Mockito.never()).execute("SAVEPOINT fixture");
                 tracked.close();
             } finally {

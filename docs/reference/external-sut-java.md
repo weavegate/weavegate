@@ -18,7 +18,7 @@ parent's dependency management; the build fails on other Java or Maven versions.
 | Pool | HikariCP 7.0.2 | The single fixture DataSource |
 | JDBC driver | MySQL Connector/J 9.7.0 | MySQL 8.4 fixture access and statement cancellation |
 | Codec | Jackson 3.1.5 | Strict JSON with duplicate-key and trailing-value rejection |
-| Build | Apache Maven 3.9.16 through `./mvnw`, checksum-pinned | Reproducible build and test runner |
+| Build | Apache Maven 3.9.16 through `./mvnw`, checksum-pinned ZIP (`unzip` required for bootstrap) | Reproducible build and test runner |
 
 Test-only dependencies are Spring Boot's test starter, the JUnit launcher API
 for execution evidence and Testcontainers for a real MySQL 8.4 server.
@@ -112,6 +112,9 @@ connection close failure that Spring logs and suppresses sends a cleanup fatal.
 Neither case produces a terminal. An exception after commit reports `committed`
 with an application error. MySQL vendor code and SQLSTATE come from the
 underlying `SQLException`, not Spring's translated message.
+If transaction begin fails, its driver evidence is recorded before Spring
+returns the lease, so a concurrent cancellation cannot replace the earlier
+application or MySQL error.
 
 The existing transaction interceptor remains responsible for transaction rules.
 An observer immediately inside it records a command-body failure before Spring
@@ -138,6 +141,8 @@ completes locally and the process exits 1. Exit 0 happens only after `stopped`
 is flushed and stdout is closed. The peer remains STOPPING during this drain;
 queue overflow, failed writes/flush/close, or an expired Stop deadline retain a
 failed session and cannot produce exit 0.
+The forced-halt path performs no stderr flush, because stderr backpressure
+cannot be allowed to extend an absolute watchdog deadline.
 
 ## Validation and remaining acceptance
 
