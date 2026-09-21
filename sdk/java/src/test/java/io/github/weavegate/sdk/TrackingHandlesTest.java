@@ -2,6 +2,7 @@ package io.github.weavegate.sdk;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -98,6 +99,7 @@ class TrackingHandlesTest {
             Statement statement = mock(Statement.class);
             ResultSet rows = mock(ResultSet.class);
             AtomicReference<Boolean> registeredDuringNext = new AtomicReference<>();
+            AtomicReference<Boolean> registeredDuringClose = new AtomicReference<>();
             Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
             when(source.getConnection()).thenReturn(raw);
             when(raw.createStatement()).thenReturn(statement);
@@ -108,6 +110,12 @@ class TrackingHandlesTest {
                 }
                 return false;
             });
+            doAnswer(ignored -> {
+                synchronized (h.peer) {
+                    registeredDuringClose.set(!invocation.statements.isEmpty());
+                }
+                return null;
+            }).when(rows).close();
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
@@ -119,6 +127,7 @@ class TrackingHandlesTest {
                 assertThat(trackedRows.next()).isFalse();
                 assertThat(registeredDuringNext.get()).isTrue();
                 trackedRows.close();
+                assertThat(registeredDuringClose.get()).isTrue();
                 trackedStatement.close();
                 tracked.close();
             } finally {
@@ -181,6 +190,12 @@ class TrackingHandlesTest {
                         .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> trackedStatement.execute("START /* fixture */ TRANSACTION"))
                         .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("TRUNCATE TABLE seat"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("ALTER TABLE seat ADD COLUMN note TEXT"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("LOCK TABLES seat WRITE"))
+                        .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> trackedStatement.execute("SAVEPOINT fixture"))
                         .isInstanceOf(SQLException.class);
                 verify(statement, org.mockito.Mockito.never()).execute("COMMIT");
@@ -189,7 +204,39 @@ class TrackingHandlesTest {
                 verify(statement, org.mockito.Mockito.never()).execute("SET SESSION autocommit = 1");
                 verify(statement, org.mockito.Mockito.never()).execute("SET /* fixture */ autocommit = 1");
                 verify(statement, org.mockito.Mockito.never()).execute("START /* fixture */ TRANSACTION");
+                verify(statement, org.mockito.Mockito.never()).execute("TRUNCATE TABLE seat");
+                verify(statement, org.mockito.Mockito.never()).execute("ALTER TABLE seat ADD COLUMN note TEXT");
+                verify(statement, org.mockito.Mockito.never()).execute("LOCK TABLES seat WRITE");
                 verify(statement, org.mockito.Mockito.never()).execute("SAVEPOINT fixture");
+                tracked.close();
+            } finally {
+                current.remove();
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> jdbcQueryTimeoutsAreRejected() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement()).thenReturn(statement);
+            Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
+            ThreadLocal<Peer.Invocation> current = current();
+            invocation.thread = Thread.currentThread();
+            invocation.proxy = Peer.Proxy.INSIDE;
+            current.set(invocation);
+            try {
+                Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                Statement trackedStatement = tracked.createStatement();
+                trackedStatement.setQueryTimeout(0);
+                assertThatThrownBy(() -> trackedStatement.setQueryTimeout(1)).isInstanceOf(SQLException.class);
+                verify(statement).setQueryTimeout(0);
+                verify(statement, org.mockito.Mockito.never()).setQueryTimeout(1);
+                trackedStatement.close();
                 tracked.close();
             } finally {
                 current.remove();

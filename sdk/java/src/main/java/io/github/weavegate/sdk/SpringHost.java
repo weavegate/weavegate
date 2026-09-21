@@ -160,8 +160,9 @@ final class SpringHost implements Seams.Host {
                 if (!declared.stream().allMatch(Wire::name)) {
                     throw new IllegalStateException("invalid point registration");
                 }
-                registered.put(command.value(), new Registered(bean,
-                        AopUtils.selectInvocableMethod(method, bean.getClass()), Set.copyOf(declared)));
+                Method invocable = AopUtils.selectInvocableMethod(method, bean.getClass());
+                ReflectionUtils.makeAccessible(invocable);
+                registered.put(command.value(), new Registered(bean, invocable, Set.copyOf(declared)));
             }
         }
         Set<String> declaredPoints = new HashSet<>();

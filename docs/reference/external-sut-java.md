@@ -46,8 +46,10 @@ Flyway and Liquibase are disabled. Startup fails if the context contains another
 DataSource or transaction manager, or enables `@Scheduled` or `@Async`
 processing; processor beans are detected by type, regardless of bean name.
 
-Commands are public, non-final instance methods on proxied Spring beans. Static
-methods and proxies without accessible, matching transaction advice are rejected.
+Commands are public, non-final instance methods on proxied Spring beans. The bean
+class itself may be package-private; the selected proxy method is made reflectively
+accessible before dispatch. Static methods and proxies without accessible,
+matching transaction advice are rejected.
 Each needs one `@Transactional` boundary with `REQUIRED` propagation, no
 wall-clock timeout, and rollback behavior for `WeavegateCancelledException`
 (the default rule for runtime exceptions does).
@@ -84,13 +86,19 @@ use outside an invocation after readiness, retained JDBC handle use from another
 thread and sync points outside the worker's proxy call are session failures.
 Application calls to JDBC auto-commit, commit, rollback or savepoint controls
 are rejected through both connection methods and direct, prepared or batched SQL;
-only the SDK-owned transaction manager may use them.
+only the SDK-owned transaction manager may use them. SQL that can commit
+implicitly or act outside the transaction, including DDL, table locks, account
+management and administrative statements, is rejected before JDBC delegation
+as a fatal unsupported adapter operation. Nonzero JDBC statement query timeouts
+are unsupported because they would make a schedule depend on wall-clock time;
+zero continues to mean no timeout.
 
 Standard JDBC `unwrap` returns the tracking proxy when that interface is
 supported; vendor-specific unwrapping is rejected. Statement, result-set and
 metadata navigation retain tracked handles, including `getConnection()` and
-`getStatement()`. Blocking result-set navigation registers its owning statement
-for cancellation, so streaming rows cannot bypass statement cancellation.
+`getStatement()`. Blocking result-set navigation and close operations register
+their owning statement for cancellation, so streaming row drains cannot bypass
+statement cancellation.
 After the first start binds the session identity, every schema-valid foreign
 frame is stale-dropped before direction and sequence checks.
 

@@ -109,4 +109,27 @@ public class SeatCommands {
         jdbc.execute("SET /* fixture */ autocommit = 1");
         throw new AssertionError("SQL transaction control was not rejected");
     }
+
+    @Transactional
+    @WeavegateCommand("implicit_commit")
+    public void implicitCommit() {
+        jdbc.execute("TRUNCATE TABLE seat");
+        throw new AssertionError("implicit-commit SQL was not rejected");
+    }
+}
+
+/** Exercises reflective dispatch through a CGLIB proxy whose user class is not public. */
+@Service
+class PackagePrivateCommands {
+    private final JdbcTemplate jdbc;
+
+    PackagePrivateCommands(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    @Transactional
+    @WeavegateCommand("package_private")
+    public void run(CommandContext context) {
+        jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
+    }
 }

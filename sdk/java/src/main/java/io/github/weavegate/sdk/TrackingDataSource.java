@@ -31,6 +31,11 @@ final class TrackingDataSource implements DataSource {
             + "SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+)?"
             + "(?:@@\\s*(?:(?:SESSION|LOCAL|GLOBAL)\\s*\\.\\s*)?)?AUTOCOMMIT\\b|"
             + "XA\\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\\b)");
+    private static final Pattern NONTRANSACTIONAL_SQL = Pattern.compile("(?is)^(?:"
+            + "(?:ALTER|ANALYZE|CACHE|CHECK|CREATE|DROP|FLUSH|GRANT|INSTALL|LOCK|OPTIMIZE|RENAME|REPAIR|"
+            + "RESET|REVOKE|TRUNCATE|UNINSTALL|UNLOCK)\\b|"
+            + "LOAD\\s+INDEX\\s+INTO\\s+CACHE\\b|SET\\s+PASSWORD\\b|"
+            + "CHANGE\\s+(?:MASTER|REPLICATION)\\b|(?:START|STOP)\\s+(?:REPLICA|SLAVE)\\b)");
     private static final ThreadLocal<Integer> TRANSACTION_CONTROL = new ThreadLocal<>();
     private static final ThreadLocal<Peer.Invocation> TRANSACTION_BEGIN = new ThreadLocal<>();
     private final DataSource delegate;
@@ -121,7 +126,7 @@ final class TrackingDataSource implements DataSource {
             if (transactionControl(method.getName()) && !transactionControlAllowed()) {
                 throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
             }
-            rejectTransactionSql(method, args);
+            rejectUnsupportedSql(method, args);
             Object result = call(connection, method, args);
             if (result instanceof Statement statement) {
                 return trackStatement(statement, invocation, (Connection) proxy);
@@ -168,14 +173,13 @@ final class TrackingDataSource implements DataSource {
                         case "getStatement" -> { return statement; }
                         case "unwrap" -> { return unwrapTracked(proxy, (Class<?>) args[0]); }
                         case "isWrapperFor" -> { return ((Class<?>) args[0]).isInstance(proxy); }
-                        case "close" -> { return call(rows, method, args); }
                         default -> { }
                     }
                     if (invocation == null || cancel == null) {
                         return call(rows, method, args);
                     }
                     try {
-                        if (!peer.statementStarted(invocation, cancel)) {
+                        if (!peer.statementStarted(invocation, cancel) && !method.getName().equals("close")) {
                             throw new WeavegateCancelledException("cancelled before result-set navigation");
                         }
                         return call(rows, method, args);
@@ -214,7 +218,8 @@ final class TrackingDataSource implements DataSource {
                 case "isWrapperFor" -> { return ((Class<?>) args[0]).isInstance(proxy); }
                 default -> { }
             }
-            rejectTransactionSql(method, args);
+            rejectUnsupportedSql(method, args);
+            rejectQueryTimeout(method, args);
             if (invocation == null || !method.getName().startsWith("execute")) {
                 Object value = call(statement, method, args);
                 return value instanceof ResultSet rows
@@ -262,19 +267,28 @@ final class TrackingDataSource implements DataSource {
         }
     }
 
-    private static void rejectTransactionSql(Method method, Object[] args) throws SQLException {
+    private void rejectUnsupportedSql(Method method, Object[] args) throws SQLException {
         if (args == null || args.length == 0 || !(args[0] instanceof String sql)) {
             return;
         }
         String name = method.getName();
-        if ((name.startsWith("execute") || name.equals("addBatch") || name.startsWith("prepare"))
-                && transactionSql(sql)) {
-            throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
+        if (name.startsWith("execute") || name.equals("addBatch") || name.startsWith("prepare")) {
+            String normalized = normalizeSql(sql).stripLeading();
+            if (TRANSACTION_SQL.matcher(normalized).find()) {
+                throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
+            }
+            if (NONTRANSACTIONAL_SQL.matcher(normalized).find()) {
+                peer.unsupported("transaction", "nontransactional SQL is unsupported");
+                throw new SQLFeatureNotSupportedException("nontransactional SQL is unsupported");
+            }
         }
     }
 
-    private static boolean transactionSql(String sql) {
-        return TRANSACTION_SQL.matcher(normalizeSql(sql).stripLeading()).find();
+    private static void rejectQueryTimeout(Method method, Object[] args) throws SQLException {
+        if (method.getName().equals("setQueryTimeout") && args != null && args.length == 1
+                && args[0] instanceof Integer seconds && seconds != 0) {
+            throw new SQLFeatureNotSupportedException("wall-clock JDBC query timeouts are unsupported");
+        }
     }
 
     /** Removes MySQL comments outside quoted values; executable comments retain their SQL body. */

@@ -181,7 +181,8 @@ class SpringTransactionsTest {
             output.peer = peer;
             peer.receive(Scripted.frame("start", seq, Map.of("variant", "fixed", "params", Map.of(),
                     "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure",
-                            "duplicate_key", "caught_duplicate", "manual_commit", "sql_commit"),
+                            "duplicate_key", "caught_duplicate", "manual_commit", "sql_commit", "implicit_commit",
+                            "package_private"),
                     "points", List.of("after_read", "before_write"), "capacity", 2,
                     "database", Map.of("driver", "mysql", "host", MYSQL.getHost(), "port", MYSQL.getMappedPort(3306),
                             "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
@@ -335,6 +336,11 @@ class SpringTransactionsTest {
             assertThat(sqlControl.toString()).contains("\"transaction\":\"rolled_back\"",
                     "\"kind\":\"application\"", "application-managed transaction control is unsupported");
 
+            resetSeat();
+            s.invoke(id(13), "w1", "package_private");
+            assertThat(s.terminal(id(13)).toString()).contains("\"transaction\":\"committed\"", "\"error\":null");
+            assertThat(seat()).isEqualTo("w1");
+
             // Begin failure: the lease was acquired and returned, but no transaction started.
             s.faults.fault = FaultyDataSource.Fault.BEGIN;
             s.invoke(id(6), "w1", "assign");
@@ -366,8 +372,21 @@ class SpringTransactionsTest {
             assertFatal(FaultyDataSource.Fault.COMMIT, "transaction", "transaction outcome unknown", "assign", "thrown");
             assertFatal(FaultyDataSource.Fault.ROLLBACK, "transaction", "transaction outcome unknown", "fail_body", "thrown");
             assertFatal(FaultyDataSource.Fault.CLOSE, "cleanup", "lease return failed", "assign", "returned");
+            assertUnsupportedSqlFatal();
             EvidenceListener.check("requirement/spring-transactions", "observe/evidence", HANDLER + "springTransactionBoundaries");
         });
+    }
+
+    private static void assertUnsupportedSqlFatal() throws Exception {
+        resetSeat();
+        Session s = new Session(1000);
+        s.invoke(id(14), "w1", "implicit_commit");
+        JsonNode fatal = s.fatal();
+        assertThat(fatal.get("kind").stringValue()).isEqualTo("transaction");
+        assertThat(fatal.get("message").stringValue()).isEqualTo("nontransactional SQL is unsupported");
+        assertThat(s.output.frames.stream().filter(f -> f.get("type").stringValue().equals("terminal"))).isEmpty();
+        assertThat(s.exit.await()).isEqualTo(1);
+        assertThat(seat()).isNull();
     }
 
     private static void assertFatal(FaultyDataSource.Fault fault, String kind, String message, String command,
