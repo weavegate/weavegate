@@ -43,6 +43,11 @@ class RegistrationTest {
         public void other() { }
     }
 
+    public static class TimeoutCommands {
+        @Transactional(timeout = 1) @WeavegateCommand("timed")
+        public void timed() { }
+    }
+
     static void validate(Class<?> commands, List<String> selected, List<String> points) {
         validate(commands, selected, points, null);
     }
@@ -95,5 +100,12 @@ class RegistrationTest {
                         .isInstanceOf(IllegalStateException.class);
             }
         });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> wallClockTransactionTimeoutsAreRejected() {
+        return RequirementsTest.repeated(() ->
+                assertThatThrownBy(() -> validate(TimeoutCommands.class, List.of("timed"), List.of()))
+                        .isInstanceOf(IllegalStateException.class));
     }
 }

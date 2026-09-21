@@ -181,7 +181,7 @@ class SpringTransactionsTest {
             output.peer = peer;
             peer.receive(Scripted.frame("start", seq, Map.of("variant", "fixed", "params", Map.of(),
                     "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure",
-                            "duplicate_key", "caught_duplicate", "manual_commit"),
+                            "duplicate_key", "caught_duplicate", "manual_commit", "sql_commit"),
                     "points", List.of("after_read", "before_write"), "capacity", 2,
                     "database", Map.of("driver", "mysql", "host", MYSQL.getHost(), "port", MYSQL.getMappedPort(3306),
                             "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
@@ -303,6 +303,13 @@ class SpringTransactionsTest {
             assertThat(s.terminal(id(11)).toString()).contains("\"transaction\":\"rolled_back\"",
                     "\"kind\":\"application\"", "application-managed transaction control is unsupported");
             assertThat(seat()).isNull();
+
+            resetSeat();
+            s.invoke(id(12), "w1", "sql_commit");
+            JsonNode sqlControl = s.terminal(id(12));
+            assertThat(seat()).isNull();
+            assertThat(sqlControl.toString()).contains("\"transaction\":\"rolled_back\"",
+                    "\"kind\":\"application\"", "application-managed transaction control is unsupported");
 
             // Begin failure: the lease was acquired and returned, but no transaction started.
             s.faults.fault = FaultyDataSource.Fault.BEGIN;

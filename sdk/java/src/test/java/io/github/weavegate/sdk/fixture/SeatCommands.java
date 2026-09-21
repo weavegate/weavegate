@@ -101,4 +101,12 @@ public class SeatCommands {
         });
         throw new AssertionError("application-managed commit was not rejected");
     }
+
+    @Transactional
+    @WeavegateCommand("sql_commit")
+    public void sqlCommit(CommandContext context) {
+        jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
+        jdbc.execute("COMMIT");
+        throw new AssertionError("SQL transaction control was not rejected");
+    }
 }

@@ -180,6 +180,10 @@ final class Peer {
             if (phase == Phase.FAILED || phase == Phase.STOPPED || exited) {
                 return false;
             }
+            if (run != null && (!frame.run().equals(run) || !frame.session().equals(session))) {
+                staleFrames++;
+                return reading();
+            }
             if (!Set.of("start", "invoke", "release", "cancel", "stop", "fatal").contains(frame.type())) {
                 fail("protocol", "wrong message direction", true);
                 return reading();
@@ -191,9 +195,6 @@ final class Peer {
                 }
                 run = frame.run();
                 session = frame.session();
-            } else if (!frame.run().equals(run) || !frame.session().equals(session)) {
-                staleFrames++;
-                return reading();
             }
             byte[] digest = digest(frame.payload());
             if (frame.seq() <= received) {
@@ -511,7 +512,8 @@ final class Peer {
                 fail("protocol", "sync point outside invocation thread", true);
                 throw cancelled(invocation);
             }
-            if (!Wire.name(point) || !commandPoints.getOrDefault(invocation.command, Set.of()).contains(point)) {
+            if (!Wire.name(point) || !start.points().contains(point)
+                    || !commandPoints.getOrDefault(invocation.command, Set.of()).contains(point)) {
                 fail("protocol", "unknown sync point", true);
                 throw cancelled(invocation);
             }
@@ -625,6 +627,15 @@ final class Peer {
 
     synchronized void driverFailure(Invocation invocation, SQLException failure, SQLException summary) {
         invocation.driverFailures.put(failure, summary);
+    }
+
+    /** Requires retained JDBC handles to remain on their owning live invocation thread. */
+    synchronized void jdbcEntry(Invocation invocation) {
+        if (CURRENT.get() != invocation || Thread.currentThread() != invocation.thread
+                || invocation.proxy != Proxy.INSIDE) {
+            fail("protocol", "JDBC operation outside invocation thread", true);
+            throw cancelled(invocation);
+        }
     }
 
     private static Throwable escapingDriverSummary(Invocation invocation, Throwable source) {

@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 import javax.sql.DataSource;
 
@@ -24,6 +25,12 @@ import javax.sql.DataSource;
  * for cancellation.
  */
 final class TrackingDataSource implements DataSource {
+    private static final Pattern TRANSACTION_SQL = Pattern.compile("(?is)^(?:BEGIN\\b|START\\s+TRANSACTION\\b|"
+            + "COMMIT\\b|ROLLBACK\\b|SAVEPOINT\\b|RELEASE\\s+SAVEPOINT\\b|"
+            + "SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+)?TRANSACTION\\b|"
+            + "SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+)?"
+            + "(?:@@\\s*(?:(?:SESSION|LOCAL|GLOBAL)\\s*\\.\\s*)?)?AUTOCOMMIT\\b|"
+            + "XA\\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\\b)");
     private static final ThreadLocal<Integer> TRANSACTION_CONTROL = new ThreadLocal<>();
     private final DataSource delegate;
     private final Peer peer;
@@ -67,6 +74,7 @@ final class TrackingDataSource implements DataSource {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            requireInvocation(invocation);
             switch (method.getName()) {
                 case "unwrap" -> {
                     return unwrapTracked(proxy, (Class<?>) args[0]);
@@ -112,6 +120,7 @@ final class TrackingDataSource implements DataSource {
             if (transactionControl(method.getName()) && !transactionControlAllowed()) {
                 throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
             }
+            rejectTransactionSql(method, args);
             Object result = call(connection, method, args);
             if (result instanceof Statement statement) {
                 return trackStatement(statement, invocation, (Connection) proxy);
@@ -119,6 +128,7 @@ final class TrackingDataSource implements DataSource {
             if (result instanceof DatabaseMetaData metadata) {
                 return Proxy.newProxyInstance(DatabaseMetaData.class.getClassLoader(),
                         new Class<?>[] {DatabaseMetaData.class}, (p, m, a) -> {
+                            requireInvocation(invocation);
                             return switch (m.getName()) {
                                 case "getConnection" -> proxy;
                                 case "unwrap" -> unwrapTracked(p, (Class<?>) a[0]);
@@ -152,6 +162,7 @@ final class TrackingDataSource implements DataSource {
                                 Seams.Cancellable cancel) {
         return (ResultSet) Proxy.newProxyInstance(ResultSet.class.getClassLoader(), new Class<?>[] {ResultSet.class},
                 (proxy, method, args) -> {
+                    requireInvocation(invocation);
                     switch (method.getName()) {
                         case "getStatement" -> { return statement; }
                         case "unwrap" -> { return unwrapTracked(proxy, (Class<?>) args[0]); }
@@ -195,12 +206,14 @@ final class TrackingDataSource implements DataSource {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            requireInvocation(invocation);
             switch (method.getName()) {
                 case "getConnection" -> { return connection; }
                 case "unwrap" -> { return unwrapTracked(proxy, (Class<?>) args[0]); }
                 case "isWrapperFor" -> { return ((Class<?>) args[0]).isInstance(proxy); }
                 default -> { }
             }
+            rejectTransactionSql(method, args);
             if (invocation == null || !method.getName().startsWith("execute")) {
                 Object value = call(statement, method, args);
                 return value instanceof ResultSet rows
@@ -235,6 +248,61 @@ final class TrackingDataSource implements DataSource {
         if (invocation != null) {
             peer.driverFailure(invocation, failure, driverSummary(failure));
         }
+    }
+
+    private void requireInvocation(Peer.Invocation invocation) {
+        if (invocation != null) {
+            peer.jdbcEntry(invocation);
+        }
+    }
+
+    private static void rejectTransactionSql(Method method, Object[] args) throws SQLException {
+        if (args == null || args.length == 0 || !(args[0] instanceof String sql)) {
+            return;
+        }
+        String name = method.getName();
+        if ((name.startsWith("execute") || name.equals("addBatch") || name.startsWith("prepare"))
+                && transactionSql(sql)) {
+            throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
+        }
+    }
+
+    private static boolean transactionSql(String sql) {
+        String remaining = sql;
+        while (true) {
+            remaining = remaining.stripLeading();
+            if (remaining.startsWith("--") || remaining.startsWith("#")) {
+                int line = lineEnd(remaining);
+                if (line == remaining.length()) {
+                    return false;
+                }
+                remaining = remaining.substring(line + 1);
+                continue;
+            }
+            if (!remaining.startsWith("/*")) {
+                return TRANSACTION_SQL.matcher(remaining).find();
+            }
+            int end = remaining.indexOf("*/", 2);
+            if (end < 0) {
+                return false;
+            }
+            if (remaining.startsWith("/*!")) {
+                String executable = remaining.substring(3, end).stripLeading().replaceFirst("^\\d{5,6}\\s*", "");
+                if (transactionSql(executable)) {
+                    return true;
+                }
+            }
+            remaining = remaining.substring(end + 2);
+        }
+    }
+
+    private static int lineEnd(String value) {
+        int newline = value.indexOf('\n');
+        int carriage = value.indexOf('\r');
+        if (newline < 0) {
+            return carriage < 0 ? value.length() : carriage;
+        }
+        return carriage < 0 ? newline : Math.min(newline, carriage);
     }
 
     private static boolean transactionControl(String method) {

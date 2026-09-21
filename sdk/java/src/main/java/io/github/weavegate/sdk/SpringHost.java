@@ -152,7 +152,8 @@ final class SpringHost implements Seams.Host {
                 }
                 TransactionAttribute attribute = attributes.getTransactionAttribute(method, user);
                 if (!supportedTransaction(attribute)) {
-                    throw new IllegalStateException("command transaction must be REQUIRED and roll back on cancellation");
+                    throw new IllegalStateException(
+                            "command transaction must be REQUIRED without timeout and roll back on cancellation");
                 }
                 observeCommand(bean, method, user);
                 Set<String> declared = new HashSet<>(List.of(command.points()));
@@ -209,6 +210,7 @@ final class SpringHost implements Seams.Host {
 
     private static boolean supportedTransaction(TransactionAttribute attribute) {
         return attribute != null && attribute.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRED
+                && attribute.getTimeout() == TransactionDefinition.TIMEOUT_DEFAULT
                 && attribute.rollbackOn(new WeavegateCancelledException("validation"))
                 && (attribute.getQualifier() == null || attribute.getQualifier().isEmpty());
     }

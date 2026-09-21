@@ -48,9 +48,9 @@ processing; processor beans are detected by type, regardless of bean name.
 
 Commands are public, non-final instance methods on proxied Spring beans. Static
 methods and proxies without accessible, matching transaction advice are rejected.
-Each needs one
-`@Transactional` boundary with `REQUIRED` propagation that rolls back for
-`WeavegateCancelledException` (the default rule for runtime exceptions does).
+Each needs one `@Transactional` boundary with `REQUIRED` propagation, no
+wall-clock timeout, and rollback behavior for `WeavegateCancelledException`
+(the default rule for runtime exceptions does).
 The dispatcher calls the bean proxy, so self-invocation cannot bypass it.
 
 ```java
@@ -74,22 +74,25 @@ public class SeatCommands {
 
 Readiness validates every requested command and point against the selected
 command registrations, retains each command's declared point set, then completes
-a database probe that returns its lease. Every runtime arrival must belong to
-the invoked command rather than only to the session-wide point union.
+a database probe that returns its lease. Every runtime arrival must be both
+requested for the session and declared by the invoked command.
 All application-startup leases must also be returned before ready; a lease left
 after application closure prevents normal stopped. One
 invocation runs on one worker thread with one transaction and one connection
 lease. Nested transactions, `REQUIRES_NEW` suspension, a second lease, database
-use outside an invocation after readiness and sync points outside the worker's
-proxy call are session failures. Application calls to JDBC auto-commit, commit,
-rollback or savepoint controls are rejected; only the SDK-owned transaction
-manager may use them.
+use outside an invocation after readiness, retained JDBC handle use from another
+thread and sync points outside the worker's proxy call are session failures.
+Application calls to JDBC auto-commit, commit, rollback or savepoint controls
+are rejected through both connection methods and direct, prepared or batched SQL;
+only the SDK-owned transaction manager may use them.
 
 Standard JDBC `unwrap` returns the tracking proxy when that interface is
 supported; vendor-specific unwrapping is rejected. Statement, result-set and
 metadata navigation retain tracked handles, including `getConnection()` and
 `getStatement()`. Blocking result-set navigation registers its owning statement
 for cancellation, so streaming rows cannot bypass statement cancellation.
+After the first start binds the session identity, every schema-valid foreign
+frame is stale-dropped before direction and sequence checks.
 
 ## Completion and cancellation
 

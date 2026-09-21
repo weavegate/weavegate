@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.InputStream;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -270,6 +271,55 @@ class RequirementsTest {
             h.host.script(Scripted.I1).mailbox.put(new Fakes.ExitProxy());
             h.activity.awaitIdle();
             assertThat(h.peer.fatalKind).isEqualTo("protocol");
+
+            VectorHarness requested = new VectorHarness("independent").quiet();
+            requested.peer.receive(Scripted.frame("start", 1, Map.of("variant", "fixed", "params", Map.of(),
+                    "commands", List.of("assign"), "points", List.of("after_read"),
+                    "capacity", 1, "database", Map.of("driver", "mysql", "host", "127.0.0.1", "port", 33060,
+                            "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
+                    "startup_ms", 10000, "cancel_ms", 1000)));
+            requested.activity.awaitIdle();
+            requested.host.completeProbe();
+            requested.activity.awaitIdle();
+            requested.peer.receive(Scripted.invoke(2, Scripted.I1, "w1", "assign"));
+            requested.threads.run(Scripted.I1);
+            requested.activity.awaitIdle();
+            requested.host.script(Scripted.I1).mailbox.put(new Fakes.Arrive("before_write"));
+            requested.activity.awaitIdle();
+            requested.peer.receive(Scripted.cancel(3, Scripted.I1, "w1", "context"));
+            requested.host.script(Scripted.I1).mailbox.put(new Fakes.ExitProxy());
+            requested.activity.awaitIdle();
+            assertThat(requested.peer.fatalKind).isEqualTo("protocol");
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> foreignOutboundFramesAreDroppedBeforeDirectionChecks() {
+        return repeated(() -> {
+            VectorHarness h = Scripted.ready(1);
+            String foreign = "5".repeat(32);
+            Map<String, Object> terminal = new LinkedHashMap<>();
+            terminal.put("invocation", Scripted.I1);
+            terminal.put("worker", "w1");
+            terminal.put("transaction", "committed");
+            terminal.put("connection", "returned");
+            terminal.put("error", null);
+            List<byte[]> frames = List.of(
+                    Scripted.frame("ready", Scripted.RUN, foreign, 2,
+                            Map.of("commands", List.of("assign"), "points", List.of("after_read"), "capacity", 1)),
+                    Scripted.frame("accepted", Scripted.RUN, foreign, 2,
+                            Map.of("invocation", Scripted.I1, "worker", "w1")),
+                    Scripted.frame("arrive", Scripted.RUN, foreign, 2,
+                            Map.of("invocation", Scripted.I1, "worker", "w1", "arrival", "1", "point", "after_read")),
+                    Scripted.frame("terminal", Scripted.RUN, foreign, 2, terminal),
+                    Scripted.frame("stopped", Scripted.RUN, foreign, 2, Map.of()));
+            for (byte[] frame : frames) {
+                assertThat(h.peer.receive(frame)).isTrue();
+            }
+            assertThat(h.peer.fatalKind).isNull();
+            assertThat(h.peer.staleFrames).isEqualTo(frames.size());
+            assertThat(h.peer.received).isEqualTo(1);
+            assertThat(types(h)).containsExactly("ready");
         });
     }
 
