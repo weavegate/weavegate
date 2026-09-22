@@ -8,14 +8,18 @@ import javax.sql.DataSource;
 
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.scheduling.annotation.AsyncAnnotationBeanPostProcessor;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 
 class RegistrationTest {
     @Configuration(proxyBeanMethods = false)
@@ -107,5 +111,32 @@ class RegistrationTest {
         return RequirementsTest.repeated(() ->
                 assertThatThrownBy(() -> validate(TimeoutCommands.class, List.of("timed"), List.of()))
                         .isInstanceOf(IllegalStateException.class));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> commandAdviceMustUseRegisteredTransactionManager() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness harness = new VectorHarness("independent").quiet();
+            TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
+            WeavegateTransactionManager registered = new WeavegateTransactionManager(dataSource, harness.peer);
+            WeavegateTransactionManager separate = new WeavegateTransactionManager(dataSource, harness.peer);
+            ProxyFactory factory = new ProxyFactory(new Commands());
+            factory.setProxyTargetClass(true);
+            factory.addAdvice(new TransactionInterceptor(
+                    (TransactionManager) separate, new AnnotationTransactionAttributeSource()));
+            Commands proxy = (Commands) factory.getProxy();
+            SpringHost host = new SpringHost(Transactions.class, new String[0]);
+            host.bind(harness.peer);
+            try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+                context.registerBean("dataSource", DataSource.class, () -> dataSource);
+                context.registerBean("transactionManager", WeavegateTransactionManager.class, () -> registered);
+                context.registerBean("commands", Commands.class, () -> proxy);
+                context.refresh();
+                ReflectionTestUtils.setField(host, "context", context);
+                ReflectionTestUtils.setField(host, "dataSource", dataSource);
+                assertThatThrownBy(() -> host.validateRegistration(List.of("selected"), List.of("selected_point")))
+                        .isInstanceOf(IllegalStateException.class);
+            }
+        });
     }
 }

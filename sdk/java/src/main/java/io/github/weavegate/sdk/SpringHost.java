@@ -121,6 +121,7 @@ final class SpringHost implements Seams.Host {
         if (managers.size() != 1 || !(managers.values().iterator().next() instanceof WeavegateTransactionManager)) {
             throw new IllegalStateException("exactly one weavegate transaction manager is supported");
         }
+        TransactionManager manager = managers.values().iterator().next();
         if (ctx.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class, true, false).length > 0
                 || ctx.getBeanNamesForType(AsyncAnnotationBeanPostProcessor.class, true, false).length > 0) {
             throw new IllegalStateException("scheduled and async processing are unsupported");
@@ -155,7 +156,7 @@ final class SpringHost implements Seams.Host {
                     throw new IllegalStateException(
                             "command transaction must be REQUIRED without timeout and roll back on cancellation");
                 }
-                observeCommand(bean, method, user);
+                observeCommand(bean, method, user, manager);
                 Set<String> declared = new HashSet<>(List.of(command.points()));
                 if (!declared.stream().allMatch(Wire::name)) {
                     throw new IllegalStateException("invalid point registration");
@@ -175,7 +176,7 @@ final class SpringHost implements Seams.Host {
         return Map.copyOf(selected);
     }
 
-    private static void observeCommand(Object bean, Method method, Class<?> user) {
+    private static void observeCommand(Object bean, Method method, Class<?> user, TransactionManager manager) {
         if (!(bean instanceof Advised advised) || advised.isFrozen()) {
             throw new IllegalStateException("command proxy must expose its transaction advice");
         }
@@ -188,13 +189,17 @@ final class SpringHost implements Seams.Host {
                 observed = true;
             }
             if (advisor.getAdvice() instanceof TransactionInterceptor interceptor) {
+                TransactionManager configured = interceptor.getTransactionManager();
                 if (transaction != -1 || interceptor.getTransactionAttributeSource() == null
+                        // A null manager resolves by type; the context check above makes that
+                        // the one SDK manager. A directly configured manager must be identical.
+                        || (configured != null && configured != manager)
                         || !supportedTransaction(interceptor.getTransactionAttributeSource().getTransactionAttribute(method, user))
                         || (advisor instanceof PointcutAdvisor pointcut
                         && (!pointcut.getPointcut().getClassFilter().matches(user)
                         || !pointcut.getPointcut().getMethodMatcher().matches(method, user)
                         || pointcut.getPointcut().getMethodMatcher().isRuntime()))) {
-                    throw new IllegalStateException("command requires one matching transaction advice");
+                    throw new IllegalStateException("command requires one matching weavegate transaction advice");
                 }
                 transaction = i;
             }

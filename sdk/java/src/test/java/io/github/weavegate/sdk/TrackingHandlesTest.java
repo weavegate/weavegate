@@ -13,6 +13,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -91,7 +92,7 @@ class TrackingHandlesTest {
     }
 
     @TestFactory
-    Stream<DynamicTest> resultSetNavigationRemainsCancellable() {
+    Stream<DynamicTest> resultSetAndStatementCloseRemainCancellable() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
             DataSource source = mock(DataSource.class);
@@ -100,6 +101,7 @@ class TrackingHandlesTest {
             ResultSet rows = mock(ResultSet.class);
             AtomicReference<Boolean> registeredDuringNext = new AtomicReference<>();
             AtomicReference<Boolean> registeredDuringClose = new AtomicReference<>();
+            AtomicReference<Boolean> registeredDuringStatementClose = new AtomicReference<>();
             Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
             when(source.getConnection()).thenReturn(raw);
             when(raw.createStatement()).thenReturn(statement);
@@ -116,6 +118,12 @@ class TrackingHandlesTest {
                 }
                 return null;
             }).when(rows).close();
+            doAnswer(ignored -> {
+                synchronized (h.peer) {
+                    registeredDuringStatementClose.set(!invocation.statements.isEmpty());
+                }
+                return null;
+            }).when(statement).close();
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
@@ -129,6 +137,7 @@ class TrackingHandlesTest {
                 trackedRows.close();
                 assertThat(registeredDuringClose.get()).isTrue();
                 trackedStatement.close();
+                assertThat(registeredDuringStatementClose.get()).isTrue();
                 tracked.close();
             } finally {
                 current.remove();
@@ -216,7 +225,7 @@ class TrackingHandlesTest {
     }
 
     @TestFactory
-    Stream<DynamicTest> jdbcQueryTimeoutsAreRejected() {
+    Stream<DynamicTest> jdbcWallClockTimeoutsAreRejected() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
             DataSource source = mock(DataSource.class);
@@ -232,10 +241,15 @@ class TrackingHandlesTest {
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
                 Statement trackedStatement = tracked.createStatement();
+                Executor executor = Runnable::run;
                 trackedStatement.setQueryTimeout(0);
                 assertThatThrownBy(() -> trackedStatement.setQueryTimeout(1)).isInstanceOf(SQLException.class);
+                tracked.setNetworkTimeout(executor, 0);
+                assertThatThrownBy(() -> tracked.setNetworkTimeout(executor, 1)).isInstanceOf(SQLException.class);
                 verify(statement).setQueryTimeout(0);
                 verify(statement, org.mockito.Mockito.never()).setQueryTimeout(1);
+                verify(raw).setNetworkTimeout(executor, 0);
+                verify(raw, org.mockito.Mockito.never()).setNetworkTimeout(executor, 1);
                 trackedStatement.close();
                 tracked.close();
             } finally {

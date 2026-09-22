@@ -127,6 +127,7 @@ final class TrackingDataSource implements DataSource {
                 throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
             }
             rejectUnsupportedSql(method, args);
+            rejectNetworkTimeout(method, args);
             Object result = call(connection, method, args);
             if (result instanceof Statement statement) {
                 return trackStatement(statement, invocation, (Connection) proxy);
@@ -220,13 +221,14 @@ final class TrackingDataSource implements DataSource {
             }
             rejectUnsupportedSql(method, args);
             rejectQueryTimeout(method, args);
-            if (invocation == null || !method.getName().startsWith("execute")) {
+            boolean cancellable = method.getName().startsWith("execute") || method.getName().equals("close");
+            if (invocation == null || !cancellable) {
                 Object value = call(statement, method, args);
                 return value instanceof ResultSet rows
                         ? trackRows(rows, (Statement) proxy, invocation, cancel) : value;
             }
             try {
-                if (!peer.statementStarted(invocation, cancel)) {
+                if (!peer.statementStarted(invocation, cancel) && !method.getName().equals("close")) {
                     throw new WeavegateCancelledException("cancelled before statement");
                 }
                 Object value = call(statement, method, args);
@@ -288,6 +290,13 @@ final class TrackingDataSource implements DataSource {
         if (method.getName().equals("setQueryTimeout") && args != null && args.length == 1
                 && args[0] instanceof Integer seconds && seconds != 0) {
             throw new SQLFeatureNotSupportedException("wall-clock JDBC query timeouts are unsupported");
+        }
+    }
+
+    private static void rejectNetworkTimeout(Method method, Object[] args) throws SQLException {
+        if (method.getName().equals("setNetworkTimeout") && args != null && args.length == 2
+                && args[1] instanceof Integer milliseconds && milliseconds != 0) {
+            throw new SQLFeatureNotSupportedException("wall-clock JDBC network timeouts are unsupported");
         }
     }
 

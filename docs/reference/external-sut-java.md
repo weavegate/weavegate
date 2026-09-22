@@ -75,9 +75,10 @@ public class SeatCommands {
 ```
 
 Readiness validates every requested command and point against the selected
-command registrations, retains each command's declared point set, then completes
-a database probe that returns its lease. Every runtime arrival must be both
-requested for the session and declared by the invoked command.
+command registrations and requires matching transaction advice to resolve to
+the SDK-owned transaction manager. It retains each command's declared point set,
+then completes a database probe that returns its lease. Every runtime arrival
+must be both requested for the session and declared by the invoked command.
 All application-startup leases must also be returned before ready; a lease left
 after application closure prevents normal stopped. One
 invocation runs on one worker thread with one transaction and one connection
@@ -90,15 +91,15 @@ only the SDK-owned transaction manager may use them. SQL that can commit
 implicitly or act outside the transaction, including DDL, table locks, account
 management and administrative statements, is rejected before JDBC delegation
 as a fatal unsupported adapter operation. Nonzero JDBC statement query timeouts
-are unsupported because they would make a schedule depend on wall-clock time;
-zero continues to mean no timeout.
+and connection network timeouts are unsupported because they would make a
+schedule depend on wall-clock time; zero continues to mean no timeout.
 
 Standard JDBC `unwrap` returns the tracking proxy when that interface is
 supported; vendor-specific unwrapping is rejected. Statement, result-set and
 metadata navigation retain tracked handles, including `getConnection()` and
-`getStatement()`. Blocking result-set navigation and close operations register
-their owning statement for cancellation, so streaming row drains cannot bypass
-statement cancellation.
+`getStatement()`. Blocking result-set navigation and result-set or statement
+close operations register their owning statement for cancellation, so streaming
+row drains cannot bypass statement cancellation.
 After the first start binds the session identity, every schema-valid foreign
 frame is stale-dropped before direction and sequence checks.
 
