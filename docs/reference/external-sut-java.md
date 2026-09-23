@@ -87,7 +87,9 @@ use outside an invocation after readiness, retained JDBC handle use from another
 thread and sync points outside the worker's proxy call are session failures.
 Application calls to JDBC auto-commit, commit, rollback or savepoint controls
 are rejected through both connection methods and direct, prepared or batched SQL;
-only the SDK-owned transaction manager may use them. SQL that can commit
+SQL-level `PREPARE`, `EXECUTE`, and prepared-statement deallocation are also
+rejected before delegation because they can hide transaction control. Only the
+SDK-owned transaction manager may use transaction controls. SQL that can commit
 implicitly or act outside the transaction, including DDL, table locks, account
 management and administrative statements, is rejected before JDBC delegation
 as a fatal unsupported adapter operation. Nonzero JDBC statement query timeouts
@@ -99,7 +101,8 @@ supported; vendor-specific unwrapping is rejected. Statement, result-set and
 metadata navigation retain tracked handles, including `getConnection()` and
 `getStatement()`. Blocking result-set navigation and result-set or statement
 close operations register their owning statement for cancellation, so streaming
-row drains cannot bypass statement cancellation.
+row drains cannot bypass statement cancellation. Both `getMoreResults` overloads
+also retain cancellation while they drain a current result.
 After the first start binds the session identity, every schema-valid foreign
 frame is stale-dropped before direction and sequence checks.
 
@@ -115,8 +118,10 @@ release racing cancellation is consumed without resuming the worker.
 A terminal is sent only after three independent milestones: the command proxy
 returned or threw, the transaction manager recorded commit or rollback, and the
 tracked connection's `close()` returned. Spring runs completion callbacks before
-it returns the connection, so callbacks are never terminal evidence. A failed
-commit or rollback is an unknown outcome and sends a transaction fatal. A
+it returns the connection, so callbacks are never terminal evidence. Application
+JDBC work in callbacks after commit or rollback is rejected; SDK-owned connection
+cleanup may still return the lease. A failed commit or rollback is an unknown
+outcome and sends a transaction fatal. A
 connection close failure that Spring logs and suppresses sends a cleanup fatal.
 Neither case produces a terminal. An exception after commit reports `committed`
 with an application error. MySQL vendor code and SQLSTATE come from the
@@ -138,7 +143,10 @@ When a driver exception escapes the command boundary, it contributes a fixed
 `MySQL operation failed` or `database operation failed` summary to wire evidence;
 vendor code and SQLSTATE remain available. Application code still receives the
 original driver exception, and an exception it catches does not become worker
-failure evidence. Locally authored application exception messages must already
+failure evidence. A caught MySQL deadlock (error 1213) is different: InnoDB has
+already rolled back the whole transaction, so the session reports an unknown
+transaction outcome and fails rather than reporting a later commit. Locally
+authored application exception messages must already
 respect the wire contract's no-secrets/no-SQL-literals requirement.
 
 Startup, cancellation, stop and post-fatal watchdogs force a nonzero exit at

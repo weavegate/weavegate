@@ -627,13 +627,23 @@ final class Peer {
 
     synchronized void driverFailure(Invocation invocation, SQLException failure, SQLException summary) {
         invocation.driverFailures.put(failure, summary);
+        // InnoDB rolls back the whole transaction on error 1213. A caught
+        // exception cannot restore the original commit/rollback evidence.
+        if (failure.getErrorCode() == 1213 && invocation.transaction == Transaction.ACTIVE) {
+            invocation.transaction = Transaction.UNKNOWN;
+            fail("transaction", "transaction outcome unknown", true);
+        }
     }
 
     /** Requires retained JDBC handles to remain on their owning live invocation thread. */
-    synchronized void jdbcEntry(Invocation invocation) {
+    synchronized void jdbcEntry(Invocation invocation, boolean sdkCleanup) {
         if (CURRENT.get() != invocation || Thread.currentThread() != invocation.thread
                 || invocation.proxy != Proxy.INSIDE) {
             fail("protocol", "JDBC operation outside invocation thread", true);
+            throw cancelled(invocation);
+        }
+        if (invocation.transaction != Transaction.NONE && invocation.transaction != Transaction.ACTIVE && !sdkCleanup) {
+            fail("transaction", "JDBC operation after transaction completion", true);
             throw cancelled(invocation);
         }
     }

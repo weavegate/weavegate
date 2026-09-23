@@ -53,6 +53,10 @@ class TrackingHandlesTest {
             assertThat(wrapped.unwrap(Statement.class)).isSameAs(wrapped);
             assertThatThrownBy(() -> wrapped.unwrap(VendorStatement.class)).isInstanceOf(SQLException.class);
             assertThat(wrapped.executeQuery("synthetic").getStatement()).isSameAs(wrapped);
+            assertThat(wrapped.equals(wrapped)).isTrue();
+            assertThat(wrapped.equals(statement)).isFalse();
+            assertThat(wrapped.hashCode()).isEqualTo(System.identityHashCode(wrapped));
+            assertThat(wrapped.toString()).isEqualTo("TrackedStatement");
             tracked.close();
             assertThat(h.peer.openLeases).isZero();
         });
@@ -92,6 +96,35 @@ class TrackingHandlesTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> caughtDeadlockInvalidatesTheTransaction() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            SQLException deadlock = new SQLException("secret deadlock details", "40001", 1213);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement()).thenReturn(statement);
+            when(statement.execute("synthetic")).thenThrow(deadlock);
+            Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
+            ThreadLocal<Peer.Invocation> current = current();
+            invocation.thread = Thread.currentThread();
+            invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
+            current.set(invocation);
+            try {
+                Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                assertThatThrownBy(() -> tracked.createStatement().execute("synthetic")).isSameAs(deadlock);
+                assertThat(invocation.transaction).isEqualTo(Peer.Transaction.UNKNOWN);
+                assertThat(h.peer.fatalKind).isEqualTo("transaction");
+                assertThat(invocation.source).isNull();
+            } finally {
+                current.remove();
+            }
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> resultSetAndStatementCloseRemainCancellable() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
@@ -102,6 +135,8 @@ class TrackingHandlesTest {
             AtomicReference<Boolean> registeredDuringNext = new AtomicReference<>();
             AtomicReference<Boolean> registeredDuringClose = new AtomicReference<>();
             AtomicReference<Boolean> registeredDuringStatementClose = new AtomicReference<>();
+            AtomicReference<Boolean> registeredDuringMoreResults = new AtomicReference<>();
+            AtomicReference<Boolean> registeredDuringMoreResultsMode = new AtomicReference<>();
             Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
             when(source.getConnection()).thenReturn(raw);
             when(raw.createStatement()).thenReturn(statement);
@@ -124,6 +159,18 @@ class TrackingHandlesTest {
                 }
                 return null;
             }).when(statement).close();
+            when(statement.getMoreResults()).thenAnswer(ignored -> {
+                synchronized (h.peer) {
+                    registeredDuringMoreResults.set(!invocation.statements.isEmpty());
+                }
+                return false;
+            });
+            when(statement.getMoreResults(Statement.CLOSE_CURRENT_RESULT)).thenAnswer(ignored -> {
+                synchronized (h.peer) {
+                    registeredDuringMoreResultsMode.set(!invocation.statements.isEmpty());
+                }
+                return false;
+            });
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
@@ -134,6 +181,10 @@ class TrackingHandlesTest {
                 ResultSet trackedRows = trackedStatement.executeQuery("synthetic");
                 assertThat(trackedRows.next()).isFalse();
                 assertThat(registeredDuringNext.get()).isTrue();
+                assertThat(trackedStatement.getMoreResults()).isFalse();
+                assertThat(registeredDuringMoreResults.get()).isTrue();
+                assertThat(trackedStatement.getMoreResults(Statement.CLOSE_CURRENT_RESULT)).isFalse();
+                assertThat(registeredDuringMoreResultsMode.get()).isTrue();
                 trackedRows.close();
                 assertThat(registeredDuringClose.get()).isTrue();
                 trackedStatement.close();
@@ -207,6 +258,14 @@ class TrackingHandlesTest {
                         .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> trackedStatement.execute("SAVEPOINT fixture"))
                         .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("PREPARE tx FROM 'COMMIT'"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("EXECUTE tx"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.addBatch("DEALLOCATE PREPARE tx"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("DROP PREPARE tx"))
+                        .isInstanceOf(SQLException.class);
                 verify(statement, org.mockito.Mockito.never()).execute("COMMIT");
                 verify(statement, org.mockito.Mockito.never()).addBatch("/* fixture */ ROLLBACK");
                 verify(raw, org.mockito.Mockito.never()).prepareStatement("COMMIT");
@@ -217,7 +276,44 @@ class TrackingHandlesTest {
                 verify(statement, org.mockito.Mockito.never()).execute("ALTER TABLE seat ADD COLUMN note TEXT");
                 verify(statement, org.mockito.Mockito.never()).execute("LOCK TABLES seat WRITE");
                 verify(statement, org.mockito.Mockito.never()).execute("SAVEPOINT fixture");
+                verify(statement, org.mockito.Mockito.never()).execute("PREPARE tx FROM 'COMMIT'");
+                verify(statement, org.mockito.Mockito.never()).execute("EXECUTE tx");
+                verify(statement, org.mockito.Mockito.never()).addBatch("DEALLOCATE PREPARE tx");
+                verify(statement, org.mockito.Mockito.never()).execute("DROP PREPARE tx");
                 tracked.close();
+            } finally {
+                current.remove();
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> jdbcAfterCommitIsRejectedBeforeDelegation() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement()).thenReturn(statement);
+            Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
+            ThreadLocal<Peer.Invocation> current = current();
+            invocation.thread = Thread.currentThread();
+            invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.COMMITTED;
+            current.set(invocation);
+            try {
+                Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                assertThatThrownBy(tracked::createStatement).isInstanceOf(WeavegateCancelledException.class);
+                verify(raw, org.mockito.Mockito.never()).createStatement();
+                assertThat(h.peer.fatalKind).isEqualTo("transaction");
+                TrackingDataSource.beginTransactionControl();
+                try {
+                    tracked.close();
+                } finally {
+                    TrackingDataSource.endTransactionControl();
+                }
+                assertThat(h.peer.openLeases).isZero();
             } finally {
                 current.remove();
             }

@@ -75,6 +75,30 @@ public class SeatCommands {
     }
 
     @Transactional
+    @WeavegateCommand("after_commit_jdbc")
+    public void afterCommitJdbc(CommandContext context) {
+        jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                jdbc.update("UPDATE seat SET taken_by = 'after' WHERE id = 1");
+            }
+        });
+    }
+
+    @Transactional
+    @WeavegateCommand("after_completion_jdbc")
+    public void afterCompletionJdbc(CommandContext context) {
+        jdbc.update("UPDATE seat SET taken_by = ? WHERE id = 1", context.worker());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                jdbc.update("UPDATE seat SET taken_by = 'after' WHERE id = 1");
+            }
+        });
+    }
+
+    @Transactional
     @WeavegateCommand("duplicate_key")
     public void duplicateKey() {
         jdbc.update("INSERT INTO seat (id, taken_by) VALUES (1, 'duplicate')");

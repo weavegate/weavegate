@@ -31,6 +31,8 @@ final class TrackingDataSource implements DataSource {
             + "SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+)?"
             + "(?:@@\\s*(?:(?:SESSION|LOCAL|GLOBAL)\\s*\\.\\s*)?)?AUTOCOMMIT\\b|"
             + "XA\\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\\b)");
+    private static final Pattern DYNAMIC_SQL = Pattern.compile("(?is)^(?:PREPARE\\b|EXECUTE\\b|"
+            + "(?:DEALLOCATE|DROP)\\s+PREPARE\\b)");
     private static final Pattern NONTRANSACTIONAL_SQL = Pattern.compile("(?is)^(?:"
             + "(?:ALTER|ANALYZE|CACHE|CHECK|CREATE|DROP|FLUSH|GRANT|INSTALL|LOCK|OPTIMIZE|RENAME|REPAIR|"
             + "RESET|REVOKE|TRUNCATE|UNINSTALL|UNLOCK)\\b|"
@@ -217,11 +219,15 @@ final class TrackingDataSource implements DataSource {
                 case "getConnection" -> { return connection; }
                 case "unwrap" -> { return unwrapTracked(proxy, (Class<?>) args[0]); }
                 case "isWrapperFor" -> { return ((Class<?>) args[0]).isInstance(proxy); }
+                case "equals" -> { return proxy == args[0]; }
+                case "hashCode" -> { return System.identityHashCode(proxy); }
+                case "toString" -> { return "TrackedStatement"; }
                 default -> { }
             }
             rejectUnsupportedSql(method, args);
             rejectQueryTimeout(method, args);
-            boolean cancellable = method.getName().startsWith("execute") || method.getName().equals("close");
+            boolean cancellable = method.getName().startsWith("execute") || method.getName().equals("close")
+                    || method.getName().equals("getMoreResults");
             if (invocation == null || !cancellable) {
                 Object value = call(statement, method, args);
                 return value instanceof ResultSet rows
@@ -265,7 +271,7 @@ final class TrackingDataSource implements DataSource {
 
     private void requireInvocation(Peer.Invocation invocation) {
         if (invocation != null) {
-            peer.jdbcEntry(invocation);
+            peer.jdbcEntry(invocation, transactionControlAllowed());
         }
     }
 
@@ -276,6 +282,9 @@ final class TrackingDataSource implements DataSource {
         String name = method.getName();
         if (name.startsWith("execute") || name.equals("addBatch") || name.startsWith("prepare")) {
             String normalized = normalizeSql(sql).stripLeading();
+            if (DYNAMIC_SQL.matcher(normalized).find()) {
+                throw new SQLFeatureNotSupportedException("server-side prepared SQL is unsupported");
+            }
             if (TRANSACTION_SQL.matcher(normalized).find()) {
                 throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
             }

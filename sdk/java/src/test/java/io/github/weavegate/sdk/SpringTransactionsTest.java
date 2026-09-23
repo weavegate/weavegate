@@ -181,6 +181,7 @@ class SpringTransactionsTest {
             output.peer = peer;
             peer.receive(Scripted.frame("start", seq, Map.of("variant", "fixed", "params", Map.of(),
                     "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure",
+                            "after_commit_jdbc", "after_completion_jdbc",
                             "duplicate_key", "caught_duplicate", "manual_commit", "sql_commit", "implicit_commit",
                             "package_private"),
                     "points", List.of("after_read", "before_write"), "capacity", 2,
@@ -221,6 +222,23 @@ class SpringTransactionsTest {
 
     private static String id(int n) {
         return String.format("%032x", n);
+    }
+
+    @TestFactory
+    Stream<DynamicTest> postCommitCallbacksCannotPerformJdbcWork() {
+        return RequirementsTest.repeated(() -> {
+            for (String command : List.of("after_commit_jdbc", "after_completion_jdbc")) {
+                resetSeat();
+                Session s = new Session(1000);
+                s.invoke(id(15), "w1", command);
+                JsonNode fatal = s.fatal();
+                assertThat(fatal.get("kind").stringValue()).isEqualTo("transaction");
+                assertThat(fatal.get("message").stringValue()).isEqualTo("JDBC operation after transaction completion");
+                assertThat(s.output.frames.stream().filter(f -> f.get("type").stringValue().equals("terminal"))).isEmpty();
+                assertThat(s.exit.await()).isEqualTo(1);
+                assertThat(seat()).isEqualTo("w1");
+            }
+        });
     }
 
     @TestFactory
