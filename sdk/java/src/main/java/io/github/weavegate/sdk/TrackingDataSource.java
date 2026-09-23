@@ -174,6 +174,9 @@ final class TrackingDataSource implements DataSource {
                         case "getStatement" -> { return statement; }
                         case "unwrap" -> { return unwrapTracked(proxy, (Class<?>) args[0]); }
                         case "isWrapperFor" -> { return ((Class<?>) args[0]).isInstance(proxy); }
+                        case "equals" -> { return proxy == args[0]; }
+                        case "hashCode" -> { return System.identityHashCode(proxy); }
+                        case "toString" -> { return "TrackedResultSet"; }
                         default -> { }
                     }
                     if (invocation == null || cancel == null) {

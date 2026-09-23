@@ -45,6 +45,29 @@ class TrackingHandlesTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> startupCallbackCannotExecuteSqlOutsideProbe() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement()).thenReturn(statement);
+            assertThatThrownBy(() -> {
+                try (Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                     Statement sql = tracked.createStatement()) {
+                    sql.execute("UPDATE seat SET taken_by = 'startup'");
+                }
+            }).isInstanceOf(SQLException.class);
+            verify(statement, org.mockito.Mockito.never()).execute("UPDATE seat SET taken_by = 'startup'");
+            verify(raw).close();
+            assertThat(h.peer.openLeases).isZero();
+            assertThat(h.peer.fatalKind).isEqualTo("protocol");
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> applicationJdbcRequiresAnActiveTransaction() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
@@ -95,6 +118,8 @@ class TrackingHandlesTest {
     Stream<DynamicTest> startupCannotRetainAnUntrackedMetadataHandle() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
             DataSource source = mock(DataSource.class);
             Connection raw = mock(Connection.class);
             when(source.getConnection()).thenReturn(raw);
@@ -110,6 +135,8 @@ class TrackingHandlesTest {
     Stream<DynamicTest> jdbcNavigationCannotEscapeTracking() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
             DataSource source = mock(DataSource.class);
             Connection raw = mock(VendorConnection.class);
             Statement statement = mock(VendorStatement.class);
@@ -131,7 +158,12 @@ class TrackingHandlesTest {
             assertThat(wrapped.getConnection()).isSameAs(tracked);
             assertThat(wrapped.unwrap(Statement.class)).isSameAs(wrapped);
             assertThatThrownBy(() -> wrapped.unwrap(VendorStatement.class)).isInstanceOf(SQLException.class);
-            assertThat(wrapped.executeQuery("synthetic").getStatement()).isSameAs(wrapped);
+            ResultSet trackedRows = wrapped.executeQuery("synthetic");
+            assertThat(trackedRows.getStatement()).isSameAs(wrapped);
+            assertThat(trackedRows.equals(trackedRows)).isTrue();
+            assertThat(trackedRows.equals(rows)).isFalse();
+            assertThat(trackedRows.hashCode()).isEqualTo(System.identityHashCode(trackedRows));
+            assertThat(trackedRows.toString()).isEqualTo("TrackedResultSet");
             assertThat(wrapped.equals(wrapped)).isTrue();
             assertThat(wrapped.equals(statement)).isFalse();
             assertThat(wrapped.hashCode()).isEqualTo(System.identityHashCode(wrapped));
@@ -281,6 +313,8 @@ class TrackingHandlesTest {
     Stream<DynamicTest> applicationTransactionControlsAreRejected() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
             DataSource source = mock(DataSource.class);
             Connection raw = mock(Connection.class);
             Savepoint savepoint = mock(Savepoint.class);

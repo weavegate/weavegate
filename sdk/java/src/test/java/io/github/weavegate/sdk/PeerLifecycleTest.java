@@ -16,9 +16,9 @@ class PeerLifecycleTest {
             for (boolean stop : new boolean[] {false, true}) {
                 VectorHarness h = new VectorHarness("independent").quiet();
                 h.host.shutdown.signal();
+                h.host.retainProbeLease = true;
                 h.peer.receive(Scripted.start(1));
                 h.activity.awaitIdle();
-                h.peer.leaseAcquired(null); // Application startup retained an extra lease.
                 if (stop) {
                     h.peer.receive(Scripted.stop(2, 2500));
                 } else {
@@ -72,6 +72,29 @@ class PeerLifecycleTest {
             assertThat(Peer.classify(TrackingDataSource.driverSummary(new SQLException("jdbc:mysql://secret-value"))).toString())
                     .doesNotContain("secret-value", "jdbc:");
             assertThat(original.getMessage()).contains("secret-value");
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> driverFailureBeforeCancelRetainsItsObservationOrder() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = Scripted.ready(1);
+            h.peer.receive(Scripted.invoke(2, Scripted.I1, "w1", "assign"));
+            h.threads.run(Scripted.I1);
+            h.activity.awaitIdle();
+            Peer.Invocation invocation = h.peer.invocations.get(Scripted.I1);
+            h.peer.transactionBegun(invocation);
+            h.peer.leaseAcquired(invocation);
+            SQLException failure = new SQLException("secret duplicate", "23000", 1062);
+            h.peer.driverFailure(invocation, failure, TrackingDataSource.driverSummary(failure));
+            h.peer.receive(Scripted.cancel(3, Scripted.I1, "w1", "context"));
+            h.peer.recordSource(invocation, failure);
+            h.peer.transactionCompleted(invocation, Peer.Transaction.ROLLED_BACK);
+            h.peer.leaseReturned(invocation);
+            h.host.script(Scripted.I1).mailbox.put(new Fakes.ExitProxy());
+            h.activity.awaitIdle();
+            assertThat(invocation.sourceOrder).isLessThan(invocation.cancelOrder);
+            assertThat(invocation.terminal.get("error").get("kind").stringValue()).isEqualTo("mysql");
         });
     }
 }

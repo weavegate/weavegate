@@ -79,12 +79,13 @@ command registrations and requires matching transaction advice to resolve to
 the SDK-owned transaction manager. It retains each command's declared point set,
 then completes a database probe that returns its lease. Every runtime arrival
 must be both requested for the session and declared by the invoked command.
-All application-startup leases must also be returned before ready; a lease left
-after application closure prevents normal stopped. One
+Application startup callbacks cannot lease the fixture database; only the SDK's
+readiness probe may lease without an invocation. A probe lease left open before
+ready or after application closure prevents normal stopped. One
 invocation runs on one worker thread with one transaction and one connection
 lease. Nested transactions, `REQUIRES_NEW` suspension, a second lease, database
-use outside an invocation after readiness, retained JDBC handle use from another
-thread and sync points outside the worker's proxy call are session failures.
+use outside an invocation or the readiness probe, retained JDBC handle use from
+another thread and sync points outside the worker's proxy call are session failures.
 Rejected outside-invocation leases are closed before application code can use
 them. Application JDBC is permitted only after the SDK transaction begins;
 SDK-owned begin and cleanup operations retain access to their connection.

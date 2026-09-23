@@ -45,6 +45,9 @@ final class Peer {
 
     enum GateState { WAITING, RELEASED, CANCELLED }
 
+    private record DriverFailure(SQLException summary, long order) {
+    }
+
     /** An installed sync-point wait. */
     final class Gate extends Parker {
         final String arrival;
@@ -78,7 +81,7 @@ final class Peer {
         Lease lease = Lease.NOT_ACQUIRED;
         Throwable source;
         long sourceOrder;
-        final Map<SQLException, SQLException> driverFailures = new IdentityHashMap<>();
+        final Map<SQLException, DriverFailure> driverFailures = new IdentityHashMap<>();
         final Set<Seams.Cancellable> statements = new LinkedHashSet<>();
         int jdbcCancelRequests;
         int dispatches;
@@ -120,6 +123,7 @@ final class Peer {
     private Executor executor;
     boolean admissionClosed;
     boolean startupDone;
+    Thread probeThread;
     boolean startupCancelled;
     boolean cleanupStarted;
     boolean applicationClosed;
@@ -278,7 +282,16 @@ final class Peer {
                 }
             }
             validated = host.validateRegistration(config.commands(), config.points());
-            host.probeDatabase();
+            synchronized (this) {
+                probeThread = Thread.currentThread();
+            }
+            try {
+                host.probeDatabase();
+            } finally {
+                synchronized (this) {
+                    probeThread = null;
+                }
+            }
         } catch (Throwable t) {
             failure = t;
         }
@@ -581,8 +594,10 @@ final class Peer {
 
     synchronized boolean leaseAcquired(Invocation invocation) {
         if (invocation == null) {
-            // Startup work, including the readiness probe, may race a pre-ready Stop.
-            if (startupDone && phase != Phase.STARTING) {
+            // Only the SDK's readiness probe may lease without an invocation.
+            // It may finish after a pre-ready Stop changes the phase to STOPPING.
+            if (Thread.currentThread() != probeThread || startupDone
+                    || (phase != Phase.STARTING && phase != Phase.STOPPING)) {
                 fail("protocol", "database lease outside invocation", true);
                 return false;
             }
@@ -623,13 +638,14 @@ final class Peer {
 
     private void recordSourceLocked(Invocation invocation, Throwable source) {
         if (invocation.source == null) {
-            invocation.source = escapingDriverSummary(invocation, source);
-            invocation.sourceOrder = ++order;
+            DriverFailure driver = escapingDriverFailure(invocation, source);
+            invocation.source = driver == null ? source : driver.summary();
+            invocation.sourceOrder = driver == null ? ++order : driver.order();
         }
     }
 
     synchronized void driverFailure(Invocation invocation, SQLException failure, SQLException summary) {
-        invocation.driverFailures.put(failure, summary);
+        invocation.driverFailures.computeIfAbsent(failure, ignored -> new DriverFailure(summary, ++order));
         // InnoDB rolls back the whole transaction on error 1213. A caught
         // exception cannot restore the original commit/rollback evidence.
         if (failure.getErrorCode() == 1213 && invocation.transaction == Transaction.ACTIVE) {
@@ -651,15 +667,15 @@ final class Peer {
         }
     }
 
-    private static Throwable escapingDriverSummary(Invocation invocation, Throwable source) {
+    private static DriverFailure escapingDriverFailure(Invocation invocation, Throwable source) {
         Set<Throwable> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         for (Throwable candidate = source; candidate != null && seen.add(candidate); candidate = candidate.getCause()) {
-            SQLException summary = invocation.driverFailures.get(candidate);
-            if (summary != null) {
-                return summary;
+            DriverFailure observed = invocation.driverFailures.get(candidate);
+            if (observed != null) {
+                return observed;
             }
         }
-        return source;
+        return null;
     }
 
     /** Registers an executing statement; returns false if cancellation already won. */

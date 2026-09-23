@@ -309,6 +309,7 @@ final class Fakes {
         volatile boolean validated;
         volatile boolean probeStarted;
         volatile boolean probeLeaseReturned;
+        volatile boolean retainProbeLease;
         final Barrier probe;
         volatile int cancelStartupCalls;
         volatile boolean closeStarted;
@@ -358,10 +359,14 @@ final class Fakes {
             peer.leaseAcquired(null);
             probe.await();
             if (cancelStartupCalls > 0 && !probeLeaseReturned) {
-                peer.leaseReturned(null);
+                if (!retainProbeLease) {
+                    peer.leaseReturned(null);
+                }
                 throw new IllegalStateException("startup cancelled");
             }
-            peer.leaseReturned(null);
+            if (!retainProbeLease) {
+                peer.leaseReturned(null);
+            }
         }
 
         void completeProbe() {
