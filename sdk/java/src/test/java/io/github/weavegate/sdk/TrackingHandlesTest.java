@@ -28,6 +28,85 @@ class TrackingHandlesTest {
     interface VendorStatement extends Statement { }
 
     @TestFactory
+    Stream<DynamicTest> rejectedOutsideLeaseIsClosedBeforeItCanExecute() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.READY;
+            h.peer.startupDone = true;
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            when(source.getConnection()).thenReturn(raw);
+            assertThatThrownBy(() -> new TrackingDataSource(source, h.peer).getConnection())
+                    .isInstanceOf(SQLException.class);
+            verify(raw).close();
+            assertThat(h.peer.openLeases).isZero();
+            assertThat(h.peer.fatalKind).isEqualTo("protocol");
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> applicationJdbcRequiresAnActiveTransaction() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            when(source.getConnection()).thenReturn(raw);
+            Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
+            ThreadLocal<Peer.Invocation> current = current();
+            invocation.thread = Thread.currentThread();
+            invocation.proxy = Peer.Proxy.INSIDE;
+            current.set(invocation);
+            try {
+                assertThatThrownBy(() -> new TrackingDataSource(source, h.peer).getConnection())
+                        .isInstanceOf(WeavegateCancelledException.class);
+                verify(source, org.mockito.Mockito.never()).getConnection();
+                assertThat(h.peer.fatalKind).isEqualTo("transaction");
+            } finally {
+                current.remove();
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> metadataCannotRunOutsideCancellationTracking() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            when(source.getConnection()).thenReturn(raw);
+            Peer.Invocation invocation = h.peer.new Invocation(Scripted.I1, "w1", "assign");
+            ThreadLocal<Peer.Invocation> current = current();
+            invocation.thread = Thread.currentThread();
+            invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
+            current.set(invocation);
+            try {
+                Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                assertThatThrownBy(tracked::getMetaData).isInstanceOf(SQLException.class);
+                verify(raw, org.mockito.Mockito.never()).getMetaData();
+                tracked.close();
+            } finally {
+                current.remove();
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> startupCannotRetainAnUntrackedMetadataHandle() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            when(source.getConnection()).thenReturn(raw);
+            Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+            assertThatThrownBy(tracked::getMetaData).isInstanceOf(SQLException.class);
+            verify(raw, org.mockito.Mockito.never()).getMetaData();
+            tracked.close();
+            assertThat(h.peer.openLeases).isZero();
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> jdbcNavigationCannotEscapeTracking() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();
@@ -77,6 +156,7 @@ class TrackingHandlesTest {
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
             current.set(invocation);
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
@@ -174,6 +254,7 @@ class TrackingHandlesTest {
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
             current.set(invocation);
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
@@ -236,6 +317,7 @@ class TrackingHandlesTest {
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
             current.set(invocation);
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
@@ -266,6 +348,14 @@ class TrackingHandlesTest {
                         .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> trackedStatement.execute("DROP PREPARE tx"))
                         .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> tracked.prepareCall("CALL mutate()"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("CALL mutate()"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("SET SESSION innodb_lock_wait_timeout = 1"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> trackedStatement.execute("SELECT /*+ MAX_EXECUTION_TIME(1) */ 1"))
+                        .isInstanceOf(SQLException.class);
                 verify(statement, org.mockito.Mockito.never()).execute("COMMIT");
                 verify(statement, org.mockito.Mockito.never()).addBatch("/* fixture */ ROLLBACK");
                 verify(raw, org.mockito.Mockito.never()).prepareStatement("COMMIT");
@@ -280,6 +370,10 @@ class TrackingHandlesTest {
                 verify(statement, org.mockito.Mockito.never()).execute("EXECUTE tx");
                 verify(statement, org.mockito.Mockito.never()).addBatch("DEALLOCATE PREPARE tx");
                 verify(statement, org.mockito.Mockito.never()).execute("DROP PREPARE tx");
+                verify(raw, org.mockito.Mockito.never()).prepareCall("CALL mutate()");
+                verify(statement, org.mockito.Mockito.never()).execute("CALL mutate()");
+                verify(statement, org.mockito.Mockito.never()).execute("SET SESSION innodb_lock_wait_timeout = 1");
+                verify(statement, org.mockito.Mockito.never()).execute("SELECT /*+ MAX_EXECUTION_TIME(1) */ 1");
                 tracked.close();
             } finally {
                 current.remove();
@@ -300,10 +394,11 @@ class TrackingHandlesTest {
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
-            invocation.transaction = Peer.Transaction.COMMITTED;
+            invocation.transaction = Peer.Transaction.ACTIVE;
             current.set(invocation);
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                invocation.transaction = Peer.Transaction.COMMITTED;
                 assertThatThrownBy(tracked::createStatement).isInstanceOf(WeavegateCancelledException.class);
                 verify(raw, org.mockito.Mockito.never()).createStatement();
                 assertThat(h.peer.fatalKind).isEqualTo("transaction");
@@ -333,6 +428,7 @@ class TrackingHandlesTest {
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
             current.set(invocation);
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
@@ -342,10 +438,14 @@ class TrackingHandlesTest {
                 assertThatThrownBy(() -> trackedStatement.setQueryTimeout(1)).isInstanceOf(SQLException.class);
                 tracked.setNetworkTimeout(executor, 0);
                 assertThatThrownBy(() -> tracked.setNetworkTimeout(executor, 1)).isInstanceOf(SQLException.class);
+                tracked.isValid(0);
+                assertThatThrownBy(() -> tracked.isValid(1)).isInstanceOf(SQLException.class);
                 verify(statement).setQueryTimeout(0);
                 verify(statement, org.mockito.Mockito.never()).setQueryTimeout(1);
                 verify(raw).setNetworkTimeout(executor, 0);
                 verify(raw, org.mockito.Mockito.never()).setNetworkTimeout(executor, 1);
+                verify(raw).isValid(0);
+                verify(raw, org.mockito.Mockito.never()).isValid(1);
                 trackedStatement.close();
                 tracked.close();
             } finally {
@@ -369,6 +469,7 @@ class TrackingHandlesTest {
             ThreadLocal<Peer.Invocation> current = current();
             invocation.thread = Thread.currentThread();
             invocation.proxy = Peer.Proxy.INSIDE;
+            invocation.transaction = Peer.Transaction.ACTIVE;
             current.set(invocation);
             try {
                 Connection tracked = new TrackingDataSource(source, h.peer).getConnection();

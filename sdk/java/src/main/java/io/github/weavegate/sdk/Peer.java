@@ -579,20 +579,23 @@ final class Peer {
         progress(invocation);
     }
 
-    synchronized void leaseAcquired(Invocation invocation) {
-        openLeases++;
+    synchronized boolean leaseAcquired(Invocation invocation) {
         if (invocation == null) {
             // Startup work, including the readiness probe, may race a pre-ready Stop.
-            if (startupDone && (phase == Phase.READY || phase == Phase.STOPPING)) {
+            if (startupDone && phase != Phase.STARTING) {
                 fail("protocol", "database lease outside invocation", true);
+                return false;
             }
-            return;
+            openLeases++;
+            return true;
         }
         if (invocation.lease != Lease.NOT_ACQUIRED) {
             fail("cleanup", "unsupported additional connection lease", true);
-            return;
+            return false;
         }
+        openLeases++;
         invocation.lease = Lease.HELD;
+        return true;
     }
 
     synchronized void leaseReturned(Invocation invocation) {
@@ -642,8 +645,8 @@ final class Peer {
             fail("protocol", "JDBC operation outside invocation thread", true);
             throw cancelled(invocation);
         }
-        if (invocation.transaction != Transaction.NONE && invocation.transaction != Transaction.ACTIVE && !sdkCleanup) {
-            fail("transaction", "JDBC operation after transaction completion", true);
+        if (invocation.transaction != Transaction.ACTIVE && !sdkCleanup) {
+            fail("transaction", "JDBC operation outside active transaction", true);
             throw cancelled(invocation);
         }
     }

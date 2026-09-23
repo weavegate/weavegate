@@ -7,7 +7,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
-import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -33,10 +32,12 @@ final class TrackingDataSource implements DataSource {
             + "XA\\s+(?:START|BEGIN|END|PREPARE|COMMIT|ROLLBACK)\\b)");
     private static final Pattern DYNAMIC_SQL = Pattern.compile("(?is)^(?:PREPARE\\b|EXECUTE\\b|"
             + "(?:DEALLOCATE|DROP)\\s+PREPARE\\b)");
+    private static final Pattern TIMEOUT_HINT = Pattern.compile("(?is)\\bMAX_EXECUTION_TIME\\s*\\(");
     private static final Pattern NONTRANSACTIONAL_SQL = Pattern.compile("(?is)^(?:"
             + "(?:ALTER|ANALYZE|CACHE|CHECK|CREATE|DROP|FLUSH|GRANT|INSTALL|LOCK|OPTIMIZE|RENAME|REPAIR|"
             + "RESET|REVOKE|TRUNCATE|UNINSTALL|UNLOCK)\\b|"
-            + "LOAD\\s+INDEX\\s+INTO\\s+CACHE\\b|SET\\s+PASSWORD\\b|"
+            + "LOAD\\s+INDEX\\s+INTO\\s+CACHE\\b|SET\\b|CALL\\b|"
+            + "\\{\\s*(?:\\?\\s*=\\s*)?CALL\\b|"
             + "CHANGE\\s+(?:MASTER|REPLICATION)\\b|(?:START|STOP)\\s+(?:REPLICA|SLAVE)\\b)");
     private static final ThreadLocal<Integer> TRANSACTION_CONTROL = new ThreadLocal<>();
     private static final ThreadLocal<Peer.Invocation> TRANSACTION_BEGIN = new ThreadLocal<>();
@@ -50,12 +51,18 @@ final class TrackingDataSource implements DataSource {
 
     @Override
     public Connection getConnection() throws SQLException {
+        Peer.Invocation invocation = Peer.current();
+        if (invocation != null) {
+            peer.jdbcEntry(invocation, transactionControlAllowed());
+        }
+        Connection connection;
         try {
-            return track(delegate.getConnection());
+            connection = delegate.getConnection();
         } catch (SQLException e) {
             observeDriverFailure(e);
             throw e;
         }
+        return track(connection, invocation);
     }
 
     @Override
@@ -63,9 +70,18 @@ final class TrackingDataSource implements DataSource {
         throw new SQLFeatureNotSupportedException("fixture credentials are fixed");
     }
 
-    private Connection track(Connection connection) {
-        Peer.Invocation invocation = Peer.current();
-        peer.leaseAcquired(invocation);
+    private Connection track(Connection connection, Peer.Invocation invocation) throws SQLException {
+        if (!peer.leaseAcquired(invocation)) {
+            SQLFeatureNotSupportedException rejected =
+                    new SQLFeatureNotSupportedException("database lease outside supported invocation");
+            try {
+                connection.close();
+            } catch (SQLException closeFailure) {
+                peer.unsupported("cleanup", "rejected lease return failed");
+                rejected.addSuppressed(closeFailure);
+            }
+            throw rejected;
+        }
         return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
                 new Lease(connection, invocation));
     }
@@ -130,31 +146,13 @@ final class TrackingDataSource implements DataSource {
             }
             rejectUnsupportedSql(method, args);
             rejectNetworkTimeout(method, args);
+            rejectValidationTimeout(method, args);
+            if (method.getName().equals("getMetaData")) {
+                throw new SQLFeatureNotSupportedException("JDBC metadata access is unsupported");
+            }
             Object result = call(connection, method, args);
             if (result instanceof Statement statement) {
                 return trackStatement(statement, invocation, (Connection) proxy);
-            }
-            if (result instanceof DatabaseMetaData metadata) {
-                return Proxy.newProxyInstance(DatabaseMetaData.class.getClassLoader(),
-                        new Class<?>[] {DatabaseMetaData.class}, (p, m, a) -> {
-                            requireInvocation(invocation);
-                            return switch (m.getName()) {
-                                case "getConnection" -> proxy;
-                                case "unwrap" -> unwrapTracked(p, (Class<?>) a[0]);
-                                case "isWrapperFor" -> ((Class<?>) a[0]).isInstance(p);
-                                default -> {
-                                    Object value = call(metadata, m, a);
-                                    if (value instanceof ResultSet rows) {
-                                        Statement owner = rows.getStatement();
-                                        Statement tracked = owner == null ? null
-                                                : trackStatement(owner, invocation, (Connection) proxy);
-                                        yield trackRows(rows, tracked, invocation,
-                                                owner == null ? null : owner::cancel);
-                                    }
-                                    yield value;
-                                }
-                            };
-                        });
             }
             return result;
         }
@@ -276,6 +274,10 @@ final class TrackingDataSource implements DataSource {
     }
 
     private void rejectUnsupportedSql(Method method, Object[] args) throws SQLException {
+        if (method.getName().equals("prepareCall")) {
+            peer.unsupported("transaction", "stored procedures are unsupported");
+            throw new SQLFeatureNotSupportedException("stored procedures are unsupported");
+        }
         if (args == null || args.length == 0 || !(args[0] instanceof String sql)) {
             return;
         }
@@ -287,6 +289,9 @@ final class TrackingDataSource implements DataSource {
             }
             if (TRANSACTION_SQL.matcher(normalized).find()) {
                 throw new SQLFeatureNotSupportedException("application-managed transaction control is unsupported");
+            }
+            if (normalized.contains(" WG_TIMEOUT_HINT ")) {
+                throw new SQLFeatureNotSupportedException("SQL wall-clock timeouts are unsupported");
             }
             if (NONTRANSACTIONAL_SQL.matcher(normalized).find()) {
                 peer.unsupported("transaction", "nontransactional SQL is unsupported");
@@ -306,6 +311,13 @@ final class TrackingDataSource implements DataSource {
         if (method.getName().equals("setNetworkTimeout") && args != null && args.length == 2
                 && args[1] instanceof Integer milliseconds && milliseconds != 0) {
             throw new SQLFeatureNotSupportedException("wall-clock JDBC network timeouts are unsupported");
+        }
+    }
+
+    private static void rejectValidationTimeout(Method method, Object[] args) throws SQLException {
+        if (method.getName().equals("isValid") && args != null && args.length == 1
+                && args[0] instanceof Integer seconds && seconds != 0) {
+            throw new SQLFeatureNotSupportedException("wall-clock JDBC validation timeouts are unsupported");
         }
     }
 
@@ -337,6 +349,9 @@ final class TrackingDataSource implements DataSource {
                     String executable = sql.substring(i + 3, end).stripLeading()
                             .replaceFirst("^\\d{5,6}\\s*", "");
                     normalized.append(' ').append(normalizeSql(executable)).append(' ');
+                } else if (i + 2 < sql.length() && sql.charAt(i + 2) == '+'
+                        && TIMEOUT_HINT.matcher(sql.substring(i + 3, end)).find()) {
+                    normalized.append(" WG_TIMEOUT_HINT ");
                 } else {
                     normalized.append(' ');
                 }

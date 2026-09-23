@@ -85,23 +85,32 @@ invocation runs on one worker thread with one transaction and one connection
 lease. Nested transactions, `REQUIRES_NEW` suspension, a second lease, database
 use outside an invocation after readiness, retained JDBC handle use from another
 thread and sync points outside the worker's proxy call are session failures.
+Rejected outside-invocation leases are closed before application code can use
+them. Application JDBC is permitted only after the SDK transaction begins;
+SDK-owned begin and cleanup operations retain access to their connection.
 Application calls to JDBC auto-commit, commit, rollback or savepoint controls
 are rejected through both connection methods and direct, prepared or batched SQL;
 SQL-level `PREPARE`, `EXECUTE`, and prepared-statement deallocation are also
-rejected before delegation because they can hide transaction control. Only the
-SDK-owned transaction manager may use transaction controls. SQL that can commit
-implicitly or act outside the transaction, including DDL, table locks, account
-management and administrative statements, is rejected before JDBC delegation
-as a fatal unsupported adapter operation. Nonzero JDBC statement query timeouts
-and connection network timeouts are unsupported because they would make a
-schedule depend on wall-clock time; zero continues to mean no timeout.
+rejected before delegation because they can hide transaction control. Direct
+`CALL` and JDBC callable statements are rejected because a procedure can commit
+internally. Only the SDK-owned transaction manager may use transaction controls.
+SQL that can commit implicitly or act outside the transaction, including DDL,
+table locks, account management, `SET` session changes and administrative
+statements, is rejected before JDBC delegation as a fatal unsupported adapter
+operation. SQL optimizer
+`MAX_EXECUTION_TIME` hints, nonzero JDBC statement query timeouts, connection
+network timeouts and connection validation timeouts are unsupported because they
+would make a schedule depend on wall-clock time; zero continues to mean no timeout.
 
 Standard JDBC `unwrap` returns the tracking proxy when that interface is
-supported; vendor-specific unwrapping is rejected. Statement, result-set and
-metadata navigation retain tracked handles, including `getConnection()` and
-`getStatement()`. Blocking result-set navigation and result-set or statement
-close operations register their owning statement for cancellation, so streaming
-row drains cannot bypass statement cancellation. Both `getMoreResults` overloads
+supported; vendor-specific unwrapping is rejected. Statement and result-set
+navigation retain tracked handles, including `getConnection()` and
+`getStatement()`. JDBC metadata access is rejected because metadata queries
+cannot be registered for statement cancellation. This also prevents a metadata
+handle from being retained during startup. Blocking result-set navigation
+and result-set or statement close operations register their owning statement for
+cancellation, so streaming row drains cannot bypass statement cancellation.
+Both `getMoreResults` overloads
 also retain cancellation while they drain a current result.
 After the first start binds the session identity, every schema-valid foreign
 frame is stale-dropped before direction and sequence checks.

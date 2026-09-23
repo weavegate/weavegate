@@ -233,7 +233,7 @@ class SpringTransactionsTest {
                 s.invoke(id(15), "w1", command);
                 JsonNode fatal = s.fatal();
                 assertThat(fatal.get("kind").stringValue()).isEqualTo("transaction");
-                assertThat(fatal.get("message").stringValue()).isEqualTo("JDBC operation after transaction completion");
+                assertThat(fatal.get("message").stringValue()).isEqualTo("JDBC operation outside active transaction");
                 assertThat(s.output.frames.stream().filter(f -> f.get("type").stringValue().equals("terminal"))).isEmpty();
                 assertThat(s.exit.await()).isEqualTo(1);
                 assertThat(seat()).isEqualTo("w1");
