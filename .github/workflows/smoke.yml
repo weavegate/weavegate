@@ -470,7 +470,7 @@ jobs:
 
       - name: Upload external adapter evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: external-go-evidence
           path: external-evidence/
@@ -527,7 +527,7 @@ jobs:
 
       - name: Upload Java peer evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: external-java-evidence
           path: external-java-evidence/
