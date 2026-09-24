@@ -271,3 +271,23 @@ is isolated peer acceptance under [#109](https://github.com/weavegate/weavegate/
 CLI launch and budget composition remain
 [#110](https://github.com/weavegate/weavegate/issues/110); live paired MySQL
 evidence remains [#111](https://github.com/weavegate/weavegate/issues/111).
+
+At implementation revision `8a7e0686c93b76f064b8f886320f997ca62fa501`,
+this command ran 2,023 tests with zero failures, errors or skips:
+
+```bash
+mkdir -p /tmp/weavegate-141-final
+(cd sdk/java && ./mvnw -B verify -Dweavegate.repetitions=20 \
+  -Dweavegate.evidence=/tmp/weavegate-141-final/java.log) \
+  > /tmp/weavegate-141-final/build.log 2>&1
+```
+
+The recorder used that revision and the captured build and Java logs. Its
+manifest passed `--require-complete`:
+
+```text
+EXTERNAL_SUT_ACCEPTANCE_RESULT target=java manifest=valid acceptance=complete pass=60 fail=0 incomplete=0
+```
+
+The checked-in Java result file remains the intentionally incomplete template;
+CI publishes the filled manifest and its referenced logs as separate artifacts.
