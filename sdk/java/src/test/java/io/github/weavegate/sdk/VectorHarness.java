@@ -21,6 +21,21 @@ final class VectorHarness {
     private static final Set<String> PHASES = Set.of("command_body", "jdbc_operation", "after_commit_callback");
     private static final Set<String> EXCEPTIONS = Set.of("java.lang.IllegalStateException", "java.lang.RuntimeException",
             "java.sql.SQLException");
+    private static final Set<String> ASSERTIONS = Set.of(
+            "initialize_application", "validate_registration", "probe_database", "send_ready", "send_arrive",
+            "send_terminal", "send_stopped", "reserve_invocation", "dispatch_once", "install_gate",
+            "wake_exact_gate", "no_terminal", "no_stopped", "no_ready", "no_reply", "cancel_latched",
+            "wake_gate_exceptionally", "arm_cleanup_watchdog", "request_jdbc_cancel", "close_admission",
+            "retain_earlier_cleanup_deadline", "await_active_cleanup", "no_child_exit", "retire_invocation",
+            "no_resume", "force_nonzero_exit", "exit_nonzero", "record_source_exception", "cleanup_still_blocked",
+            "no_cleanup_success", "fatal_protocol", "fatal_cleanup", "fatal_version", "fatal_startup",
+            "fatal_shutdown", "fatal_transaction", "rollback_barrier_armed", "close_pool_and_application",
+            "consume_retired_invocation", "begin_bounded_cleanup", "no_arrive_for_w2", "database_lock_released",
+            "ignore_cancelled_gate", "prevent_command_start", "committed_terminal_unchanged", "no_second_terminal",
+            "no_rollback", "no_fatal", "no_command_start", "cancel_startup", "close_control_stream",
+            "initialization_barrier_armed", "arm_startup_watchdog", "initialization_blocked",
+            "initialization_still_blocked", "application_shutdown_barrier_armed", "arm_stop_watchdog",
+            "application_cleanup_blocked", "ignore_duplicate", "no_redispatch");
 
     final String row;
     final Fakes.Activity activity = new Fakes.Activity();
@@ -64,6 +79,11 @@ final class VectorHarness {
         String base = "step/" + index;
         String peerName = step.get("peer").stringValue();
         String action = step.get("action").stringValue();
+        if (peerName.equals("java")) {
+            for (JsonNode assertion : step.get("expect")) {
+                require(ASSERTIONS.contains(assertion.stringValue()), "unhandled assertion " + assertion.stringValue());
+            }
+        }
         if (peerName.equals("go")) {
             if (action.equals("receive") && step.get("delivery").stringValue().equals("exchange")) {
                 JsonNode want = step.get("frame");

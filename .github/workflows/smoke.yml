@@ -452,7 +452,7 @@ jobs:
           grep -F 'EXTERNAL_SUT_PROCESS_RESULT launch=owned pipes=real writer=bounded eof=supervised child=reaped stop=idempotent' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_RUN_RESULT late_fatal=invalidates late_death=invalidates committed_result=preserved cancellation=run_error fingerprints=stable' external-evidence/go.log
           grep -F 'EXTERNAL_SUT_FRAMING_RESULT pin=ee6b037255a499bedf7f88971a448bd343151dee malformed=rejected control=independent' external-evidence/go.log
-          grep -F 'EXTERNAL_SUT_VECTOR_SUBSET_RESULT cases=11 dispatch=closed assertions=observed acceptance=incomplete' external-evidence/go.log
+          grep -F 'EXTERNAL_SUT_VECTOR_SUBSET_RESULT cases=13 dispatch=closed assertions=observed acceptance=incomplete' external-evidence/go.log
 
       - name: Repeat external adapter race tests
         run: go test ./internal/sut/external -race -count=20 | tee external-evidence/race.log

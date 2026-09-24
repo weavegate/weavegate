@@ -75,7 +75,7 @@ deadline can return an error without restarting or extending shared cleanup.
 The [acceptance plan](testdata/external-sut-acceptance.json) pins the shared
 vectors at `ee6b037255a499bedf7f88971a448bd343151dee`. Tests verify the pinned
 SHA-256 before execution. `TestSharedFraming` consumes all framing cases;
-`TestSharedLifecycleSubset` consumes eleven shared lifecycle cases and fails on
+`TestSharedLifecycleSubset` consumes thirteen shared lifecycle cases and fails on
 unknown event arguments or assertions within those cases. Independently written
 tests exercise additional lifecycle behavior, actual blocked/broken OS pipes,
 process death and reaping, cancellation races, and late evaluation invalidation.
