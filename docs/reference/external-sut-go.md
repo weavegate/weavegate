@@ -2,8 +2,9 @@
 
 [`internal/sut/external`](../../internal/sut/external/) implements the Go peer
 of [wire v1](external-sut-v1.md). It launches one owned process with
-`exec(java, "-jar", jar)` and communicates over framed stdin/stdout. The Java
-SDK and CLI selection are not implemented here. The package is not enabled by
+`exec(java, "-jar", jar)` and communicates over framed stdin/stdout. The
+[Java peer](external-sut-java.md) is a separate implementation; CLI selection is
+not implemented. The package is not enabled by
 the CLI, and its complete Go acceptance gate has not passed.
 
 ## Construction and ownership

@@ -12,3 +12,6 @@ baseline*.log
 /weavegate
 /.weavegate/
 /dist/
+
+# Java SDK build output
+/sdk/java/target/

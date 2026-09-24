@@ -2,8 +2,8 @@
 
 These are constructed design examples for the
 [v1 wire contract](external-sut-v1.md), not captured output or passing tests.
-The [Go peer has partial executable evidence](external-sut-go.md); a Java SDK
-is not implemented here and neither implementation has complete acceptance. The shared
+The [Go peer](external-sut-go.md) and [Java Spring peer](external-sut-java.md)
+have partial executable evidence; neither implementation has complete acceptance. The shared
 [JSON vectors](testdata/external-sut-v1.json) are the common input for both future
 implementation issues; do not fork language-specific copies of the protocol.
 [ADR 0010](../adr/0010-external-sut-protocol.md) lists the engine decisions that
