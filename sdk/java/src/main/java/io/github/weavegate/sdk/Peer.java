@@ -349,7 +349,9 @@ final class Peer {
         invocations.put(id, invocation);
         workers.put(worker, invocation);
         live++;
-        send("accepted", identity(invocation));
+        if (!send("accepted", identity(invocation))) {
+            return;
+        }
         invocation.dispatches++;
         executor.execute(new InvocationTask(invocation));
     }

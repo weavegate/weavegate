@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.weavegate.sdk.fixture.FixtureApplication;
 import io.github.weavegate.sdk.fixture.Journal;
 import org.junit.jupiter.api.AfterAll;
@@ -183,7 +184,7 @@ class SpringTransactionsTest {
                     "commands", List.of("assign", "navigate", "fail_body", "rollback_only", "after_commit_failure",
                             "after_commit_jdbc", "after_completion_jdbc",
                             "duplicate_key", "caught_duplicate", "manual_commit", "sql_commit", "implicit_commit",
-                            "package_private"),
+                            "package_private", "multi_statement", "session_select"),
                     "points", List.of("after_read", "before_write"), "capacity", 2,
                     "database", Map.of("driver", "mysql", "host", MYSQL.getHost(), "port", MYSQL.getMappedPort(3306),
                             "name", "weavegate", "username", "synthetic", "password", "synthetic-only"),
@@ -222,6 +223,36 @@ class SpringTransactionsTest {
 
     private static String id(int n) {
         return String.format("%032x", n);
+    }
+
+    @TestFactory
+    Stream<DynamicTest> rejectedSessionSqlLeavesPooledConnectionUnchanged() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("session-state").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
+            try (HikariDataSource pool = new HikariDataSource()) {
+                pool.setJdbcUrl(MYSQL.getJdbcUrl());
+                pool.setUsername("synthetic");
+                pool.setPassword("synthetic-only");
+                pool.setMaximumPoolSize(1);
+                try (Connection c = new TrackingDataSource(pool, h.peer).getConnection();
+                     Statement statement = c.createStatement()) {
+                    try (ResultSet before = statement.executeQuery("SELECT @weavegate_fixture")) {
+                        assertThat(before.next()).isTrue();
+                        assertThat(before.getString(1)).isNull();
+                    }
+                    org.assertj.core.api.Assertions.assertThatThrownBy(
+                            () -> statement.execute("SELECT 1 INTO @weavegate_fixture"))
+                            .isInstanceOf(java.sql.SQLFeatureNotSupportedException.class);
+                    try (ResultSet after = statement.executeQuery("SELECT @weavegate_fixture")) {
+                        assertThat(after.next()).isTrue();
+                        assertThat(after.getString(1)).isNull();
+                    }
+                }
+                assertThat(h.peer.openLeases).isZero();
+            }
+        });
     }
 
     @TestFactory
@@ -391,6 +422,8 @@ class SpringTransactionsTest {
             assertFatal(FaultyDataSource.Fault.ROLLBACK, "transaction", "transaction outcome unknown", "fail_body", "thrown");
             assertFatal(FaultyDataSource.Fault.CLOSE, "cleanup", "lease return failed", "assign", "returned");
             assertUnsupportedSqlFatal();
+            assertSqlAdmissionFatal("multi_statement");
+            assertSqlAdmissionFatal("session_select");
             EvidenceListener.check("requirement/spring-transactions", "observe/evidence", HANDLER + "springTransactionBoundaries");
         });
     }
@@ -402,6 +435,18 @@ class SpringTransactionsTest {
         JsonNode fatal = s.fatal();
         assertThat(fatal.get("kind").stringValue()).isEqualTo("transaction");
         assertThat(fatal.get("message").stringValue()).isEqualTo("nontransactional SQL is unsupported");
+        assertThat(s.output.frames.stream().filter(f -> f.get("type").stringValue().equals("terminal"))).isEmpty();
+        assertThat(s.exit.await()).isEqualTo(1);
+        assertThat(seat()).isNull();
+    }
+
+    private static void assertSqlAdmissionFatal(String command) throws Exception {
+        resetSeat();
+        Session s = new Session(1000);
+        s.invoke(id(16), "w1", command);
+        JsonNode fatal = s.fatal();
+        assertThat(fatal.get("kind").stringValue()).isEqualTo("transaction");
+        assertThat(fatal.get("message").stringValue()).isEqualTo("SQL outside the supported subset");
         assertThat(s.output.frames.stream().filter(f -> f.get("type").stringValue().equals("terminal"))).isEmpty();
         assertThat(s.exit.await()).isEqualTo(1);
         assertThat(seat()).isNull();

@@ -84,6 +84,33 @@ class RegistrationTest {
         return RequirementsTest.repeated(() -> validateCustomProxy(false));
     }
 
+    @TestFactory
+    Stream<DynamicTest> failureObserverMustBeImmediatelyInsideTransaction() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness harness = new VectorHarness("independent").quiet();
+            TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
+            WeavegateTransactionManager manager = new WeavegateTransactionManager(dataSource, harness.peer);
+            ProxyFactory factory = new ProxyFactory(new InterfaceCommands());
+            factory.addAdvice(new FailureObserver());
+            factory.addAdvice(new TransactionInterceptor((TransactionManager) manager,
+                    new AnnotationTransactionAttributeSource()));
+            Object proxy = factory.getProxy();
+            SpringHost host = new SpringHost(Transactions.class, new String[0]);
+            host.bind(harness.peer);
+            try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+                context.registerBean("dataSource", DataSource.class, () -> dataSource);
+                context.registerBean("transactionManager", WeavegateTransactionManager.class, () -> manager);
+                context.registerBean("commands", Object.class, () -> proxy);
+                context.refresh();
+                ReflectionTestUtils.setField(host, "context", context);
+                ReflectionTestUtils.setField(host, "dataSource", dataSource);
+                assertThatThrownBy(() -> host.validateRegistration(List.of("selected"), List.of()))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessage("command failure observer must be inside transaction advice");
+            }
+        });
+    }
+
     private static void validateCustomProxy(boolean jdk) {
         VectorHarness harness = new VectorHarness("independent").quiet();
         TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);

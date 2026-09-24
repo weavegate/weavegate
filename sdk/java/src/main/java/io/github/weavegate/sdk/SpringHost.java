@@ -184,11 +184,14 @@ final class SpringHost implements Seams.Host {
         }
         Advisor[] advisors = advised.getAdvisors();
         int transaction = -1;
-        boolean observed = false;
+        int observer = -1;
         for (int i = 0; i < advisors.length; i++) {
             Advisor advisor = advisors[i];
             if (advisor.getAdvice() instanceof FailureObserver) {
-                observed = true;
+                if (observer != -1) {
+                    throw new IllegalStateException("duplicate command failure observer");
+                }
+                observer = i;
             }
             if (advisor.getAdvice() instanceof TransactionInterceptor interceptor) {
                 if (advisor instanceof PointcutAdvisor pointcut) {
@@ -216,7 +219,10 @@ final class SpringHost implements Seams.Host {
         if (transaction == -1) {
             throw new IllegalStateException("command lacks transaction advice");
         }
-        if (!observed) {
+        if (observer != -1 && observer != transaction + 1) {
+            throw new IllegalStateException("command failure observer must be inside transaction advice");
+        }
+        if (observer == -1) {
             // Inside the transaction interceptor: observe a body failure before
             // Spring rolls back or returns the lease. Spring keeps all decisions.
             advised.addAdvice(transaction + 1, new FailureObserver());
