@@ -132,7 +132,8 @@ final class SpringHost implements Seams.Host {
             if (type == null) {
                 continue;
             }
-            Class<?> user = ClassUtils.getUserClass(type);
+            Class<?> user = java.lang.reflect.Proxy.isProxyClass(type)
+                    ? AopUtils.getTargetClass(ctx.getBean(name)) : ClassUtils.getUserClass(type);
             for (Method method : ReflectionUtils.getUniqueDeclaredMethods(user)) {
                 WeavegateCommand command = AnnotationUtils.findAnnotation(method, WeavegateCommand.class);
                 if (command == null) {
@@ -144,6 +145,7 @@ final class SpringHost implements Seams.Host {
                 }
                 if (!Wire.name(command.value()) || !Modifier.isPublic(method.getModifiers())
                         || Modifier.isStatic(method.getModifiers()) || Modifier.isFinal(method.getModifiers())
+                        || method.getReturnType() != void.class
                         || method.getParameterCount() > 1
                         || (method.getParameterCount() == 1 && method.getParameterTypes()[0] != CommandContext.class)) {
                     throw new IllegalStateException("invalid command signature");
@@ -189,16 +191,23 @@ final class SpringHost implements Seams.Host {
                 observed = true;
             }
             if (advisor.getAdvice() instanceof TransactionInterceptor interceptor) {
+                if (advisor instanceof PointcutAdvisor pointcut) {
+                    var matcher = pointcut.getPointcut().getMethodMatcher();
+                    // Spring excludes static nonmatches from this method's chain.
+                    if (!pointcut.getPointcut().getClassFilter().matches(user)
+                            || !matcher.matches(method, user)) {
+                        continue;
+                    }
+                    if (matcher.isRuntime()) {
+                        throw new IllegalStateException("runtime transaction pointcuts are unsupported");
+                    }
+                }
                 TransactionManager configured = interceptor.getTransactionManager();
                 if (transaction != -1 || interceptor.getTransactionAttributeSource() == null
                         // A null manager resolves by type; the context check above makes that
                         // the one SDK manager. A directly configured manager must be identical.
                         || (configured != null && configured != manager)
-                        || !supportedTransaction(interceptor.getTransactionAttributeSource().getTransactionAttribute(method, user))
-                        || (advisor instanceof PointcutAdvisor pointcut
-                        && (!pointcut.getPointcut().getClassFilter().matches(user)
-                        || !pointcut.getPointcut().getMethodMatcher().matches(method, user)
-                        || pointcut.getPointcut().getMethodMatcher().isRuntime()))) {
+                        || !supportedTransaction(interceptor.getTransactionAttributeSource().getTransactionAttribute(method, user))) {
                     throw new IllegalStateException("command requires one matching weavegate transaction advice");
                 }
                 transaction = i;

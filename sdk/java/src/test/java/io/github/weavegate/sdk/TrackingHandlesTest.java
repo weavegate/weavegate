@@ -28,6 +28,51 @@ class TrackingHandlesTest {
     interface VendorStatement extends Statement { }
 
     @TestFactory
+    Stream<DynamicTest> namedLocksCannotEscapeTransactionLifetime() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement()).thenReturn(statement);
+            try (Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                 Statement wrapped = tracked.createStatement()) {
+                for (String sql : java.util.List.of("SELECT GET_LOCK('fixture', 1)",
+                        "SELECT release_lock('fixture')", "SELECT RELEASE_ALL_LOCKS()",
+                        "SELECT GET_LOCK /* comment */ ('fixture', 0)",
+                        "SELECT /*!80000 GET_LOCK('fixture', 0) */")) {
+                    assertThatThrownBy(() -> wrapped.execute(sql)).isInstanceOf(SQLException.class);
+                    assertThatThrownBy(() -> wrapped.addBatch(sql)).isInstanceOf(SQLException.class);
+                    assertThatThrownBy(() -> tracked.prepareStatement(sql)).isInstanceOf(SQLException.class);
+                    verify(statement, org.mockito.Mockito.never()).execute(sql);
+                    verify(statement, org.mockito.Mockito.never()).addBatch(sql);
+                    verify(raw, org.mockito.Mockito.never()).prepareStatement(sql);
+                }
+                wrapped.execute("SELECT 'GET_LOCK( is only text'");
+                verify(statement).execute("SELECT 'GET_LOCK( is only text'");
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> dataSourceLoginTimeoutCannotBeChangedToNonzero() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            DataSource source = mock(DataSource.class);
+            TrackingDataSource tracked = new TrackingDataSource(source, h.peer);
+            assertThatThrownBy(() -> tracked.setLoginTimeout(1)).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> tracked.setLoginTimeout(-1)).isInstanceOf(SQLException.class);
+            verify(source, org.mockito.Mockito.never()).setLoginTimeout(1);
+            verify(source, org.mockito.Mockito.never()).setLoginTimeout(-1);
+            tracked.setLoginTimeout(0);
+            verify(source).setLoginTimeout(0);
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> rejectedOutsideLeaseIsClosedBeforeItCanExecute() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();

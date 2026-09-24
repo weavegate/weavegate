@@ -4,6 +4,10 @@
 [wire v1](external-sut-v1.md) for an explicitly instrumented Spring Boot test
 application. It is not published as a package, the `weavegate` CLI does not
 select it, and its complete Java acceptance gate has not passed.
+[Issue #141](https://github.com/weavegate/weavegate/issues/141) tracks the planned
+JDBC/SQL/Spring support matrix and remaining complete acceptance evidence.
+The current guards reject the operations listed below; they do not establish
+support for arbitrary SQL or asynchronous application work.
 
 ## Supported baseline
 
@@ -46,10 +50,14 @@ Flyway and Liquibase are disabled. Startup fails if the context contains another
 DataSource or transaction manager, or enables `@Scheduled` or `@Async`
 processing; processor beans are detected by type, regardless of bean name.
 
-Commands are public, non-final instance methods on proxied Spring beans. The bean
+Commands are synchronous public, non-final instance methods returning `void` on
+proxied Spring beans; asynchronous return types are rejected at registration. The bean
 class itself may be package-private; the selected proxy method is made reflectively
 accessible before dispatch. Static methods and proxies without accessible,
-matching transaction advice are rejected.
+matching transaction advice are rejected. JDK proxies are inspected through their
+target class, and commands must be exposed on a proxy interface for dispatch.
+Static transaction pointcuts that do not match the command are ignored; matching
+runtime pointcuts remain unsupported.
 Each needs one `@Transactional` boundary with `REQUIRED` propagation, no
 wall-clock timeout, and rollback behavior for `WeavegateCancelledException`
 (the default rule for runtime exceptions does).
@@ -94,13 +102,16 @@ are rejected through both connection methods and direct, prepared or batched SQL
 SQL-level `PREPARE`, `EXECUTE`, and prepared-statement deallocation are also
 rejected before delegation because they can hide transaction control. Direct
 `CALL` and JDBC callable statements are rejected because a procedure can commit
-internally. Only the SDK-owned transaction manager may use transaction controls.
+internally. `GET_LOCK`, `RELEASE_LOCK`, and `RELEASE_ALL_LOCKS` SQL calls are
+rejected because named locks outlive transaction completion and pool lease return.
+Only the SDK-owned transaction manager may use transaction controls.
 SQL that can commit implicitly or act outside the transaction, including DDL,
 table locks, account management, `SET` session changes and administrative
 statements, is rejected before JDBC delegation as a fatal unsupported adapter
 operation. SQL optimizer
 `MAX_EXECUTION_TIME` hints, nonzero JDBC statement query timeouts, connection
-network timeouts and connection validation timeouts are unsupported because they
+network timeouts, connection validation timeouts and DataSource login timeouts
+are unsupported because they
 would make a schedule depend on wall-clock time; zero continues to mean no timeout.
 
 Standard JDBC `unwrap` returns the tracking proxy when that interface is

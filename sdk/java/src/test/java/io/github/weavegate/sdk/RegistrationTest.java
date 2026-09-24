@@ -1,6 +1,7 @@
 package io.github.weavegate.sdk;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.stream.Stream;
@@ -50,6 +51,68 @@ class RegistrationTest {
     public static class TimeoutCommands {
         @Transactional(timeout = 1) @WeavegateCommand("timed")
         public void timed() { }
+    }
+
+    public static class AsyncCommands {
+        @Transactional @WeavegateCommand("future")
+        public java.util.concurrent.Future<Void> future() { return new java.util.concurrent.CompletableFuture<>(); }
+        @Transactional @WeavegateCommand("stage")
+        public java.util.concurrent.CompletionStage<Void> stage() { return new java.util.concurrent.CompletableFuture<>(); }
+    }
+
+    public interface CommandApi { void selected(); }
+
+    public static class InterfaceCommands implements CommandApi {
+        @Transactional @WeavegateCommand("selected")
+        public void selected() { }
+    }
+
+    @TestFactory
+    Stream<DynamicTest> asynchronousCommandsFailRegistration() {
+        return RequirementsTest.repeated(() ->
+                assertThatThrownBy(() -> validate(AsyncCommands.class, List.of("future", "stage"), List.of()))
+                        .isInstanceOf(IllegalStateException.class).hasMessage("invalid command signature"));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> jdkProxyDiscoversImplementationCommands() {
+        return RequirementsTest.repeated(() -> validateCustomProxy(true));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> unrelatedTransactionAdviceDoesNotRejectCommand() {
+        return RequirementsTest.repeated(() -> validateCustomProxy(false));
+    }
+
+    private static void validateCustomProxy(boolean jdk) {
+        VectorHarness harness = new VectorHarness("independent").quiet();
+        TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
+        WeavegateTransactionManager manager = new WeavegateTransactionManager(dataSource, harness.peer);
+        ProxyFactory factory = new ProxyFactory(new InterfaceCommands());
+        factory.setProxyTargetClass(!jdk);
+        if (!jdk) {
+            var unrelated = new org.springframework.aop.support.StaticMethodMatcherPointcut() {
+                @Override public boolean matches(java.lang.reflect.Method method, Class<?> type) {
+                    return method.getName().equals("toString");
+                }
+            };
+            factory.addAdvisor(new org.springframework.aop.support.DefaultPointcutAdvisor(unrelated,
+                    new TransactionInterceptor((TransactionManager) manager, new AnnotationTransactionAttributeSource())));
+        }
+        factory.addAdvice(new TransactionInterceptor((TransactionManager) manager,
+                new AnnotationTransactionAttributeSource()));
+        Object proxy = factory.getProxy();
+        SpringHost host = new SpringHost(Transactions.class, new String[0]);
+        host.bind(harness.peer);
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> dataSource);
+            context.registerBean("transactionManager", WeavegateTransactionManager.class, () -> manager);
+            context.registerBean("commands", Object.class, () -> proxy);
+            context.refresh();
+            ReflectionTestUtils.setField(host, "context", context);
+            ReflectionTestUtils.setField(host, "dataSource", dataSource);
+            assertThat(host.validateRegistration(List.of("selected"), List.of())).containsKey("selected");
+        }
     }
 
     static void validate(Class<?> commands, List<String> selected, List<String> points) {

@@ -8,7 +8,8 @@ import java.lang.annotation.Target;
 
 /**
  * Registers a public method of a transactional Spring bean as a named worker
- * command. The method takes no arguments or one {@link CommandContext}. Its
+ * command. The synchronous method returns {@code void} and takes no arguments
+ * or one {@link CommandContext}. Its
  * {@code @Transactional} boundary must use {@code REQUIRED} propagation and
  * roll back for {@link WeavegateCancelledException}; the dispatcher calls it
  * through the bean proxy, never through self-invocation.

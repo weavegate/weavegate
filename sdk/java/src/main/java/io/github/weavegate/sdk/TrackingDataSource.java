@@ -33,6 +33,8 @@ final class TrackingDataSource implements DataSource {
     private static final Pattern DYNAMIC_SQL = Pattern.compile("(?is)^(?:PREPARE\\b|EXECUTE\\b|"
             + "(?:DEALLOCATE|DROP)\\s+PREPARE\\b)");
     private static final Pattern TIMEOUT_HINT = Pattern.compile("(?is)\\bMAX_EXECUTION_TIME\\s*\\(");
+    private static final Pattern NAMED_LOCK_SQL = Pattern.compile(
+            "(?is)(?<![\\w$])(?:GET_LOCK|RELEASE_LOCK|RELEASE_ALL_LOCKS)\\s*\\(");
     private static final Pattern NONTRANSACTIONAL_SQL = Pattern.compile("(?is)^(?:"
             + "(?:ALTER|ANALYZE|CACHE|CHECK|CREATE|DROP|FLUSH|GRANT|INSTALL|LOCK|OPTIMIZE|RENAME|REPAIR|"
             + "RESET|REVOKE|TRUNCATE|UNINSTALL|UNLOCK)\\b|"
@@ -287,6 +289,9 @@ final class TrackingDataSource implements DataSource {
         String name = method.getName();
         if (name.startsWith("execute") || name.equals("addBatch") || name.startsWith("prepare")) {
             String normalized = normalizeSql(sql).stripLeading();
+            if (NAMED_LOCK_SQL.matcher(unquotedSql(normalized)).find()) {
+                throw new SQLFeatureNotSupportedException("session-scoped named locks are unsupported");
+            }
             if (DYNAMIC_SQL.matcher(normalized).find()) {
                 throw new SQLFeatureNotSupportedException("server-side prepared SQL is unsupported");
             }
@@ -388,6 +393,22 @@ final class TrackingDataSource implements DataSource {
         return i;
     }
 
+    /** Inspect SQL operations without treating quoted data as a function call. */
+    private static String unquotedSql(String sql) {
+        StringBuilder code = new StringBuilder(sql.length());
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (c == '\'' || c == '"' || c == '`') {
+                i = appendQuoted(sql, i, new StringBuilder());
+                code.append(' ');
+            } else {
+                code.append(c);
+                i++;
+            }
+        }
+        return code.toString();
+    }
+
     private static boolean transactionControl(String method) {
         return method.equals("setAutoCommit") || method.equals("commit") || method.equals("rollback")
                 || method.equals("setSavepoint") || method.equals("releaseSavepoint");
@@ -439,6 +460,9 @@ final class TrackingDataSource implements DataSource {
 
     @Override
     public void setLoginTimeout(int seconds) throws SQLException {
+        if (seconds != 0) {
+            throw new SQLFeatureNotSupportedException("wall-clock DataSource login timeouts are unsupported");
+        }
         delegate.setLoginTimeout(seconds);
     }
 
