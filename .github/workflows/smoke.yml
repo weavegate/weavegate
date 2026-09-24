@@ -477,7 +477,7 @@ jobs:
 
   external-java:
     if: github.event_name != 'schedule'
-    name: external Java peer (partial acceptance)
+    name: external Java peer (isolated acceptance)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
