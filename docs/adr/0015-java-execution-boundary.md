@@ -1,6 +1,6 @@
 # ADR 0015: Java application execution boundary
 
-- Status: Accepted for the isolated Java peer; complete acceptance remains pending
+- Status: Accepted; isolated Java acceptance passed, CLI and paired replay pending
 - Date: 2026-09-24
 - Issue: [#141](https://github.com/weavegate/weavegate/issues/141)
 
@@ -12,7 +12,8 @@ navigation, and statement cancellation. They do not parse MySQL or sandbox
 arbitrary application code. Admission accepts one `SELECT`, `INSERT`, `UPDATE`,
 or `DELETE` statement per JDBC call after stripping ordinary comments and
 exposing MySQL executable comments. A semicolon outside a quoted value is
-rejected, including a trailing semicolon. Known session-changing SELECT forms
+rejected, including a trailing semicolon. JDBC batch addition and execution
+are rejected before delegation. Known session-changing SELECT forms
 and named-lock functions are rejected before delegation. The SQL admission
 rule is a guard against identified escapes, not proof that every admitted
 expression is free of side effects.

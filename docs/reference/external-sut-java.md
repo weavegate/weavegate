@@ -2,10 +2,13 @@
 
 [`sdk/java`](../../sdk/java/) implements the Java peer of
 [wire v1](external-sut-v1.md) for an explicitly instrumented Spring Boot test
-application. It is not published as a package, the `weavegate` CLI does not
-select it, and its complete Java acceptance gate has not passed.
-[Issue #141](https://github.com/weavegate/weavegate/issues/141) tracks the planned
-JDBC/SQL/Spring support matrix and remaining complete acceptance evidence.
+application. Its isolated Java acceptance gate passes on the pinned stack. It
+is not published as a package, and the `weavegate` CLI does not select it;
+CLI composition and paired live replay remain under
+[#110](https://github.com/weavegate/weavegate/issues/110) and
+[#111](https://github.com/weavegate/weavegate/issues/111).
+[Issue #141](https://github.com/weavegate/weavegate/issues/141) defines this
+JDBC/SQL/Spring support matrix and its isolated acceptance evidence.
 The support contract below is for a trusted, reviewed fixture application on
 the pinned stack. The guards are not a general MySQL parser or an application
 sandbox. [ADR 0015](../adr/0015-java-execution-boundary.md) records that
@@ -19,7 +22,7 @@ decision and the fixture author's obligations.
 | Lease ownership and navigation | One tracked lease on the worker thread; JDBC `Connection`, `Statement`, `ResultSet` navigation returns tracked proxies | Second or foreign-thread lease, vendor `unwrap`, metadata access, JDBC outside the transaction or startup probe | `SpringTransactionsTest.springTransactionBoundaries`; `TrackingHandlesTest.jdbcNavigationCannotEscapeTracking` and lease tests |
 | Cancellation and completion | Tracked statement execution, row navigation and close are cancellable; proxy exit, known transaction outcome and returned lease precede terminal | Detached work, retained handles, completion callbacks performing JDBC after transaction outcome | `SpringTransactionsTest.springTransactionBoundaries`, `postCommitCallbacksCannotPerformJdbcWork`, `TrackingHandlesTest.resultSetAndStatementCloseRemainCancellable` |
 | Timeouts and session state | Zero JDBC timeout settings; one reviewed statement per call | Nonzero JDBC query, network, validation or login timeout; named locks, session variables, SQL transaction control, server-side `PREPARE`/`EXECUTE`, `CALL` | `TrackingHandlesTest` timeout, named-lock and SQL admission tests; `SpringTransactionsTest.rejectedSessionSqlLeavesPooledConnectionUnchanged` on MySQL; fatal/rollback checks |
-| SQL and database objects | Trusted single-statement `SELECT`, `INSERT`, `UPDATE`, `DELETE` over reviewed transactional InnoDB fixture tables | DDL, `SET`, `SELECT ... INTO`, multi-statements, stored routines, triggers, events, UDFs, nontransactional or temporary tables, nondeterministic SQL | SQL admission unit tests and MySQL rollback checks cover identified rejected forms; fixture review owns database-object restrictions |
+| SQL and database objects | Trusted single-statement `SELECT`, `INSERT`, `UPDATE`, `DELETE` over reviewed transactional InnoDB fixture tables | JDBC batches, DDL, `SET`, `SELECT ... INTO`, multi-statements, stored routines, triggers, events, UDFs, nontransactional or temporary tables, nondeterministic SQL | SQL admission and batch rejection unit tests and MySQL rollback checks cover identified rejected forms; fixture review owns database-object restrictions |
 | Spring command dispatch | Selected public `void` methods via inspectable JDK or CGLIB proxy; one matching SDK transaction advisor; failure observer immediately inside it | Static/final methods, async returns, matching runtime transaction pointcuts, opaque/frozen proxies, self-invocation | `RegistrationTest` for shapes and advice; `SpringTransactionsTest` for actual JDK/CGLIB proxies and transactions on MySQL |
 
 The listed tests prove only their stated cases. A fixture author must inspect
@@ -120,7 +123,7 @@ Rejected outside-invocation leases are closed before application code can use
 them. Application JDBC is permitted only after the SDK transaction begins;
 SDK-owned begin and cleanup operations retain access to their connection.
 Application calls to JDBC auto-commit, commit, rollback or savepoint controls
-are rejected through both connection methods and direct, prepared or batched SQL;
+are rejected through both connection methods and direct or prepared SQL;
 SQL-level `PREPARE`, `EXECUTE`, and prepared-statement deallocation are also
 rejected before delegation because they can hide transaction control. Direct
 `CALL` and JDBC callable statements are rejected because a procedure can commit
@@ -138,7 +141,9 @@ SQL that can commit implicitly or act outside the transaction, including DDL,
 table locks, account management, `SET` session changes and administrative
 statements, is rejected before JDBC delegation as a fatal unsupported adapter
 operation. Admission accepts only a single `SELECT`, `INSERT`, `UPDATE` or
-`DELETE` statement; semicolons outside quoted values are rejected. A `SELECT`
+`DELETE` statement; `Statement` and `PreparedStatement` batch additions and
+executions are rejected before delegation. Semicolons outside quoted values
+are rejected. A `SELECT`
 with `INTO`, a session-variable assignment or a recognized session-changing
 function is rejected before delegation. Ordinary comments are skipped while
 MySQL executable comments retain their body for this check. These guards do
@@ -239,7 +244,7 @@ python3 scripts/record-external-sut-java-results.py \
   --output /tmp/weavegate-java-evidence/java.json \
   --revision "$(git rev-parse HEAD)" \
   --command './mvnw -B verify -Dweavegate.repetitions=20 -Dweavegate.evidence=/tmp/weavegate-java-evidence/java.log'
-python3 scripts/check-external-sut-acceptance.py --results /tmp/weavegate-java-evidence/java.json
+python3 scripts/check-external-sut-acceptance.py --results /tmp/weavegate-java-evidence/java.json --require-complete
 python3 scripts/test-external-sut-java-results.py
 ```
 

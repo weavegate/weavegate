@@ -61,6 +61,42 @@ class TrackingHandlesTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> jdbcBatchesAreRejectedBeforeDelegation() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            PreparedStatement prepared = mock(PreparedStatement.class);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement()).thenReturn(statement);
+            when(raw.prepareStatement("UPDATE seat SET taken_by = 'fixture'")).thenReturn(prepared);
+            try (Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                 Statement wrapped = tracked.createStatement();
+                 PreparedStatement wrappedPrepared = tracked.prepareStatement(
+                         "UPDATE seat SET taken_by = 'fixture'")) {
+                assertThatThrownBy(() -> wrapped.addBatch("UPDATE seat SET taken_by = 'fixture'"))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(wrapped::executeBatch).isInstanceOf(SQLException.class);
+                assertThatThrownBy(wrapped::executeLargeBatch).isInstanceOf(SQLException.class);
+                assertThatThrownBy(wrappedPrepared::addBatch).isInstanceOf(SQLException.class);
+                assertThatThrownBy(wrappedPrepared::executeBatch).isInstanceOf(SQLException.class);
+                assertThatThrownBy(wrappedPrepared::executeLargeBatch).isInstanceOf(SQLException.class);
+                verify(statement, org.mockito.Mockito.never()).addBatch("UPDATE seat SET taken_by = 'fixture'");
+                verify(statement, org.mockito.Mockito.never()).executeBatch();
+                verify(statement, org.mockito.Mockito.never()).executeLargeBatch();
+                verify(prepared, org.mockito.Mockito.never()).addBatch();
+                verify(prepared, org.mockito.Mockito.never()).executeBatch();
+                verify(prepared, org.mockito.Mockito.never()).executeLargeBatch();
+                wrapped.execute("SELECT 1");
+                verify(statement).execute("SELECT 1");
+            }
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> sessionAndResourceEntrypointsCannotBypassTracking() {
         return RequirementsTest.repeated(() -> {
             VectorHarness h = new VectorHarness("independent").quiet();

@@ -255,6 +255,10 @@ final class TrackingDataSource implements DataSource {
                 default -> { }
             }
             rejectUnsupportedSql(method, args);
+            if (method.getName().equals("addBatch") || method.getName().equals("executeBatch")
+                    || method.getName().equals("executeLargeBatch")) {
+                throw new SQLFeatureNotSupportedException("JDBC batch execution is unsupported");
+            }
             rejectQueryTimeout(method, args);
             if (method.getName().equals("getMetaData") || method.getName().equals("getParameterMetaData")) {
                 throw new SQLFeatureNotSupportedException("JDBC metadata access is unsupported");
