@@ -205,7 +205,7 @@ final class TrackingDataSource implements DataSource {
                         case "toString" -> { return "TrackedResultSet"; }
                         default -> { }
                     }
-                    if (RESULT_RESOURCES.contains(method.getName()) || method.getName().equals("getMetaData")) {
+                    if (RESULT_RESOURCES.contains(method.getName())) {
                         throw new SQLFeatureNotSupportedException("untracked result-set resources are unsupported");
                     }
                     if (invocation == null || cancel == null) {

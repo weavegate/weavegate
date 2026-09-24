@@ -32,7 +32,10 @@ Only selected synchronous `void` commands dispatched through one inspectable
 Spring proxy are supported. Registration confirms exactly one matching
 `REQUIRED` transaction interceptor bound to the SDK manager, and inserts the
 failure observer immediately inside that interceptor. Static nonmatching
-advisors may surround it. Matching runtime transaction pointcuts, frozen or
+advisors may surround it. Synchronous command-specific advice can run inside
+the observer; advice outside the transaction has the same no-JDBC obligation
+as all other application work outside an invocation transaction. Matching
+runtime transaction pointcuts, frozen or
 opaque proxies, async returns, self-invocation and work outside the command
 proxy call are unsupported. The method exposed by a JDK proxy must be present
 on its interface. A CGLIB command method must be overridable.

@@ -20,7 +20,7 @@ decision and the fixture author's obligations.
 | Cancellation and completion | Tracked statement execution, row navigation and close are cancellable; proxy exit, known transaction outcome and returned lease precede terminal | Detached work, retained handles, completion callbacks performing JDBC after transaction outcome | `SpringTransactionsTest.springTransactionBoundaries`, `postCommitCallbacksCannotPerformJdbcWork`, `TrackingHandlesTest.resultSetAndStatementCloseRemainCancellable` |
 | Timeouts and session state | Zero JDBC timeout settings; one reviewed statement per call | Nonzero JDBC query, network, validation or login timeout; named locks, session variables, SQL transaction control, server-side `PREPARE`/`EXECUTE`, `CALL` | `TrackingHandlesTest` timeout, named-lock and SQL admission tests; `SpringTransactionsTest.rejectedSessionSqlLeavesPooledConnectionUnchanged` on MySQL; fatal/rollback checks |
 | SQL and database objects | Trusted single-statement `SELECT`, `INSERT`, `UPDATE`, `DELETE` over reviewed transactional InnoDB fixture tables | DDL, `SET`, `SELECT ... INTO`, multi-statements, stored routines, triggers, events, UDFs, nontransactional or temporary tables, nondeterministic SQL | SQL admission unit tests and MySQL rollback checks cover identified rejected forms; fixture review owns database-object restrictions |
-| Spring command dispatch | Selected public `void` methods via inspectable JDK or CGLIB proxy; one matching SDK transaction advisor; failure observer immediately inside it | Static/final methods, async returns, matching runtime transaction pointcuts, opaque/frozen proxies, self-invocation | `RegistrationTest` for shapes and advice; `SpringTransactionsTest` for actual CGLIB proxy and transaction |
+| Spring command dispatch | Selected public `void` methods via inspectable JDK or CGLIB proxy; one matching SDK transaction advisor; failure observer immediately inside it | Static/final methods, async returns, matching runtime transaction pointcuts, opaque/frozen proxies, self-invocation | `RegistrationTest` for shapes and advice; `SpringTransactionsTest` for actual JDK/CGLIB proxies and transactions on MySQL |
 
 The listed tests prove only their stated cases. A fixture author must inspect
 the schema and every command SQL for stored functions, triggers, other server
@@ -77,7 +77,9 @@ accessible before dispatch. Static methods and proxies without accessible,
 matching transaction advice are rejected. JDK proxies are inspected through their
 target class, and commands must be exposed on a proxy interface for dispatch.
 Static transaction pointcuts that do not match the command are ignored; matching
-runtime pointcuts remain unsupported.
+runtime pointcuts remain unsupported. Synchronous command-specific advice may
+run inside the transaction and failure observer. Advice outside the transaction
+must not access fixture JDBC or defer work past proxy return.
 Each needs one `@Transactional` boundary with `REQUIRED` propagation, no
 wall-clock timeout, and rollback behavior for `WeavegateCancelledException`
 (the default rule for runtime exceptions does).
@@ -130,7 +132,8 @@ connection, including `abort`, catalog/schema, client info and sharding keys,
 are rejected. JDBC factories for LOBs, arrays, SQLXML and structs are rejected
 because their returned resources would escape tracking. Result-set object,
 stream and resource getters and statement `closeOnCompletion` are likewise
-unsupported; scalar getters and explicit tracked close are the supported path.
+unsupported; scalar getters, current result-set column metadata and explicit
+tracked close are the supported path.
 SQL that can commit implicitly or act outside the transaction, including DDL,
 table locks, account management, `SET` session changes and administrative
 statements, is rejected before JDBC delegation as a fatal unsupported adapter
@@ -253,8 +256,9 @@ the exact Maven argument array, including the evidence path, beside its logs.
 Independent tests run the production bootstrap in child JVMs over real pipes.
 They cover the success lifecycle through `stopped`, stdout EOF and exit 0;
 EOF during startup, active, post-terminal and Stop phases; and broken and
-blocked writers. Spring tests use the pinned stack against MySQL 8.4. They
-observe proxy exit, driver commit or rollback and physical close outside the
+blocked writers. Spring tests use the pinned stack against MySQL 8.4, including
+a JDK proxy selected with `--spring.aop.proxy-target-class=false`. They observe
+proxy exit, driver commit or rollback and physical close outside the
 SDK, and inject begin, commit, rollback and close failures beneath lease
 tracking.
 

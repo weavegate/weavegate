@@ -128,6 +128,14 @@ class RegistrationTest {
         }
         factory.addAdvice(new TransactionInterceptor((TransactionManager) manager,
                 new AnnotationTransactionAttributeSource()));
+        var selected = new org.springframework.aop.support.StaticMethodMatcherPointcut() {
+            @Override public boolean matches(java.lang.reflect.Method method, Class<?> type) {
+                return method.getName().equals("selected");
+            }
+        };
+        var commandAdvice = new org.springframework.aop.support.DefaultPointcutAdvisor(selected,
+                (org.aopalliance.intercept.MethodInterceptor) invocation -> invocation.proceed());
+        factory.addAdvisor(commandAdvice);
         Object proxy = factory.getProxy();
         SpringHost host = new SpringHost(Transactions.class, new String[0]);
         host.bind(harness.peer);
@@ -139,6 +147,17 @@ class RegistrationTest {
             ReflectionTestUtils.setField(host, "context", context);
             ReflectionTestUtils.setField(host, "dataSource", dataSource);
             assertThat(host.validateRegistration(List.of("selected"), List.of())).containsKey("selected");
+            var advisors = ((org.springframework.aop.framework.Advised) proxy).getAdvisors();
+            int transaction = -1;
+            for (int i = 0; i < advisors.length; i++) {
+                if (advisors[i].getAdvice() instanceof TransactionInterceptor
+                        && advisors[i] != commandAdvice) {
+                    transaction = i;
+                }
+            }
+            assertThat(transaction).isGreaterThanOrEqualTo(0);
+            assertThat(advisors[transaction + 1].getAdvice()).isInstanceOf(FailureObserver.class);
+            assertThat(advisors[transaction + 2]).isSameAs(commandAdvice);
         }
     }
 

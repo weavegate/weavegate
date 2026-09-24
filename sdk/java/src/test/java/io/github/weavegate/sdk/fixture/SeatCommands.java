@@ -14,7 +14,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /** Commands over a synthetic seat table. Each uses one REQUIRED transaction through the bean proxy. */
 @Service
-public class SeatCommands {
+public class SeatCommands implements SeatCommandApi {
     private final JdbcTemplate jdbc;
 
     public SeatCommands(JdbcTemplate jdbc) {

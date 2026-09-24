@@ -81,7 +81,6 @@ class TrackingHandlesTest {
                 assertThatThrownBy(() -> tracked.setSchema("other")).isInstanceOf(SQLException.class);
                 assertThatThrownBy(tracked::createBlob).isInstanceOf(SQLException.class);
                 assertThatThrownBy(wrapped::closeOnCompletion).isInstanceOf(SQLException.class);
-                assertThatThrownBy(result::getMetaData).isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> result.getBlob(1)).isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> result.getObject(1)).isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> result.getBinaryStream(1)).isInstanceOf(SQLException.class);

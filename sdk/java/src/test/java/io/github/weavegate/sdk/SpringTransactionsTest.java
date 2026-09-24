@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.weavegate.sdk.fixture.FixtureApplication;
 import io.github.weavegate.sdk.fixture.Journal;
+import io.github.weavegate.sdk.fixture.SeatCommandApi;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DynamicTest;
@@ -165,17 +166,22 @@ class SpringTransactionsTest {
     static final class Session {
         final Output output = new Output();
         final Exit exit = new Exit();
+        final SpringHost host;
         volatile FaultyDataSource faults;
         final Peer peer;
         int seq = 1;
 
         Session() throws Exception {
-            this(30000);
+            this(30000, new String[0]);
         }
 
         /** Fatal sessions use a short cleanup bound: unproven cleanup must end in forced exit. */
         Session(int cancelMillis) throws Exception {
-            SpringHost host = new SpringHost(FixtureApplication.class, new String[0], ds -> faults = new FaultyDataSource(ds));
+            this(cancelMillis, new String[0]);
+        }
+
+        Session(int cancelMillis, String[] springArgs) throws Exception {
+            host = new SpringHost(FixtureApplication.class, springArgs, ds -> faults = new FaultyDataSource(ds));
             peer = new Peer(new ProxyJournal(host), new SystemSeams.MonotonicClock(), exit, output, SystemSeams.THREADS,
                     Seams.Activity.NONE);
             host.bind(peer);
@@ -223,6 +229,30 @@ class SpringTransactionsTest {
 
     private static String id(int n) {
         return String.format("%032x", n);
+    }
+
+    @TestFactory
+    Stream<DynamicTest> jdkProxyExecutesInsideTheRealTransaction() {
+        return RequirementsTest.repeated(() -> {
+            resetSeat();
+            Session s = new Session(30000, new String[] {"--spring.aop.proxy-target-class=false"});
+            org.springframework.context.ConfigurableApplicationContext context =
+                    (org.springframework.context.ConfigurableApplicationContext)
+                            org.springframework.test.util.ReflectionTestUtils.getField(s.host, "context");
+            assertThat(org.springframework.aop.support.AopUtils.isJdkDynamicProxy(
+                    context.getBean(SeatCommandApi.class))).isTrue();
+            s.invoke(id(17), "w1", "assign");
+            JsonNode arrive = s.arrival(id(17)).get("body");
+            s.peer.receive(Scripted.release(++s.seq, id(17), "w1", arrive.get("arrival").stringValue(), "after_read"));
+            assertThat(s.terminal(id(17)).toString()).contains("\"transaction\":\"committed\"",
+                    "\"connection\":\"returned\"", "\"error\":null");
+            assertThat(Journal.EVENTS).containsExactly("body-end", "driver-commit", "driver-close",
+                    "proxy-exit returned", "terminal proxy=EXITED lease=RETURNED");
+            assertThat(seat()).isEqualTo("w1");
+            s.stop();
+            EvidenceListener.check("requirement/java-jdk-command", "observe/evidence",
+                    HANDLER + "jdkProxyExecutesInsideTheRealTransaction");
+        });
     }
 
     @TestFactory
