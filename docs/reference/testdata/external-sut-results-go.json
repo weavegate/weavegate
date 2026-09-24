@@ -8,315 +8,67 @@
   },
   "run": null,
   "results": {
-    "case/success": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/incremented_arrival": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/stop_active_invocation": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/rollback": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/database_blocking": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/cancel_at_arrival": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/cancel_racing_release": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/cancel_before_accepted": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/late_arrival_after_cancel": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/commit_wins_cancel": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/process_death": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/death_after_terminals": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/stale_session": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/retired_invocation_worker_reuse": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/duplicate_frame": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/conflicting_duplicate": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/sequence_gap": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/unknown_invocation": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/terminal_while_arrived": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/readiness_mismatch": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/stop_before_ready": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/unsolicited_startup_stopped": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/startup_deadline": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/mysql_deadlock": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/mysql_lock_timeout": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/post_commit_exception": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/completion_callback_too_early": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/suppressed_cleanup_failure": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/unknown_commit_outcome": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/cancel_cleanup_deadline": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/duplicate_stop_call": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/stderr_overflow": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/startup_submillisecond_budget": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/java_receives_fatal_active": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/java_fatal_cleanup_watchdog_expires": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/java_startup_watchdog_expires": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/java_stop_watchdog_expires": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/fatal_after_terminals": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/cancel_wins_release_enqueue": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/release_enqueue_wins_cancel": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/active_stop_cancel_watchdog_expires": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/retired_terminal_identical": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "case/retired_terminal_conflict": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/fragmented_valid_frame": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/zero_length": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/oversized_length": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/partial_header_eof": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/partial_payload_eof": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/invalid_utf8": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/stdout_banner": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/duplicate_json_key": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/trailing_value": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/unknown_field": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "framing/duplicate_nested_json_key": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/go-dispatch": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/go-wire-matrix": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/go-real-pipes": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/go-success-lifecycle": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/late-fatal-cleanup": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/elapsed-stop-budget": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/invoke-dispatch-receipt": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/go-cancel-origin": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    }
+    "case/success": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/incremented_arrival": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/stop_active_invocation": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/rollback": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/database_blocking": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/cancel_at_arrival": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/cancel_racing_release": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/cancel_before_accepted": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/late_arrival_after_cancel": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/commit_wins_cancel": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/process_death": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/death_after_terminals": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/stale_session": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/retired_invocation_worker_reuse": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/duplicate_frame": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/conflicting_duplicate": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/sequence_gap": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/unknown_invocation": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/terminal_while_arrived": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/readiness_mismatch": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/stop_before_ready": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/unsolicited_startup_stopped": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/startup_deadline": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/mysql_deadlock": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/mysql_lock_timeout": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/post_commit_exception": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/completion_callback_too_early": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/suppressed_cleanup_failure": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/unknown_commit_outcome": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/cancel_cleanup_deadline": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/duplicate_stop_call": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/stderr_overflow": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/startup_submillisecond_budget": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/java_receives_fatal_active": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/java_fatal_cleanup_watchdog_expires": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/java_startup_watchdog_expires": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/java_stop_watchdog_expires": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/fatal_after_terminals": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/cancel_wins_release_enqueue": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/release_enqueue_wins_cancel": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/active_stop_cancel_watchdog_expires": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/retired_terminal_identical": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "case/retired_terminal_conflict": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/fragmented_valid_frame": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/zero_length": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/oversized_length": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/partial_header_eof": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/partial_payload_eof": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/invalid_utf8": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/stdout_banner": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/duplicate_json_key": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/trailing_value": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/unknown_field": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "framing/duplicate_nested_json_key": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/go-dispatch": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/go-wire-matrix": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/go-real-pipes": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/go-success-lifecycle": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/late-fatal-cleanup": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/elapsed-stop-budget": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/invoke-dispatch-receipt": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/go-cancel-origin": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}}
   }
 }

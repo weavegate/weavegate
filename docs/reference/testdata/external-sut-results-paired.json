@@ -8,15 +8,7 @@
   },
   "run": null,
   "results": {
-    "requirement/paired-live-peers": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    },
-    "requirement/paired-mysql-replay": {
-      "status": "incomplete",
-      "reason": "No implementation evidence recorded.",
-      "checks": {}
-    }
+    "requirement/paired-live-peers": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}},
+    "requirement/paired-mysql-replay": {"status":"incomplete","reason":"No implementation evidence recorded.","checks":{}}
   }
 }
