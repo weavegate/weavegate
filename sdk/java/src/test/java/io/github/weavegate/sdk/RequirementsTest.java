@@ -69,6 +69,8 @@ class RequirementsTest {
             ObjectNode start = (ObjectNode) steps.get(0).deepCopy();
             start.set("expect", Vectors.JSON.createArrayNode().add("invented_assertion"));
             assertThatThrownBy(() -> unknownAssertion.step(0, start)).hasMessageContaining("unhandled assertion");
+            assertThat(unknownAssertion.host.initializeCalls).isZero();
+            assertThat(unknownAssertion.output.frames).isEmpty();
 
             VectorHarness unknownPeer = new VectorHarness("dispatch").quiet();
             ObjectNode peer = (ObjectNode) steps.get(0).deepCopy();

@@ -19,7 +19,7 @@ import (
 // default branch can turn an unknown assertion or event into passing evidence.
 func TestSharedLifecycleSubset(t *testing.T) {
 	v := loadVectors(t)
-	selected := []string{"incremented_arrival", "rollback", "mysql_deadlock", "mysql_lock_timeout", "post_commit_exception", "cancel_at_arrival", "late_arrival_after_cancel", "stale_session", "duplicate_frame", "retired_invocation_worker_reuse", "retired_terminal_identical"}
+	selected := []string{"incremented_arrival", "rollback", "mysql_deadlock", "mysql_lock_timeout", "post_commit_exception", "cancel_at_arrival", "cancel_racing_release", "late_arrival_after_cancel", "stale_session", "duplicate_frame", "retired_invocation_worker_reuse", "retired_terminal_identical", "completion_callback_too_early"}
 	for _, c := range v.Cases {
 		if !slices.Contains(selected, c.ID) {
 			continue
@@ -46,7 +46,7 @@ func TestSharedLifecycleSubset(t *testing.T) {
 			})
 		})
 	}
-	t.Log("EXTERNAL_SUT_VECTOR_SUBSET_RESULT cases=11 dispatch=closed assertions=observed acceptance=incomplete")
+	t.Log("EXTERNAL_SUT_VECTOR_SUBSET_RESULT cases=13 dispatch=closed assertions=observed acceptance=incomplete")
 }
 
 func expandPrefix(t *testing.T, v vectors, name string) []vectorStep {
@@ -87,6 +87,13 @@ func reportCheck(t *testing.T, row, check, handler string) {
 
 func (h *vectorHarness) step(t *testing.T, row string, index int, s vectorStep) {
 	t.Helper()
+	// Reject an unknown assertion before a receive or local event can change the
+	// target. An observer must only inspect effects produced by the step itself.
+	for _, label := range s.Expect {
+		if !knownGoVectorAssertion(label) && s.Peer == "go" {
+			t.Fatalf("unhandled assertion %s", label)
+		}
+	}
 	base := fmt.Sprintf("step/%d", index)
 	if s.Peer == "java" {
 		if s.Delivery != "exchange" {
@@ -204,6 +211,24 @@ func (h *vectorHarness) step(t *testing.T, row string, index int, s vectorStep) 
 	for i, label := range s.Expect {
 		h.observe(t, label, id, f, beforeSeq, beforeCalls)
 		reportCheck(t, row, fmt.Sprintf("%s/expect/%d/%s", base, i, label), "internal/sut/external/vectors_test.go:vectorHarness.observe")
+	}
+}
+
+func knownGoVectorAssertion(label string) bool {
+	switch label {
+	case "start_returns_handle", "reserve_invocation", "result_channel_created",
+		"send_invoke", "send_release", "send_cancel", "mark_accepted",
+		"client_arrive_once", "no_release_before_runtime_return",
+		"worker_result_nil", "worker_result_error", "worker_result_cancelled",
+		"failure_class_error", "failure_class_mysql_deadlock",
+		"close_result_channel", "retire_invocation", "cancel_bridge",
+		"supplied_invocation_context_cancelled", "consume_cancelled_arrival",
+		"no_client_arrive", "no_release", "no_reply", "drop_foreign_session",
+		"sequence_unchanged", "ignore_duplicate", "consume_retired_invocation",
+		"no_worker_result", "no_new_worker_effect", "no_fatal":
+		return true
+	default:
+		return false
 	}
 }
 
