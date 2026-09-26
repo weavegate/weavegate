@@ -159,12 +159,13 @@ final class SpringHost implements Seams.Host {
                     throw new IllegalStateException(
                             "command transaction must be REQUIRED without timeout and roll back on cancellation");
                 }
-                observeCommand(bean, method, user, manager);
+                Method invocable = AopUtils.selectInvocableMethod(method, bean.getClass());
+                Method pointcutMethod = AopUtils.isJdkDynamicProxy(bean) ? invocable : method;
+                observeCommand(bean, method, pointcutMethod, user, manager);
                 Set<String> declared = new HashSet<>(List.of(command.points()));
                 if (!declared.stream().allMatch(Wire::name)) {
                     throw new IllegalStateException("invalid point registration");
                 }
-                Method invocable = AopUtils.selectInvocableMethod(method, bean.getClass());
                 ReflectionUtils.makeAccessible(invocable);
                 registered.put(command.value(), new Registered(bean, invocable, Set.copyOf(declared)));
             }
@@ -179,7 +180,8 @@ final class SpringHost implements Seams.Host {
         return Map.copyOf(selected);
     }
 
-    private static void observeCommand(Object bean, Method method, Class<?> user, TransactionManager manager) {
+    private static void observeCommand(Object bean, Method method, Method pointcutMethod,
+                                       Class<?> user, TransactionManager manager) {
         if (!(bean instanceof Advised advised) || advised.isFrozen()) {
             throw new IllegalStateException("command proxy must expose its transaction advice");
         }
@@ -188,7 +190,7 @@ final class SpringHost implements Seams.Host {
         int observer = -1;
         for (int i = 0; i < advisors.length; i++) {
             Advisor advisor = advisors[i];
-            if (!matchesCommand(advisor, method, user)) {
+            if (!matchesCommand(advisor, pointcutMethod, user)) {
                 continue;
             }
             if (advisor.getAdvice() instanceof FailureObserver) {
@@ -222,7 +224,7 @@ final class SpringHost implements Seams.Host {
                 throw new IllegalStateException("command failure observer must be inside transaction advice");
             }
             for (int i = transaction + 1; i < observer; i++) {
-                if (matchesCommand(advisors[i], method, user)) {
+                if (matchesCommand(advisors[i], pointcutMethod, user)) {
                     throw new IllegalStateException("command failure observer must be inside transaction advice");
                 }
             }

@@ -13,7 +13,10 @@ The isolated consumers and live paired run report evidence separately.
 [the shared vectors](testdata/external-sut-v1.json) at reviewed commit
 `f32cd292246287a22c1a057012dd468f25c41c7d`, including their exact SHA-256 digest.
 The checker rejects different bytes. Its unit test also compares those bytes to
-the pinned Git revision; CI fetches full history for this check.
+the pinned Git revision and verifies that it is an ancestor of the checkout;
+CI fetches full history for this check. When a pull request pins a commit on
+its own branch, merge it with a merge commit so the pinned object remains in
+the merged ancestry. Squash or rebase merging would break this verification.
 Both language consumers must use this same input, without private vector forks.
 
 | Target | Implementation owner | Checked-in result manifest |

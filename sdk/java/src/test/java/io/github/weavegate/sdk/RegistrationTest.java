@@ -80,6 +80,42 @@ class RegistrationTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> jdkProxyRejectsPointcutThatMatchesOnlyImplementationMethod() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness harness = new VectorHarness("independent").quiet();
+            TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
+            WeavegateTransactionManager manager = new WeavegateTransactionManager(dataSource, harness.peer);
+            ProxyFactory factory = new ProxyFactory(new InterfaceCommands());
+            factory.setProxyTargetClass(false);
+            var implementationAnnotation = new org.springframework.aop.support.StaticMethodMatcherPointcut() {
+                @Override public boolean matches(java.lang.reflect.Method method, Class<?> type) {
+                    return method.isAnnotationPresent(Transactional.class);
+                }
+            };
+            factory.addAdvisor(new org.springframework.aop.support.DefaultPointcutAdvisor(implementationAnnotation,
+                    new TransactionInterceptor((TransactionManager) manager,
+                            new AnnotationTransactionAttributeSource())));
+            Object proxy = factory.getProxy();
+            // Spring sees the unannotated interface method at this invocation,
+            // so the transaction interceptor is absent and this call returns.
+            ((CommandApi) proxy).selected();
+            SpringHost host = new SpringHost(Transactions.class, new String[0]);
+            host.bind(harness.peer);
+            try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+                context.registerBean("dataSource", DataSource.class, () -> dataSource);
+                context.registerBean("transactionManager", WeavegateTransactionManager.class, () -> manager);
+                context.registerBean("commands", Object.class, () -> proxy);
+                context.refresh();
+                ReflectionTestUtils.setField(host, "context", context);
+                ReflectionTestUtils.setField(host, "dataSource", dataSource);
+                assertThatThrownBy(() -> host.validateRegistration(List.of("selected"), List.of()))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessage("command lacks transaction advice");
+            }
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> unrelatedTransactionAdviceDoesNotRejectCommand() {
         return RequirementsTest.repeated(() -> validateCustomProxy(false));
     }

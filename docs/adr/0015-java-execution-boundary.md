@@ -37,11 +37,13 @@ failure observer immediately inside that interceptor, scoped to the matching
 static pointcut when commands use separate advisors. Static nonmatching
 advisors may surround it. Synchronous command-specific advice can run inside
 the observer; advice outside the transaction has the same no-JDBC obligation
-as all other application work outside an invocation transaction. Matching
-runtime transaction pointcuts, frozen or
-opaque proxies, async returns, self-invocation and work outside the command
-proxy call are unsupported. The method exposed by a JDK proxy must be present
-on its interface. A CGLIB command method must be overridable.
+as all other application work outside an invocation transaction. For JDK
+proxies, pointcuts are evaluated against the invoked interface method;
+implementation-only matches do not establish a transaction boundary. Matching
+runtime transaction pointcuts, frozen or opaque proxies, async returns,
+self-invocation and work outside the command proxy call are unsupported. The
+method exposed by a JDK proxy must be present on its interface. A CGLIB command
+method must be overridable.
 
 Terminal publication requires independent proxy-exit, transaction-outcome and
 lease-return observations. Commit/rollback failure and suppressed lease-close
