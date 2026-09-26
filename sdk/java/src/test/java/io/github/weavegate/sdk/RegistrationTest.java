@@ -85,6 +85,60 @@ class RegistrationTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> separateStaticTransactionAdvisorsObserveEachCommand() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness harness = new VectorHarness("independent").quiet();
+            TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
+            WeavegateTransactionManager manager = new WeavegateTransactionManager(dataSource, harness.peer);
+            ProxyFactory factory = new ProxyFactory(new Commands());
+            factory.setProxyTargetClass(true);
+            for (String name : List.of("selected", "other")) {
+                var pointcut = new org.springframework.aop.support.StaticMethodMatcherPointcut() {
+                    @Override public boolean matches(java.lang.reflect.Method method, Class<?> type) {
+                        return method.getName().equals(name);
+                    }
+                };
+                factory.addAdvisor(new org.springframework.aop.support.DefaultPointcutAdvisor(pointcut,
+                        new TransactionInterceptor((TransactionManager) manager,
+                                new AnnotationTransactionAttributeSource())));
+            }
+            Commands proxy = (Commands) factory.getProxy();
+            SpringHost host = new SpringHost(Transactions.class, new String[0]);
+            host.bind(harness.peer);
+            try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+                context.registerBean("dataSource", DataSource.class, () -> dataSource);
+                context.registerBean("transactionManager", WeavegateTransactionManager.class, () -> manager);
+                context.registerBean("commands", Commands.class, () -> proxy);
+                context.refresh();
+                ReflectionTestUtils.setField(host, "context", context);
+                ReflectionTestUtils.setField(host, "dataSource", dataSource);
+                assertThat(host.validateRegistration(List.of("selected", "other"), List.of()))
+                        .containsKeys("selected", "other");
+                for (String name : List.of("selected", "other")) {
+                    var method = Commands.class.getMethod(name);
+                    var chain = java.util.Arrays.stream(((org.springframework.aop.framework.Advised) proxy).getAdvisors())
+                            .filter(advisor -> !(advisor instanceof org.springframework.aop.PointcutAdvisor pointcut)
+                                    || pointcut.getPointcut().getMethodMatcher().matches(method, Commands.class))
+                            .toList();
+                    int transaction = -1;
+                    int observers = 0;
+                    for (int i = 0; i < chain.size(); i++) {
+                        if (chain.get(i).getAdvice() instanceof TransactionInterceptor) {
+                            transaction = i;
+                        }
+                        if (chain.get(i).getAdvice() instanceof FailureObserver) {
+                            observers++;
+                        }
+                    }
+                    assertThat(observers).isEqualTo(1);
+                    assertThat(transaction).isGreaterThanOrEqualTo(0);
+                    assertThat(chain.get(transaction + 1).getAdvice()).isInstanceOf(FailureObserver.class);
+                }
+            }
+        });
+    }
+
+    @TestFactory
     Stream<DynamicTest> failureObserverMustBeImmediatelyInsideTransaction() {
         return RequirementsTest.repeated(() -> {
             VectorHarness harness = new VectorHarness("independent").quiet();

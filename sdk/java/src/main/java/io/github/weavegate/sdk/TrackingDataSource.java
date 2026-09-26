@@ -35,6 +35,8 @@ final class TrackingDataSource implements DataSource {
             "getArray", "getBlob", "getClob", "getNClob", "getSQLXML", "getRef", "getObject",
             "getAsciiStream", "getBinaryStream", "getCharacterStream", "getNCharacterStream",
             "getUnicodeStream");
+    private static final Set<String> RESULT_MUTATORS = Set.of(
+            "insertRow", "deleteRow", "moveToInsertRow", "moveToCurrentRow", "cancelRowUpdates", "refreshRow");
     private static final Pattern TRANSACTION_SQL = Pattern.compile("(?is)^(?:BEGIN\\b|START\\s+TRANSACTION\\b|"
             + "COMMIT\\b|ROLLBACK\\b|SAVEPOINT\\b|RELEASE\\s+SAVEPOINT\\b|"
             + "SET\\s+(?:(?:SESSION|LOCAL|GLOBAL)\\s+)?TRANSACTION\\b|"
@@ -205,8 +207,9 @@ final class TrackingDataSource implements DataSource {
                         case "toString" -> { return "TrackedResultSet"; }
                         default -> { }
                     }
-                    if (RESULT_RESOURCES.contains(method.getName())) {
-                        throw new SQLFeatureNotSupportedException("untracked result-set resources are unsupported");
+                    if (RESULT_RESOURCES.contains(method.getName()) || method.getName().startsWith("update")
+                            || RESULT_MUTATORS.contains(method.getName())) {
+                        throw new SQLFeatureNotSupportedException("result-set resources and mutations are unsupported");
                     }
                     if (invocation == null || cancel == null) {
                         return call(rows, method, args);
@@ -346,7 +349,7 @@ final class TrackingDataSource implements DataSource {
             // This is deliberately a small admission rule, not a MySQL parser.
             // The application and fixture must meet the SQL obligations in the
             // Java reference; guard the paths that can escape a transaction here.
-            if (!SUPPORTED_SQL.matcher(code).find() || code.indexOf(';') >= 0
+            if (!SUPPORTED_SQL.matcher(code).find() || code.indexOf(';') >= 0 || code.indexOf('@') >= 0
                     || SESSION_EFFECT_SQL.matcher(code).find()
                     || (code.regionMatches(true, 0, "SELECT", 0, 6) && SELECT_INTO.matcher(code).find())) {
                 peer.unsupported("transaction", "SQL outside the supported subset");

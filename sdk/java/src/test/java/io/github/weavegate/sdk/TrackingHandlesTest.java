@@ -45,6 +45,7 @@ class TrackingHandlesTest {
                         "SELECT 1--x; COMMIT",
                         "/* comment */ SHOW TABLES", "/*!80000 COMMIT */ SELECT 1",
                         "SELECT 1 INTO @fixture", "SELECT @fixture := 1",
+                        "SELECT @fixture", "SELECT @@session.autocommit", "SELECT @'fixture'",
                         "SELECT IF(1, LAST_INSERT_ID(2), 0)",
                         "UPDATE seat SET taken_by = 'x'; COMMIT")) {
                     assertThatThrownBy(() -> wrapped.execute(sql)).isInstanceOf(SQLException.class);
@@ -56,6 +57,38 @@ class TrackingHandlesTest {
                 }
                 wrapped.execute("SELECT 'safe; literal'");
                 verify(statement).execute("SELECT 'safe; literal'");
+                wrapped.execute("SELECT '@fixture', `@column`");
+                verify(statement).execute("SELECT '@fixture', `@column`");
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> resultSetMutationsCannotBypassSqlAdmission() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness h = new VectorHarness("independent").quiet();
+            h.peer.phase = Peer.Phase.STARTING;
+            h.peer.probeThread = Thread.currentThread();
+            DataSource source = mock(DataSource.class);
+            Connection raw = mock(Connection.class);
+            Statement statement = mock(Statement.class);
+            ResultSet rows = mock(ResultSet.class);
+            when(source.getConnection()).thenReturn(raw);
+            when(raw.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE))
+                    .thenReturn(statement);
+            when(statement.executeQuery("SELECT id FROM seat")).thenReturn(rows);
+            try (Connection tracked = new TrackingDataSource(source, h.peer).getConnection();
+                 Statement wrapped = tracked.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+                         ResultSet.CONCUR_UPDATABLE);
+                 ResultSet result = wrapped.executeQuery("SELECT id FROM seat")) {
+                assertThatThrownBy(() -> result.updateInt(1, 2)).isInstanceOf(SQLException.class);
+                assertThatThrownBy(result::updateRow).isInstanceOf(SQLException.class);
+                assertThatThrownBy(result::insertRow).isInstanceOf(SQLException.class);
+                assertThatThrownBy(result::deleteRow).isInstanceOf(SQLException.class);
+                verify(rows, org.mockito.Mockito.never()).updateInt(1, 2);
+                verify(rows, org.mockito.Mockito.never()).updateRow();
+                verify(rows, org.mockito.Mockito.never()).insertRow();
+                verify(rows, org.mockito.Mockito.never()).deleteRow();
             }
         });
     }

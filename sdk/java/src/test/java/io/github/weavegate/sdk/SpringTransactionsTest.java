@@ -266,19 +266,22 @@ class SpringTransactionsTest {
                 pool.setUsername("synthetic");
                 pool.setPassword("synthetic-only");
                 pool.setMaximumPoolSize(1);
+                try (Connection baseline = pool.getConnection(); Statement statement = baseline.createStatement()) {
+                    statement.execute("SET @weavegate_fixture = 7");
+                }
                 try (Connection c = new TrackingDataSource(pool, h.peer).getConnection();
                      Statement statement = c.createStatement()) {
-                    try (ResultSet before = statement.executeQuery("SELECT @weavegate_fixture")) {
-                        assertThat(before.next()).isTrue();
-                        assertThat(before.getString(1)).isNull();
-                    }
+                    org.assertj.core.api.Assertions.assertThatThrownBy(
+                            () -> statement.executeQuery("SELECT @weavegate_fixture"))
+                            .isInstanceOf(java.sql.SQLFeatureNotSupportedException.class);
                     org.assertj.core.api.Assertions.assertThatThrownBy(
                             () -> statement.execute("SELECT 1 INTO @weavegate_fixture"))
                             .isInstanceOf(java.sql.SQLFeatureNotSupportedException.class);
-                    try (ResultSet after = statement.executeQuery("SELECT @weavegate_fixture")) {
+                }
+                try (Connection afterLease = pool.getConnection(); Statement statement = afterLease.createStatement();
+                     ResultSet after = statement.executeQuery("SELECT @weavegate_fixture")) {
                         assertThat(after.next()).isTrue();
-                        assertThat(after.getString(1)).isNull();
-                    }
+                        assertThat(after.getInt(1)).isEqualTo(7);
                 }
                 assertThat(h.peer.openLeases).isZero();
             }

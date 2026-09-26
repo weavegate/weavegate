@@ -350,6 +350,11 @@ final class Peer {
         workers.put(worker, invocation);
         live++;
         if (!send("accepted", identity(invocation))) {
+            // Nothing was dispatched, so cancellation cannot move NOT_ENTERED
+            // forward. Retire directly after send() latches the fatal failure.
+            invocation.proxy = Proxy.SKIPPED;
+            retire(invocation);
+            finishCleanup();
             return;
         }
         invocation.dispatches++;

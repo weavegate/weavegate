@@ -19,7 +19,7 @@ decision and the fixture author's obligations.
 | Boundary | Supported path and owner | Rejected or outside support | Evidence |
 | --- | --- | --- | --- |
 | Transaction outcome | One SDK `DataSourceTransactionManager` `REQUIRED` transaction per command; SDK records driver commit or rollback | Application JDBC commit, rollback, auto-commit, savepoints; nested or suspended transactions | `SpringTransactionsTest.springTransactionBoundaries` against MySQL 8.4; `TrackingHandlesTest` for rejected entrypoints |
-| Lease ownership and navigation | One tracked lease on the worker thread; JDBC `Connection`, `Statement`, `ResultSet` navigation returns tracked proxies | Second or foreign-thread lease, vendor `unwrap`, metadata access, JDBC outside the transaction or startup probe | `SpringTransactionsTest.springTransactionBoundaries`; `TrackingHandlesTest.jdbcNavigationCannotEscapeTracking` and lease tests |
+| Lease ownership and navigation | One tracked lease on the worker thread; JDBC `Connection`, `Statement`, `ResultSet` navigation returns tracked proxies | Second or foreign-thread lease, vendor `unwrap`, metadata access, result-set mutations, JDBC outside the transaction or startup probe | `SpringTransactionsTest.springTransactionBoundaries`; `TrackingHandlesTest.jdbcNavigationCannotEscapeTracking`, mutation rejection and lease tests |
 | Cancellation and completion | Tracked statement execution, row navigation and close are cancellable; proxy exit, known transaction outcome and returned lease precede terminal | Detached work, retained handles, completion callbacks performing JDBC after transaction outcome | `SpringTransactionsTest.springTransactionBoundaries`, `postCommitCallbacksCannotPerformJdbcWork`, `TrackingHandlesTest.resultSetAndStatementCloseRemainCancellable` |
 | Timeouts and session state | Zero JDBC timeout settings; one reviewed statement per call | Nonzero JDBC query, network, validation or login timeout; named locks, session variables, SQL transaction control, server-side `PREPARE`/`EXECUTE`, `CALL` | `TrackingHandlesTest` timeout, named-lock and SQL admission tests; `SpringTransactionsTest.rejectedSessionSqlLeavesPooledConnectionUnchanged` on MySQL; fatal/rollback checks |
 | SQL and database objects | Trusted single-statement `SELECT`, `INSERT`, `UPDATE`, `DELETE` over reviewed transactional InnoDB fixture tables | JDBC batches, DDL, `SET`, `SELECT ... INTO`, multi-statements, stored routines, triggers, events, UDFs, nontransactional or temporary tables, nondeterministic SQL | SQL admission and batch rejection unit tests and MySQL rollback checks cover identified rejected forms; fixture review owns database-object restrictions |
@@ -79,7 +79,8 @@ class itself may be package-private; the selected proxy method is made reflectiv
 accessible before dispatch. Static methods and proxies without accessible,
 matching transaction advice are rejected. JDK proxies are inspected through their
 target class, and commands must be exposed on a proxy interface for dispatch.
-Static transaction pointcuts that do not match the command are ignored; matching
+Static transaction pointcuts that do not match the command are ignored; each
+matching advisor receives an observer scoped to its command pointcut. Matching
 runtime pointcuts remain unsupported. Synchronous command-specific advice may
 run inside the transaction and failure observer. Advice outside the transaction
 must not access fixture JDBC or defer work past proxy return.
@@ -134,8 +135,9 @@ Application connection methods that change session settings or terminate the
 connection, including `abort`, catalog/schema, client info and sharding keys,
 are rejected. JDBC factories for LOBs, arrays, SQLXML and structs are rejected
 because their returned resources would escape tracking. Result-set object,
-stream and resource getters and statement `closeOnCompletion` are likewise
-unsupported; scalar getters, current result-set column metadata and explicit
+stream and resource getters, result-set updates, inserts and deletes, and
+statement `closeOnCompletion` are likewise unsupported; scalar getters,
+current result-set column metadata and explicit
 tracked close are the supported path.
 SQL that can commit implicitly or act outside the transaction, including DDL,
 table locks, account management, `SET` session changes and administrative
@@ -144,7 +146,7 @@ operation. Admission accepts only a single `SELECT`, `INSERT`, `UPDATE` or
 `DELETE` statement; `Statement` and `PreparedStatement` batch additions and
 executions are rejected before delegation. Semicolons outside quoted values
 are rejected. A `SELECT`
-with `INTO`, a session-variable assignment or a recognized session-changing
+with `INTO`, a session-variable reference or a recognized session-changing
 function is rejected before delegation. Ordinary comments are skipped while
 MySQL executable comments retain their body for this check. These guards do
 not certify arbitrary function calls or fixture schema objects. SQL optimizer

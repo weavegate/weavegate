@@ -14,7 +14,8 @@ or `DELETE` statement per JDBC call after stripping ordinary comments and
 exposing MySQL executable comments. A semicolon outside a quoted value is
 rejected, including a trailing semicolon. JDBC batch addition and execution
 are rejected before delegation. Known session-changing SELECT forms
-and named-lock functions are rejected before delegation. The SQL admission
+and named-lock functions are rejected before delegation. Session-variable reads
+and writes are rejected, as are result-set mutation methods. The SQL admission
 rule is a guard against identified escapes, not proof that every admitted
 expression is free of side effects.
 
@@ -32,7 +33,8 @@ these fixture and application obligations at runtime.
 Only selected synchronous `void` commands dispatched through one inspectable
 Spring proxy are supported. Registration confirms exactly one matching
 `REQUIRED` transaction interceptor bound to the SDK manager, and inserts the
-failure observer immediately inside that interceptor. Static nonmatching
+failure observer immediately inside that interceptor, scoped to the matching
+static pointcut when commands use separate advisors. Static nonmatching
 advisors may surround it. Synchronous command-specific advice can run inside
 the observer; advice outside the transaction has the same no-JDBC obligation
 as all other application work outside an invocation transaction. Matching

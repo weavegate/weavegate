@@ -19,6 +19,7 @@ import javax.sql.DataSource;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.aop.support.DefaultPointcutAdvisor;
 import org.springframework.aop.Advisor;
 import org.springframework.aop.PointcutAdvisor;
 import org.springframework.aop.framework.Advised;
@@ -187,6 +188,9 @@ final class SpringHost implements Seams.Host {
         int observer = -1;
         for (int i = 0; i < advisors.length; i++) {
             Advisor advisor = advisors[i];
+            if (!matchesCommand(advisor, method, user)) {
+                continue;
+            }
             if (advisor.getAdvice() instanceof FailureObserver) {
                 if (observer != -1) {
                     throw new IllegalStateException("duplicate command failure observer");
@@ -195,13 +199,7 @@ final class SpringHost implements Seams.Host {
             }
             if (advisor.getAdvice() instanceof TransactionInterceptor interceptor) {
                 if (advisor instanceof PointcutAdvisor pointcut) {
-                    var matcher = pointcut.getPointcut().getMethodMatcher();
-                    // Spring excludes static nonmatches from this method's chain.
-                    if (!pointcut.getPointcut().getClassFilter().matches(user)
-                            || !matcher.matches(method, user)) {
-                        continue;
-                    }
-                    if (matcher.isRuntime()) {
+                    if (pointcut.getPointcut().getMethodMatcher().isRuntime()) {
                         throw new IllegalStateException("runtime transaction pointcuts are unsupported");
                     }
                 }
@@ -219,14 +217,35 @@ final class SpringHost implements Seams.Host {
         if (transaction == -1) {
             throw new IllegalStateException("command lacks transaction advice");
         }
-        if (observer != -1 && observer != transaction + 1) {
-            throw new IllegalStateException("command failure observer must be inside transaction advice");
+        if (observer != -1) {
+            if (observer < transaction) {
+                throw new IllegalStateException("command failure observer must be inside transaction advice");
+            }
+            for (int i = transaction + 1; i < observer; i++) {
+                if (matchesCommand(advisors[i], method, user)) {
+                    throw new IllegalStateException("command failure observer must be inside transaction advice");
+                }
+            }
         }
         if (observer == -1) {
             // Inside the transaction interceptor: observe a body failure before
             // Spring rolls back or returns the lease. Spring keeps all decisions.
-            advised.addAdvice(transaction + 1, new FailureObserver());
+            if (advisors[transaction] instanceof PointcutAdvisor pointcut) {
+                advised.addAdvisor(transaction + 1,
+                        new DefaultPointcutAdvisor(pointcut.getPointcut(), new FailureObserver()));
+            } else {
+                advised.addAdvice(transaction + 1, new FailureObserver());
+            }
         }
+    }
+
+    private static boolean matchesCommand(Advisor advisor, Method method, Class<?> user) {
+        if (!(advisor instanceof PointcutAdvisor pointcut)) {
+            return true;
+        }
+        // Spring excludes static nonmatches from this command's effective chain.
+        return pointcut.getPointcut().getClassFilter().matches(user)
+                && pointcut.getPointcut().getMethodMatcher().matches(method, user);
     }
 
     private static boolean supportedTransaction(TransactionAttribute attribute) {
