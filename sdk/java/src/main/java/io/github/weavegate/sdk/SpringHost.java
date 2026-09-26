@@ -161,7 +161,7 @@ final class SpringHost implements Seams.Host {
                 }
                 Method invocable = AopUtils.selectInvocableMethod(method, bean.getClass());
                 Method pointcutMethod = AopUtils.isJdkDynamicProxy(bean) ? invocable : method;
-                observeCommand(bean, method, pointcutMethod, user, manager);
+                observeCommand(bean, pointcutMethod, user, manager);
                 Set<String> declared = new HashSet<>(List.of(command.points()));
                 if (!declared.stream().allMatch(Wire::name)) {
                     throw new IllegalStateException("invalid point registration");
@@ -180,7 +180,7 @@ final class SpringHost implements Seams.Host {
         return Map.copyOf(selected);
     }
 
-    private static void observeCommand(Object bean, Method method, Method pointcutMethod,
+    private static void observeCommand(Object bean, Method pointcutMethod,
                                        Class<?> user, TransactionManager manager) {
         if (!(bean instanceof Advised advised) || advised.isFrozen()) {
             throw new IllegalStateException("command proxy must expose its transaction advice");
@@ -210,7 +210,7 @@ final class SpringHost implements Seams.Host {
                         // A null manager resolves by type; the context check above makes that
                         // the one SDK manager. A directly configured manager must be identical.
                         || (configured != null && configured != manager)
-                        || !supportedTransaction(interceptor.getTransactionAttributeSource().getTransactionAttribute(method, user))) {
+                        || !supportedTransaction(interceptor.getTransactionAttributeSource().getTransactionAttribute(pointcutMethod, user))) {
                     throw new IllegalStateException("command requires one matching weavegate transaction advice");
                 }
                 transaction = i;

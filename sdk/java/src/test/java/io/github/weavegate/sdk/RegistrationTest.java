@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 
@@ -20,6 +21,7 @@ import org.springframework.transaction.TransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.DefaultTransactionAttribute;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 
 class RegistrationTest {
@@ -111,6 +113,41 @@ class RegistrationTest {
                 assertThatThrownBy(() -> host.validateRegistration(List.of("selected"), List.of()))
                         .isInstanceOf(IllegalStateException.class)
                         .hasMessage("command lacks transaction advice");
+            }
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> jdkProxyRejectsAttributesMissingFromInvokedMethod() {
+        return RequirementsTest.repeated(() -> {
+            VectorHarness harness = new VectorHarness("independent").quiet();
+            TrackingDataSource dataSource = new TrackingDataSource(new DriverManagerDataSource(), harness.peer);
+            WeavegateTransactionManager manager = new WeavegateTransactionManager(dataSource, harness.peer);
+            AtomicReference<java.lang.reflect.Method> runtimeMethod = new AtomicReference<>();
+            var attributes = (org.springframework.transaction.interceptor.TransactionAttributeSource) (method, type) -> {
+                runtimeMethod.set(method);
+                return method.getDeclaringClass() == InterfaceCommands.class
+                        ? new DefaultTransactionAttribute() : null;
+            };
+            ProxyFactory factory = new ProxyFactory(new InterfaceCommands());
+            factory.setProxyTargetClass(false);
+            factory.addAdvice(new TransactionInterceptor((TransactionManager) manager, attributes));
+            Object proxy = factory.getProxy();
+            ((CommandApi) proxy).selected();
+            assertThat(runtimeMethod.get().getDeclaringClass()).isEqualTo(CommandApi.class);
+
+            SpringHost host = new SpringHost(Transactions.class, new String[0]);
+            host.bind(harness.peer);
+            try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+                context.registerBean("dataSource", DataSource.class, () -> dataSource);
+                context.registerBean("transactionManager", WeavegateTransactionManager.class, () -> manager);
+                context.registerBean("commands", Object.class, () -> proxy);
+                context.refresh();
+                ReflectionTestUtils.setField(host, "context", context);
+                ReflectionTestUtils.setField(host, "dataSource", dataSource);
+                assertThatThrownBy(() -> host.validateRegistration(List.of("selected"), List.of()))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessage("command requires one matching weavegate transaction advice");
             }
         });
     }

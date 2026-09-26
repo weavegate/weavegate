@@ -84,9 +84,9 @@ matching advisor receives an observer scoped to its command pointcut. Matching
 runtime pointcuts remain unsupported. Synchronous command-specific advice may
 run inside the transaction and failure observer. Advice outside the transaction
 must not access fixture JDBC or defer work past proxy return.
-For a JDK proxy, static pointcuts are checked against the interface method that
-Spring actually invokes; a pointcut matching only annotations on the implementation
-method does not make that advisor part of the command's runtime chain.
+For a JDK proxy, static pointcuts and transaction attributes are checked against
+the interface method that Spring actually invokes; an advisor or attribute source
+matching only the implementation method does not establish a runtime transaction.
 Each needs one `@Transactional` boundary with `REQUIRED` propagation, no
 wall-clock timeout, and rollback behavior for `WeavegateCancelledException`
 (the default rule for runtime exceptions does).
