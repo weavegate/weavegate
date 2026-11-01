@@ -837,16 +837,18 @@ jobs:
         uses: actions/checkout@v7
 
       # A live comment is posted only by the vulnerable run of a pull request
-      # that changes the action itself, so other pull requests stay quiet.
+      # that changes the action itself. Dependabot runs stay quiet regardless
+      # of whether repository settings grant their token comment permission.
       - name: Decide whether to post a live pull request comment
         id: live
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           VARIANT: ${{ matrix.variant }}
         run: |
           comment=false
-          if [ "$VARIANT" = vulnerable ] && [ -n "$PR_NUMBER" ]; then
+          if [ "$VARIANT" = vulnerable ] && [ -n "$PR_NUMBER" ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then
             gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
               --jq '.[].filename' > "$RUNNER_TEMP/changed-files.txt"
             if grep -qxF -e action.yml -e scripts/actions-gate.py -e .github/workflows/smoke.yml "$RUNNER_TEMP/changed-files.txt"; then
@@ -923,7 +925,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REQUESTED: ${{ steps.live.outputs.comment }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           ACTUAL_OUTCOME: ${{ steps.gate.outcome }}
           EXPECTED_OUTCOME: ${{ matrix.action_outcome }}
           COMMENT_OUTCOME: ${{ steps.gate.outputs.comment-outcome }}
@@ -933,7 +934,7 @@ jobs:
           expected=disabled
           if [ "$REQUESTED" = true ]; then
             expected=skipped
-            if [ "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ] && [ "$PR_AUTHOR" != 'dependabot[bot]' ]; then expected=posted; fi
+            if [ "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ]; then expected=posted; fi
           fi
           test "$COMMENT_OUTCOME" = "$expected"
           test "$ACTUAL_OUTCOME" = "$EXPECTED_OUTCOME"
