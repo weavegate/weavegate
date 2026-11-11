@@ -38,7 +38,7 @@ Each command has four points, in this order:
 InnoDB establishes the REPEATABLE READ snapshot at the first consistent read,
 not merely at transaction begin. Starting both workers at `before_read` therefore
 does not force the same snapshot. See the
-[MySQL 8.4 consistent-read contract](https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html).
+[MySQL 8.4 consistent-read contract](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/innodb-consistent-read.html).
 
 The commit callback performs no JDBC, starts no transaction and returns only
 after its point is released. It proves that the write is committed before the
