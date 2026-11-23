@@ -105,7 +105,7 @@ and can be replayed bit-for-bit.
 
 ### Testcontainers
 
-[Testcontainers](https://testcontainers.com/) gives every run a real, disposable
+[Testcontainers for Go's MySQL module](https://golang.testcontainers.org/modules/mysql/) gives every run a real, disposable
 MySQL 8 / InnoDB instance in a container. weavegate deliberately tests against a
 real engine, not a mock or an in-memory substitute — the whole point is the
 behavior the *actual* database permits.
